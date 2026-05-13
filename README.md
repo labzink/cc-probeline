@@ -25,5 +25,3 @@ See `CHANGELOG.md` for released versions. The detailed roadmap and internal R&D 
 ## License
 
 MIT. See `LICENSE`.
-
-<!-- pipeline smoke test marker — safe to remove -->
