@@ -1,0 +1,22 @@
+# Build artifacts
+bin/
+dist/
+build/
+
+# Go test binaries
+*.test
+*.out
+
+# Go workspace (developer-local, not committed)
+go.work
+go.work.sum
+
+# Environment
+.env
+.env.local
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
