@@ -8,8 +8,8 @@ import (
 
 // Record is one decoded JSONL line surfaced to consumers.
 type Record struct {
-	Type, UUID, RequestID, ParentUUID string
-	Timestamp                         time.Time
+	Type, UUID, RequestID, MessageID, ParentUUID string
+	Timestamp                                    time.Time
 
 	SessionID, CWD, GitBranch, Version string
 	IsSidechain                        bool

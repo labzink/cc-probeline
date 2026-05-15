@@ -29,6 +29,7 @@ type rawUsage struct {
 }
 
 type rawMessage struct {
+	ID          string            `json:"id"`
 	Model       string            `json:"model"`
 	Usage       *rawUsage         `json:"usage"`
 	Content     []rawContentBlock `json:"content"`
@@ -37,18 +38,19 @@ type rawMessage struct {
 }
 
 type rawLine struct {
-	Type        string     `json:"type"`
-	UUID        string     `json:"uuid"`
-	RequestID   string     `json:"requestId"`
-	ParentUUID  string     `json:"parentUuid"`
-	Timestamp   string     `json:"timestamp"`
-	SessionID   string     `json:"sessionId"`
-	CWD         string     `json:"cwd"`
-	GitBranch   string     `json:"gitBranch"`
-	Version     string     `json:"version"`
-	IsSidechain bool       `json:"isSidechain"`
-	UserType    string     `json:"userType"`
-	Message     rawMessage `json:"message"`
+	Type            string     `json:"type"`
+	UUID            string     `json:"uuid"`
+	RequestID       string     `json:"requestId"`
+	RequestIDSnake  string     `json:"request_id"`
+	ParentUUID      string     `json:"parentUuid"`
+	Timestamp       string     `json:"timestamp"`
+	SessionID       string     `json:"sessionId"`
+	CWD             string     `json:"cwd"`
+	GitBranch       string     `json:"gitBranch"`
+	Version         string     `json:"version"`
+	IsSidechain     bool       `json:"isSidechain"`
+	UserType        string     `json:"userType"`
+	Message         rawMessage `json:"message"`
 }
 
 // ParseLines reads JSONL records from r, decodes them into Record values,
@@ -57,7 +59,7 @@ type rawLine struct {
 // returned only for underlying I/O failures from the scanner.
 func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 	var records []Record
 	var parseErrors []ParseError
@@ -75,7 +77,10 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: err.Error()})
 			continue
 		}
-		if raw.Type == "system" {
+		if raw.RequestID == "" {
+			raw.RequestID = raw.RequestIDSnake
+		}
+		if raw.Type != "assistant" {
 			continue
 		}
 		if raw.Message.Usage == nil || isUsageEmpty(raw.Message.Usage) {
@@ -87,6 +92,7 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 			Type:        raw.Type,
 			UUID:        raw.UUID,
 			RequestID:   raw.RequestID,
+			MessageID:   raw.Message.ID,
 			ParentUUID:  raw.ParentUUID,
 			SessionID:   raw.SessionID,
 			CWD:         raw.CWD,
@@ -111,11 +117,10 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: "missing timestamp"})
 		} else if ts, err := time.Parse(time.RFC3339Nano, raw.Timestamp); err == nil {
 			rec.Timestamp = ts.UTC()
-		} else if ts, err := time.Parse(time.RFC3339, raw.Timestamp); err == nil {
-			rec.Timestamp = ts.UTC()
 		}
 
-		if u.CacheCreate != u.CacheDetails.Ephemeral5m+u.CacheDetails.Ephemeral1h {
+		hasSplit := u.CacheDetails.Ephemeral5m != 0 || u.CacheDetails.Ephemeral1h != 0
+		if hasSplit && u.CacheCreate != u.CacheDetails.Ephemeral5m+u.CacheDetails.Ephemeral1h {
 			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: "cache_create_mismatch"})
 		}
 
@@ -130,6 +135,10 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 			}
 		}
 
+		if rec.RequestID == "" && rec.MessageID == "" && rec.UUID == "" {
+			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: "no dedup key"})
+		}
+
 		records = append(records, rec)
 	}
 
@@ -138,6 +147,8 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 	}
 
 	records = Dedup(records)
+	// SliceStable is required: Dedup preserves first-encountered position as a
+	// tie-breaker for equal-timestamp records (concept §3 "Deterministic ordering").
 	sort.SliceStable(records, func(i, j int) bool {
 		return records[i].Timestamp.Before(records[j].Timestamp)
 	})

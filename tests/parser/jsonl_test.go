@@ -231,8 +231,8 @@ func TestParseLines_Empty(t *testing.T) {
 	}
 }
 
-// TestParseLines_Malformed — 8 lines: 5 valid, 1 empty (skipped),
-// 1 broken JSON (parseError), 1 without usage (silent skip), 1 system (skip).
+// TestParseLines_Malformed — 8 lines: 5 valid assistant records, 1 broken JSON
+// (parseError on line 6), 1 without usage (silent skip on line 7), 1 system (skip on line 8).
 // Result: 5 records, 1 parseError on line 6.
 // see concept §7.1 fixture «malformed.jsonl».
 func TestParseLines_Malformed(t *testing.T) {
@@ -324,17 +324,24 @@ func TestParseLines_BrokenJSON(t *testing.T) {
 }
 
 // TestParseLines_NoDeduKey — a record without requestId / uuid / message.id
-// is included in records but does not participate in dedup.
-// see concept §3 «Records without any dedup key».
+// is included in records but does not participate in dedup, and produces a
+// ParseError with reason="no dedup key".
+// see concept §3 rule 4.
 func TestParseLines_NoDeduKey(t *testing.T) {
 	input := `{"type":"assistant","uuid":"","requestId":"","timestamp":"2026-05-14T10:00:00Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}`
 
-	records, _, err := parser.ParseLines(strings.NewReader(input))
+	records, parseErrs, err := parser.ParseLines(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(records) != 1 {
 		t.Fatalf("expected 1 record (no dedup key still valid), got %d", len(records))
+	}
+	if len(parseErrs) != 1 {
+		t.Errorf("expected 1 parseError (no dedup key), got %d: %v", len(parseErrs), parseErrs)
+	}
+	if len(parseErrs) > 0 && parseErrs[0].Reason != "no dedup key" {
+		t.Errorf("parseError.Reason: want %q, got %q", "no dedup key", parseErrs[0].Reason)
 	}
 }
 
@@ -589,6 +596,96 @@ func TestParseLines_EmptyLinesSkipped(t *testing.T) {
 	}
 	if len(records) != 2 {
 		t.Errorf("expected 2 records, got %d", len(records))
+	}
+}
+
+// TestParseLines_CacheCreateNoSplit — a record with cache_creation_input_tokens > 0
+// but no cache_creation nested object must NOT produce a cache_create_mismatch parseError.
+// Regression for C1 fix: guard fires only when the breakdown is present.
+// see concept §2.2 TokenCounts.
+func TestParseLines_CacheCreateNoSplit(t *testing.T) {
+	// cache_creation_input_tokens=300, no cache_creation object (both ephemeral fields absent)
+	input := `{"type":"assistant","uuid":"uuid-nosplit","requestId":"req-nosplit","timestamp":"2026-05-14T10:00:00Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":300},"content":[]}}`
+
+	records, parseErrs, err := parser.ParseLines(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	for _, pe := range parseErrs {
+		if pe.Reason == "cache_create_mismatch" {
+			t.Errorf("unexpected cache_create_mismatch parseError when split is absent: line %d", pe.LineNumber)
+		}
+	}
+	if records[0].Usage.CacheCreate != 300 {
+		t.Errorf("Usage.CacheCreate: want 300, got %d", records[0].Usage.CacheCreate)
+	}
+}
+
+// TestParseLines_RequestIDSnakeCase — a record using snake_case request_id instead of
+// camelCase requestId must populate Record.RequestID correctly.
+// Regression for C2 fix.
+// see specs.md §28.
+func TestParseLines_RequestIDSnakeCase(t *testing.T) {
+	input := `{"type":"assistant","uuid":"uuid-snake","request_id":"req-snake-123","timestamp":"2026-05-14T10:00:00Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":5,"output_tokens":2,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}`
+
+	records, parseErrs, err := parser.ParseLines(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(parseErrs) != 0 {
+		t.Errorf("expected 0 parseErrors, got %d: %v", len(parseErrs), parseErrs)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].RequestID != "req-snake-123" {
+		t.Errorf("RequestID: want %q, got %q", "req-snake-123", records[0].RequestID)
+	}
+}
+
+// TestParseLines_UserTypeFiltered — a record with type="user" carrying a usage block
+// must be filtered out (no Record produced, no parseError).
+// Regression for C3 fix: allow-list "assistant", not deny-list "system".
+// see concept §2 «What is NOT included in Record».
+func TestParseLines_UserTypeFiltered(t *testing.T) {
+	input := `{"type":"user","uuid":"uuid-user","requestId":"req-user","timestamp":"2026-05-14T10:00:00Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":50,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}
+{"type":"assistant","uuid":"uuid-asst","requestId":"req-asst","timestamp":"2026-05-14T10:01:00Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":5,"output_tokens":2,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}`
+
+	records, parseErrs, err := parser.ParseLines(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(parseErrs) != 0 {
+		t.Errorf("expected 0 parseErrors, got %d: %v", len(parseErrs), parseErrs)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record (user type filtered), got %d", len(records))
+	}
+	if records[0].UUID != "uuid-asst" {
+		t.Errorf("UUID: want %q, got %q", "uuid-asst", records[0].UUID)
+	}
+}
+
+// TestParseLines_MessageID — a record with message.id is parsed into Record.MessageID.
+// see concept §3 rule 3 (message.id fallback field; dedup use deferred to Phase 4).
+func TestParseLines_MessageID(t *testing.T) {
+	input := `{"type":"assistant","uuid":"uuid-mid","requestId":"req-mid","timestamp":"2026-05-14T10:00:00Z","message":{"id":"msg_123","model":"claude-opus-4-7","usage":{"input_tokens":5,"output_tokens":2,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}`
+
+	records, parseErrs, err := parser.ParseLines(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(parseErrs) != 0 {
+		t.Errorf("expected 0 parseErrors, got %d: %v", len(parseErrs), parseErrs)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	if records[0].MessageID != "msg_123" {
+		t.Errorf("MessageID: want %q, got %q", "msg_123", records[0].MessageID)
 	}
 }
 
