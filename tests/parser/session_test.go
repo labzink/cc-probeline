@@ -121,16 +121,40 @@ func TestAggregate_HappyPath(t *testing.T) {
 		t.Errorf("Totals: want %+v, got %+v", wantTotals, got.Totals)
 	}
 
-	// Only one model family present in this fixture.
-	if len(got.PerModel) != 1 {
-		t.Errorf("len(PerModel): want 1, got %d (keys: %v)", len(got.PerModel), keysOf(got.PerModel))
+	// small.jsonl has two model families: opus-4-7 (uuid-001,002,004,005)
+	// and sonnet-4-6 (uuid-003, isSidechain=true).
+	if len(got.PerModel) != 2 {
+		t.Errorf("len(PerModel): want 2, got %d (keys: %v)", len(got.PerModel), keysOf(got.PerModel))
+	}
+	wantOpus := parser.TokenCounts{
+		Input:         10000, // 1000+2000+3000+4000
+		Output:        2000,  // 200+400+600+800
+		CacheRead:     5000,  // 500+1000+1500+2000
+		CacheCreate:   3000,  // 300+600+900+1200
+		CacheCreate5m: 2000,  // 200+400+600+800
+		CacheCreate1h: 1000,  // 100+200+300+400
 	}
 	opusCounts, ok := got.PerModel["opus-4-7"]
 	if !ok {
 		t.Fatalf("PerModel[\"opus-4-7\"] not found; keys: %v", keysOf(got.PerModel))
 	}
-	if !eqTokenCounts(opusCounts, wantTotals) {
-		t.Errorf("PerModel[\"opus-4-7\"]: want %+v, got %+v", wantTotals, opusCounts)
+	if !eqTokenCounts(opusCounts, wantOpus) {
+		t.Errorf("PerModel[\"opus-4-7\"]: want %+v, got %+v", wantOpus, opusCounts)
+	}
+	wantSonnet := parser.TokenCounts{
+		Input:         500, // uuid-003
+		Output:        100,
+		CacheRead:     250,
+		CacheCreate:   150,
+		CacheCreate5m: 100,
+		CacheCreate1h: 50,
+	}
+	sonnetCounts, ok := got.PerModel["sonnet-4-6"]
+	if !ok {
+		t.Fatalf("PerModel[\"sonnet-4-6\"] not found; keys: %v", keysOf(got.PerModel))
+	}
+	if !eqTokenCounts(sonnetCounts, wantSonnet) {
+		t.Errorf("PerModel[\"sonnet-4-6\"]: want %+v, got %+v", wantSonnet, sonnetCounts)
 	}
 
 	// Timestamps come from the sorted records (small.jsonl records are uuid-001..005 in order).
