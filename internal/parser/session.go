@@ -35,6 +35,7 @@ func Aggregate(records []Record) SessionStats {
 	}
 
 	var s SessionStats
+	// Pre-allocate for typical session: Opus orchestrator + Sonnet/Haiku subagent + spare.
 	s.PerModel = make(map[string]TokenCounts, 4)
 	s.FirstTimestamp = records[0].Timestamp
 
@@ -82,6 +83,9 @@ func canonicalModelKey(rawModel string) string {
 	}
 	// Strip "claude-" prefix and keep the first 3 dash-separated segments.
 	trimmed := rawModel[len(prefix):]
+	if trimmed == "" {
+		return "unknown"
+	}
 	parts := strings.SplitN(trimmed, "-", 4)
 	if len(parts) <= 3 {
 		return trimmed

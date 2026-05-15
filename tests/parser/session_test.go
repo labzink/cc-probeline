@@ -25,26 +25,13 @@ func sessionFixtureReader(t *testing.T, name string) []parser.Record {
 	if err != nil {
 		t.Fatalf("sessionFixtureReader: cannot open %q: %v", path, err)
 	}
-	defer f.Close()
+	t.Cleanup(func() { _ = f.Close() })
 
 	records, _, err := parser.ParseLines(f)
 	if err != nil {
 		t.Fatalf("sessionFixtureReader: ParseLines failed for %q: %v", name, err)
 	}
 	return records
-}
-
-// makeAssistantRecord builds a minimal assistant Record for in-memory tests.
-func makeAssistantRecord(model string, ts time.Time, usage parser.TokenCounts, content []parser.ContentBlock) parser.Record {
-	return parser.Record{
-		Type:      "assistant",
-		UUID:      "uuid-inline-" + model,
-		RequestID: "req-inline-" + model,
-		Timestamp: ts,
-		Model:     model,
-		Usage:     usage,
-		Content:   content,
-	}
 }
 
 // toolUseBlock creates a ContentBlock with type "tool_use".
@@ -74,14 +61,36 @@ func addTokenCounts(a, b parser.TokenCounts) parser.TokenCounts {
 	}
 }
 
-// eqTokenCounts compares two TokenCounts for equality.
-func eqTokenCounts(a, b parser.TokenCounts) bool {
-	return a.Input == b.Input &&
-		a.Output == b.Output &&
-		a.CacheRead == b.CacheRead &&
-		a.CacheCreate == b.CacheCreate &&
-		a.CacheCreate5m == b.CacheCreate5m &&
-		a.CacheCreate1h == b.CacheCreate1h
+// keysOf returns the string keys of a map for error messages.
+func keysOf(m map[string]parser.TokenCounts) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// assertZeroStats checks that stats is the zero value of SessionStats.
+func assertZeroStats(t *testing.T, got parser.SessionStats) {
+	t.Helper()
+	if got.TurnCount != 0 {
+		t.Errorf("TurnCount: want 0, got %d", got.TurnCount)
+	}
+	if got.ToolUseCount != 0 {
+		t.Errorf("ToolUseCount: want 0, got %d", got.ToolUseCount)
+	}
+	if got.PerModel != nil {
+		t.Errorf("PerModel: want nil, got %v", got.PerModel)
+	}
+	if !got.FirstTimestamp.IsZero() {
+		t.Errorf("FirstTimestamp: want zero, got %v", got.FirstTimestamp)
+	}
+	if !got.LastTimestamp.IsZero() {
+		t.Errorf("LastTimestamp: want zero, got %v", got.LastTimestamp)
+	}
+	if got.Totals != (parser.TokenCounts{}) {
+		t.Errorf("Totals: want zero, got %+v", got.Totals)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +126,7 @@ func TestAggregate_HappyPath(t *testing.T) {
 		CacheCreate5m: 2100,  // 200+400+100+600+800
 		CacheCreate1h: 1050,  // 100+200+50+300+400
 	}
-	if !eqTokenCounts(got.Totals, wantTotals) {
+	if got.Totals != wantTotals {
 		t.Errorf("Totals: want %+v, got %+v", wantTotals, got.Totals)
 	}
 
@@ -138,7 +147,7 @@ func TestAggregate_HappyPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("PerModel[\"opus-4-7\"] not found; keys: %v", keysOf(got.PerModel))
 	}
-	if !eqTokenCounts(opusCounts, wantOpus) {
+	if opusCounts != wantOpus {
 		t.Errorf("PerModel[\"opus-4-7\"]: want %+v, got %+v", wantOpus, opusCounts)
 	}
 	wantSonnet := parser.TokenCounts{
@@ -153,7 +162,7 @@ func TestAggregate_HappyPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("PerModel[\"sonnet-4-6\"] not found; keys: %v", keysOf(got.PerModel))
 	}
-	if !eqTokenCounts(sonnetCounts, wantSonnet) {
+	if sonnetCounts != wantSonnet {
 		t.Errorf("PerModel[\"sonnet-4-6\"]: want %+v, got %+v", wantSonnet, sonnetCounts)
 	}
 
@@ -172,25 +181,20 @@ func TestAggregate_HappyPath(t *testing.T) {
 	}
 }
 
-// keysOf returns the string keys of a map for error messages.
-func keysOf(m map[string]parser.TokenCounts) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // ---------------------------------------------------------------------------
 // Test 2 — Multi-model (orchestrator + subagent turns)
 // Concept §8.1 scenario 2, fixture §8.4.
 // Fixture multi-model.jsonl: 10 records.
-//   6 x claude-opus-4-7 (isSidechain=false):  input=100 output=20 cacheRead=50 cacheCreate=30
-//   4 x claude-sonnet-4-6 (isSidechain=true):  input=50  output=10 cacheRead=25 cacheCreate=15
+//
+//	6 x claude-opus-4-7 (isSidechain=false):  input=100 output=20 cacheRead=50 cacheCreate=30 5m=20 1h=10
+//	4 x claude-sonnet-4-6 (isSidechain=true):  input=50  output=10 cacheRead=25 cacheCreate=15 5m=10 1h=5
+//
 // Totals:
-//   opus-4-7:   input=600 output=120 cacheRead=300 cacheCreate=180
-//   sonnet-4-6: input=200 output=40  cacheRead=100 cacheCreate=60
-//   combined:   input=800 output=160 cacheRead=400 cacheCreate=240
+//
+//	opus-4-7:   input=600 output=120 cacheRead=300 cacheCreate=180 CacheCreate5m=120 CacheCreate1h=60
+//	sonnet-4-6: input=200 output=40  cacheRead=100 cacheCreate=60  CacheCreate5m=40  CacheCreate1h=20
+//	combined:   input=800 output=160 cacheRead=400 cacheCreate=240 CacheCreate5m=160 CacheCreate1h=80
+//
 // ---------------------------------------------------------------------------
 func TestAggregate_MultiModel(t *testing.T) {
 	records := sessionFixtureReader(t, "multi-model.jsonl")
@@ -205,27 +209,27 @@ func TestAggregate_MultiModel(t *testing.T) {
 		t.Errorf("len(PerModel): want 2, got %d (keys: %v)", len(got.PerModel), keysOf(got.PerModel))
 	}
 
-	wantOpus := parser.TokenCounts{Input: 600, Output: 120, CacheRead: 300, CacheCreate: 180}
+	wantOpus := parser.TokenCounts{Input: 600, Output: 120, CacheRead: 300, CacheCreate: 180, CacheCreate5m: 120, CacheCreate1h: 60}
 	opusCounts, ok := got.PerModel["opus-4-7"]
 	if !ok {
 		t.Fatalf("PerModel[\"opus-4-7\"] not found; keys: %v", keysOf(got.PerModel))
 	}
-	if !eqTokenCounts(opusCounts, wantOpus) {
+	if opusCounts != wantOpus {
 		t.Errorf("PerModel[\"opus-4-7\"]: want %+v, got %+v", wantOpus, opusCounts)
 	}
 
-	wantSonnet := parser.TokenCounts{Input: 200, Output: 40, CacheRead: 100, CacheCreate: 60}
+	wantSonnet := parser.TokenCounts{Input: 200, Output: 40, CacheRead: 100, CacheCreate: 60, CacheCreate5m: 40, CacheCreate1h: 20}
 	sonnetCounts, ok := got.PerModel["sonnet-4-6"]
 	if !ok {
 		t.Fatalf("PerModel[\"sonnet-4-6\"] not found; keys: %v", keysOf(got.PerModel))
 	}
-	if !eqTokenCounts(sonnetCounts, wantSonnet) {
+	if sonnetCounts != wantSonnet {
 		t.Errorf("PerModel[\"sonnet-4-6\"]: want %+v, got %+v", wantSonnet, sonnetCounts)
 	}
 
 	// Totals == opus + sonnet field-wise.
 	wantTotals := addTokenCounts(wantOpus, wantSonnet)
-	if !eqTokenCounts(got.Totals, wantTotals) {
+	if got.Totals != wantTotals {
 		t.Errorf("Totals: want %+v, got %+v", wantTotals, got.Totals)
 	}
 }
@@ -246,29 +250,6 @@ func TestAggregate_EmptyInput(t *testing.T) {
 	})
 }
 
-// assertZeroStats checks that stats is the zero value of SessionStats.
-func assertZeroStats(t *testing.T, got parser.SessionStats) {
-	t.Helper()
-	if got.TurnCount != 0 {
-		t.Errorf("TurnCount: want 0, got %d", got.TurnCount)
-	}
-	if got.ToolUseCount != 0 {
-		t.Errorf("ToolUseCount: want 0, got %d", got.ToolUseCount)
-	}
-	if got.PerModel != nil {
-		t.Errorf("PerModel: want nil, got %v", got.PerModel)
-	}
-	if !got.FirstTimestamp.IsZero() {
-		t.Errorf("FirstTimestamp: want zero, got %v", got.FirstTimestamp)
-	}
-	if !got.LastTimestamp.IsZero() {
-		t.Errorf("LastTimestamp: want zero, got %v", got.LastTimestamp)
-	}
-	if !eqTokenCounts(got.Totals, parser.TokenCounts{}) {
-		t.Errorf("Totals: want zero, got %+v", got.Totals)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Test 4 — Single turn (boundary condition)
 // Concept §8.1 scenario 4.
@@ -276,12 +257,15 @@ func assertZeroStats(t *testing.T, got parser.SessionStats) {
 func TestAggregate_SingleTurn(t *testing.T) {
 	ts := time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC)
 	records := []parser.Record{
-		makeAssistantRecord(
-			"claude-opus-4-7",
-			ts,
-			parser.TokenCounts{Input: 500, Output: 100, CacheRead: 250, CacheCreate: 150},
-			[]parser.ContentBlock{toolUseBlock("Bash"), textBlock()},
-		),
+		{
+			Type:      "assistant",
+			UUID:      "uuid-inline-opus-4-7",
+			RequestID: "req-inline-opus-4-7",
+			Timestamp: ts,
+			Model:     "claude-opus-4-7",
+			Usage:     parser.TokenCounts{Input: 500, Output: 100, CacheRead: 250, CacheCreate: 150},
+			Content:   []parser.ContentBlock{toolUseBlock("Bash"), textBlock()},
+		},
 	}
 
 	got := parser.Aggregate(records)
@@ -301,7 +285,7 @@ func TestAggregate_SingleTurn(t *testing.T) {
 	wantUsage := parser.TokenCounts{Input: 500, Output: 100, CacheRead: 250, CacheCreate: 150}
 	if counts, ok := got.PerModel["opus-4-7"]; !ok {
 		t.Error("PerModel[\"opus-4-7\"] not found")
-	} else if !eqTokenCounts(counts, wantUsage) {
+	} else if counts != wantUsage {
 		t.Errorf("PerModel[\"opus-4-7\"]: want %+v, got %+v", wantUsage, counts)
 	}
 	if got.ToolUseCount != 1 {
@@ -347,7 +331,7 @@ func TestAggregate_IntegrationWithParseLines(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Test 6 — Canonical model key (table-driven)
-// Concept §8.2, §4.1 — all 9 rows of the canonicalization table.
+// Concept §8.2, §4.1 — all 10 rows of the canonicalization table.
 // Tested indirectly via Aggregate: each Record gets a single model value,
 // we verify the resulting PerModel key.
 // ---------------------------------------------------------------------------
@@ -356,10 +340,11 @@ func TestAggregate_CanonicalModelKey(t *testing.T) {
 	usage := parser.TokenCounts{Input: 1, Output: 1}
 
 	cases := []struct {
-		rawModel    string
-		wantKey     string
+		rawModel string
+		wantKey  string
 	}{
 		{"", "unknown"},
+		{"claude-", "unknown"},
 		{"claude-opus-4-7", "opus-4-7"},
 		{"claude-opus-4-7-20250805", "opus-4-7"},
 		{"claude-sonnet-4-6-20251101", "sonnet-4-6"},
@@ -371,7 +356,6 @@ func TestAggregate_CanonicalModelKey(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.rawModel, func(t *testing.T) {
 			// Build a unique RequestID per case to avoid dedup collisions.
 			rec := parser.Record{
