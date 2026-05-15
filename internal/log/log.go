@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,7 +71,7 @@ func Append(component, level, message string, fields ...Field) error {
 	defer f.Close()
 
 	if _, err := fmt.Fprintln(f, line); err != nil {
-		fmt.Fprintln(os.Stderr, "cc-probeline:", line)
+		fmt.Fprintf(os.Stderr, "cc-probeline: %s (%v)\n", line, err)
 	}
 	return nil
 }
@@ -82,8 +83,10 @@ func formatLine(ts time.Time, component, level, message string, fields []Field) 
 	sb.WriteString(component)
 	sb.WriteByte(' ')
 	sb.WriteString(level)
-	sb.WriteByte(' ')
-	sb.WriteString(strings.ReplaceAll(message, "\n", " "))
+	if message != "" {
+		sb.WriteByte(' ')
+		sb.WriteString(strings.ReplaceAll(message, "\n", " "))
+	}
 	for _, fld := range fields {
 		sb.WriteByte(' ')
 		sb.WriteString(fld.Key)
@@ -95,10 +98,9 @@ func formatLine(ts time.Time, component, level, message string, fields []Field) 
 
 func formatValue(v any) string {
 	s := fmt.Sprintf("%v", v)
-	if strings.ContainsAny(s, " \t\"") {
-		s = strings.ReplaceAll(s, `\`, `\\`)
-		s = strings.ReplaceAll(s, `"`, `\"`)
-		return `"` + s + `"`
+	if strings.ContainsAny(s, " \t\"\n\r") {
+		// strconv.Quote handles all escape sequences including \n and \r.
+		return strconv.Quote(s)
 	}
 	return s
 }
@@ -148,10 +150,12 @@ func pruneIfNeeded(path string, now time.Time) {
 		return
 	}
 
-	if _, err := f.Seek(0, 0); err != nil {
-		f.Close()
+	f.Close()
+	f, err = os.Open(path)
+	if err != nil {
 		return
 	}
+	defer f.Close()
 	sc = bufio.NewScanner(f)
 	var kept []string
 	for sc.Scan() {
@@ -165,7 +169,6 @@ func pruneIfNeeded(path string, now time.Time) {
 			kept = append(kept, line)
 		}
 	}
-	f.Close()
 
 	tmp := path + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
@@ -183,7 +186,9 @@ func pruneIfNeeded(path string, now time.Time) {
 		os.Remove(tmp)
 		return
 	}
-	_ = os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp) // best-effort cleanup to avoid leaving stale .tmp
+	}
 }
 
 func parseLineTimestamp(line string) (time.Time, error) {

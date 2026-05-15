@@ -393,6 +393,91 @@ func TestAtomicWrite(t *testing.T) {
 	}
 }
 
+// TestAtomicWrite_NoTmpRemains verifies that no .tmp file is left behind after
+// a successful prune cycle (regression for C4: Rename failure leaving stale .tmp).
+func TestAtomicWrite_NoTmpRemains(t *testing.T) {
+	ilog.ResetState()
+
+	dir := t.TempDir()
+	setStateDir(t, dir)
+	path := logPath(dir)
+	tmpPath := path + ".tmp"
+
+	now := time.Now().UTC()
+	old := now.Add(-8 * 24 * time.Hour)
+	fresh := now.Add(-1 * 24 * time.Hour)
+
+	writeRawLines(t, path, []string{
+		makeLineWithTimestamp(old),
+		makeLineWithTimestamp(fresh),
+	})
+
+	if err := ilog.Append("parser", "INFO", "no tmp check"); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+
+	if _, statErr := os.Stat(tmpPath); statErr == nil {
+		t.Errorf(".tmp file still exists after successful prune: %s", tmpPath)
+	}
+}
+
+// TestEmptyMessage_NoDoubleSpace verifies that Append with an empty message
+// does not produce double-space output like "component LEVEL  key=val".
+// Regression for S1: formatLine always emitted message even when empty.
+func TestEmptyMessage_NoDoubleSpace(t *testing.T) {
+	ilog.ResetState()
+
+	dir := t.TempDir()
+	setStateDir(t, dir)
+	path := logPath(dir)
+
+	if err := ilog.Append("parser", "WARN", "", ilog.F("line", 42)); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+
+	lines := readLines(t, path)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+
+	// Must not contain double space (which would result from an empty message segment).
+	if strings.Contains(lines[0], "  ") {
+		t.Errorf("log line contains double space (empty message not skipped): %q", lines[0])
+	}
+
+	// Must contain the field.
+	if !strings.Contains(lines[0], "line=42") {
+		t.Errorf("log line missing field 'line=42': %q", lines[0])
+	}
+}
+
+// TestFieldValue_NewlineEscaped verifies that a field value containing a newline
+// is quoted and escaped, not written as a raw newline that corrupts the log format.
+// Regression for S7: formatValue did not escape \n/\r in field values.
+func TestFieldValue_NewlineEscaped(t *testing.T) {
+	ilog.ResetState()
+
+	dir := t.TempDir()
+	setStateDir(t, dir)
+	path := logPath(dir)
+
+	if err := ilog.Append("parser", "WARN", "msg", ilog.F("val", "line1\nline2")); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+
+	lines := readLines(t, path)
+
+	// The entire log entry must fit in exactly one line (newline must be escaped).
+	if len(lines) != 1 {
+		t.Errorf("expected 1 log line (newline in value must be escaped), got %d lines: %v", len(lines), lines)
+	}
+
+	// The value must appear quoted in the output.
+	if !strings.Contains(lines[0], `"line1`) {
+		t.Errorf("expected quoted/escaped value in log line, got: %q", lines[0])
+	}
+}
+
 // TestConcurrentAppend verifies that 10 goroutines × 10 Append calls each
 // produce no data corruption and all lines are present.
 // Bonus case from concept §7.3 (concurrent safety).
