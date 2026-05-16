@@ -1,15 +1,17 @@
-// Package parser_test contains RED tests for Phase 3.4 — subagent collector.
+// Package parser_test contains tests for Phase 3.4 — subagent collector.
 // Contract: plans/concepts/phase-3-step4-concept.md §4–§10.
 // API:
 //
-//	parser.CollectSubagents(sessionDir string) ([]SubagentStats, error)
+//	parser.CollectSubagents(ctx context.Context, sessionDir string) ([]SubagentStats, error)
 //	parser.SubagentStats{...}
 package parser_test
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -118,7 +120,7 @@ func TestCollectSubagents_Happy_TwoAgents(t *testing.T) {
 		"agent-bb2.jsonl", "agent-bb2.meta.json",
 	})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -161,8 +163,8 @@ func TestCollectSubagents_Happy_TwoAgents(t *testing.T) {
 	if !aa1.LastTimestamp.Equal(wantAA1Last) {
 		t.Errorf("aa1.LastTimestamp=%v, want %v", aa1.LastTimestamp, wantAA1Last)
 	}
-	if aa1.JSONLPath == "" {
-		t.Error("aa1.JSONLPath: want non-empty")
+	if aa1.TranscriptPath == "" {
+		t.Error("aa1.TranscriptPath: want non-empty")
 	}
 
 	// --- Verify bb2 ---
@@ -192,8 +194,8 @@ func TestCollectSubagents_Happy_TwoAgents(t *testing.T) {
 	if bb2.LastTool != "Glob" {
 		t.Errorf("bb2.LastTool=%q, want %q", bb2.LastTool, "Glob")
 	}
-	if bb2.JSONLPath == "" {
-		t.Error("bb2.JSONLPath: want non-empty")
+	if bb2.TranscriptPath == "" {
+		t.Error("bb2.TranscriptPath: want non-empty")
 	}
 }
 
@@ -209,7 +211,7 @@ func TestCollectSubagents_Happy_TwoAgents(t *testing.T) {
 func TestCollectSubagents_MissingSubagentsDir(t *testing.T) {
 	sessionDir := t.TempDir() // no subagents/ sub-dir created
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: want nil error for missing subagents/ dir, got: %v", err)
 	}
@@ -233,7 +235,7 @@ func TestCollectSubagents_EmptySubagentsDir(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: want nil error for empty subagents/ dir, got: %v", err)
 	}
@@ -254,7 +256,7 @@ func TestCollectSubagents_MissingMeta(t *testing.T) {
 	// cc3 has no meta.json in the fixture set.
 	sessionDir := setupSessionDir(t, []string{"agent-cc3.jsonl"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -292,7 +294,7 @@ func TestCollectSubagents_MalformedMeta(t *testing.T) {
 	// ee5 has valid JSONL (partially) + malformed meta.json.
 	sessionDir := setupSessionDir(t, []string{"agent-ee5.jsonl", "agent-ee5.meta.json"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -322,7 +324,7 @@ func TestCollectSubagents_MalformedMeta(t *testing.T) {
 func TestCollectSubagents_EmptyJSONL(t *testing.T) {
 	sessionDir := setupSessionDir(t, []string{"agent-dd4.jsonl", "agent-dd4.meta.json"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -333,8 +335,8 @@ func TestCollectSubagents_EmptyJSONL(t *testing.T) {
 	if dd4.AgentID != "dd4" {
 		t.Errorf("AgentID=%q, want %q", dd4.AgentID, "dd4")
 	}
-	if dd4.JSONLPath == "" {
-		t.Error("JSONLPath: want non-empty (file path recorded even for empty JSONL)")
+	if dd4.TranscriptPath == "" {
+		t.Error("TranscriptPath: want non-empty (file path recorded even for empty JSONL)")
 	}
 	if dd4.AgentType != "general-purpose" {
 		t.Errorf("AgentType=%q, want %q (from meta.json)", dd4.AgentType, "general-purpose")
@@ -366,7 +368,7 @@ func TestCollectSubagents_MalformedJSONLPartial(t *testing.T) {
 	// ee5: 3 valid assistant+usage lines, 2 broken JSON, 1 no-usage line.
 	sessionDir := setupSessionDir(t, []string{"agent-ee5.jsonl", "agent-ee5.meta.json"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -404,7 +406,7 @@ func TestCollectSubagents_SortByLastTimestampDesc(t *testing.T) {
 	// aa1.LastTimestamp = 2026-05-15T10:04:00Z
 	// bb2.LastTimestamp = 2026-05-15T09:01:00Z
 	// Expected order: aa1 first (most recent), bb2 second.
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -431,7 +433,7 @@ func TestCollectSubagents_SortByLastTimestampDesc(t *testing.T) {
 func TestCollectSubagents_LastToolFromLastToolUseBlock(t *testing.T) {
 	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -460,7 +462,7 @@ func TestCollectSubagents_ModelFromLastRecord(t *testing.T) {
 		"agent-bb2.jsonl", "agent-bb2.meta.json",
 	})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -500,7 +502,7 @@ func TestCollectSubagents_OrphanMetaWithoutJsonl(t *testing.T) {
 		t.Fatalf("write orphan meta: %v", err)
 	}
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -526,7 +528,7 @@ func TestCollectSubagents_OrphanMetaWithoutJsonl(t *testing.T) {
 func TestCollectSubagents_CacheTokensAggregated(t *testing.T) {
 	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
 
-	got, err := parser.CollectSubagents(sessionDir)
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
 	if err != nil {
 		t.Fatalf("CollectSubagents: unexpected error: %v", err)
 	}
@@ -541,5 +543,319 @@ func TestCollectSubagents_CacheTokensAggregated(t *testing.T) {
 	// aa1 CacheCreate sum: 300+330+360+390+420 = 1800
 	if aa1.Tokens.CacheCreate != 1800 {
 		t.Errorf("Tokens.CacheCreate=%d, want 1800", aa1.Tokens.CacheCreate)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T13 — TieBreakByMtime
+// Two empty JSONL files in one sessionDir; newer mtime → index 0.
+// Concept §10 AC6: JSONL mtime DESC fallback for empty transcripts.
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_TieBreakByMtime verifies that when two subagents have
+// zero LastTimestamp (empty JSONL), the one with a newer file mtime appears first.
+func TestCollectSubagents_TieBreakByMtime(t *testing.T) {
+	sessionDir := t.TempDir()
+	subDir := filepath.Join(sessionDir, "subagents")
+	if err := os.MkdirAll(subDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Create two empty JSONL files.
+	older := filepath.Join(subDir, "agent-aa1.jsonl")
+	newer := filepath.Join(subDir, "agent-zz9.jsonl")
+	for _, p := range []string{older, newer} {
+		if err := os.WriteFile(p, []byte{}, 0o600); err != nil {
+			t.Fatalf("write %q: %v", p, err)
+		}
+	}
+
+	// Set mtimes explicitly: older = T-10s, newer = T+0s.
+	base := time.Now()
+	olderMtime := base.Add(-10 * time.Second)
+	newerMtime := base
+
+	if err := os.Chtimes(older, olderMtime, olderMtime); err != nil {
+		t.Fatalf("chtimes older: %v", err)
+	}
+	if err := os.Chtimes(newer, newerMtime, newerMtime); err != nil {
+		t.Fatalf("chtimes newer: %v", err)
+	}
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got)=%d, want 2", len(got))
+	}
+	// zz9 has newer mtime → must be first (index 0).
+	if got[0].AgentID != "zz9" {
+		t.Errorf("result[0].AgentID=%q, want %q (newer mtime first)", got[0].AgentID, "zz9")
+	}
+	if got[1].AgentID != "aa1" {
+		t.Errorf("result[1].AgentID=%q, want %q (older mtime second)", got[1].AgentID, "aa1")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T14 — UnreadableJSONLSkipped
+// One JSONL with chmod 0o000 → skipped; the other agent returns normally.
+// Covers CollectSubagents open-failure branch (lines ~open-error in collectOne).
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_UnreadableJSONLSkipped verifies that an unreadable
+// agent-*.jsonl is skipped and does not prevent other agents from being returned.
+func TestCollectSubagents_UnreadableJSONLSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 not supported on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 has no effect")
+	}
+
+	sessionDir := setupSessionDir(t, []string{
+		"agent-aa1.jsonl", "agent-aa1.meta.json",
+		"agent-bb2.jsonl", "agent-bb2.meta.json",
+	})
+	subDir := filepath.Join(sessionDir, "subagents")
+	bb2Path := filepath.Join(subDir, "agent-bb2.jsonl")
+
+	if err := os.Chmod(bb2Path, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bb2Path, 0o600) })
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1 (bb2 unreadable → skipped)", len(got))
+	}
+	if got[0].AgentID != "aa1" {
+		t.Errorf("AgentID=%q, want %q", got[0].AgentID, "aa1")
+	}
+	for _, s := range got {
+		if s.AgentID == "bb2" {
+			t.Error("bb2 present in result; want skipped (unreadable JSONL)")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T15 — DirEntryInSubagents
+// A directory named agent-zzz.jsonl in subagents/ → skipped (not-regular-file).
+// Covers listSubagentFiles IsDir branch.
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_DirEntryInSubagents verifies that a directory entry whose
+// name matches agent-*.jsonl is skipped and does not appear in results.
+func TestCollectSubagents_DirEntryInSubagents(t *testing.T) {
+	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
+	subDir := filepath.Join(sessionDir, "subagents")
+
+	// Create a directory with a name that matches the JSONL pattern.
+	dirEntry := filepath.Join(subDir, "agent-zzz.jsonl")
+	if err := os.MkdirAll(dirEntry, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1 (directory entry skipped)", len(got))
+	}
+	if got[0].AgentID != "aa1" {
+		t.Errorf("AgentID=%q, want %q", got[0].AgentID, "aa1")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T16 — UnreadableSubagentsDir
+// chmod 0o000 on subagents/ itself → CollectSubagents returns non-nil error.
+// Covers listSubagentFiles non-ENOENT ReadDir error branch.
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_UnreadableSubagentsDir verifies that when the subagents/
+// directory exists but is unreadable, CollectSubagents returns a non-nil error.
+func TestCollectSubagents_UnreadableSubagentsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 not supported on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 has no effect")
+	}
+
+	sessionDir := t.TempDir()
+	subDir := filepath.Join(sessionDir, "subagents")
+	if err := os.MkdirAll(subDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Chmod(subDir, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(subDir, 0o700) })
+
+	_, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err == nil {
+		t.Error("CollectSubagents: want non-nil error for unreadable subagents/ dir, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T17 — UnreadableMetaContinues
+// chmod 0o000 on agent-aa1.meta.json → SubagentStats returned with empty
+// AgentType/Description (meta read fails gracefully).
+// Covers parseMeta non-ENOENT open-error branch.
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_UnreadableMetaContinues verifies that an unreadable
+// meta.json does not prevent the SubagentStats from being returned; AgentType
+// and Description will be empty strings.
+func TestCollectSubagents_UnreadableMetaContinues(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 not supported on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 has no effect")
+	}
+
+	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
+	subDir := filepath.Join(sessionDir, "subagents")
+	metaPath := filepath.Join(subDir, "agent-aa1.meta.json")
+
+	if err := os.Chmod(metaPath, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(metaPath, 0o600) })
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1", len(got))
+	}
+	aa1 := got[0]
+	if aa1.AgentID != "aa1" {
+		t.Errorf("AgentID=%q, want %q", aa1.AgentID, "aa1")
+	}
+	// Meta unreadable → AgentType and Description must be empty.
+	if aa1.AgentType != "" {
+		t.Errorf("AgentType=%q, want empty (unreadable meta)", aa1.AgentType)
+	}
+	if aa1.Description != "" {
+		t.Errorf("Description=%q, want empty (unreadable meta)", aa1.Description)
+	}
+	// JSONL is still readable → SubagentStats should have actual data.
+	if aa1.TurnCount == 0 {
+		t.Error("TurnCount=0, want >0 (JSONL is readable)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T18 — OrphanMetaDoesNotBreakResults
+// agent-zzz.meta.json without companion agent-zzz.jsonl → orphan is ignored,
+// other agents returned normally. Reinforces T11 with explicit orphan Warn path.
+// ---------------------------------------------------------------------------
+
+// TestCollectSubagents_OrphanMetaDoesNotBreakResults verifies that an orphan
+// meta file (no companion JSONL) is silently ignored: only paired agents appear.
+func TestCollectSubagents_OrphanMetaDoesNotBreakResults(t *testing.T) {
+	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
+	subDir := filepath.Join(sessionDir, "subagents")
+
+	// Write orphan meta with no companion JSONL.
+	orphan := filepath.Join(subDir, "agent-zzz.meta.json")
+	if err := os.WriteFile(orphan, []byte(`{"agentType":"orphan"}`), 0o600); err != nil {
+		t.Fatalf("write orphan: %v", err)
+	}
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1 (orphan meta ignored)", len(got))
+	}
+	if got[0].AgentID != "aa1" {
+		t.Errorf("AgentID=%q, want %q", got[0].AgentID, "aa1")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark — BenchmarkCollectSubagents
+// Baseline measurement for Phase 5 cache improvement (CONCEPT §7: <50 ms for
+// 6 subagents with ~500 JSONL lines each).
+// ---------------------------------------------------------------------------
+
+// fixtureSubagentDirPath returns the path to tests/fixtures/jsonl/subagents/
+// by resolving from the current working directory. Used by benchmarks that
+// cannot call fixtureSubagentDir (which requires *testing.T).
+func fixtureSubagentDirPath(b *testing.B) string {
+	b.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		b.Fatalf("fixtureSubagentDirPath: getwd: %v", err)
+	}
+	candidate := filepath.Join(wd, "..", "..", "tests", "fixtures", "jsonl", "subagents")
+	if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+		return candidate
+	}
+	candidate = filepath.Join(wd, "tests", "fixtures", "jsonl", "subagents")
+	if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+		return candidate
+	}
+	b.Fatalf("fixtureSubagentDirPath: cannot locate tests/fixtures/jsonl/subagents from %s", wd)
+	return ""
+}
+
+// BenchmarkCollectSubagents measures CollectSubagents performance against the
+// existing fixture set (5 agents: aa1 with 5 records, bb2 with 2, cc3 with 1,
+// dd4 empty, ee5 partial). Baseline for Phase 5 cache improvement.
+// CONCEPT §7 budget: <50 ms for 6 subagents with ~500 JSONL lines each.
+func BenchmarkCollectSubagents(b *testing.B) {
+	srcDir := fixtureSubagentDirPath(b)
+
+	fixtures := []string{
+		"agent-aa1.jsonl", "agent-aa1.meta.json",
+		"agent-bb2.jsonl", "agent-bb2.meta.json",
+		"agent-cc3.jsonl",
+		"agent-dd4.jsonl", "agent-dd4.meta.json",
+		"agent-ee5.jsonl", "agent-ee5.meta.json",
+	}
+
+	sessionDir := b.TempDir()
+	subDir := filepath.Join(sessionDir, "subagents")
+	if err := os.MkdirAll(subDir, 0o700); err != nil {
+		b.Fatalf("mkdir: %v", err)
+	}
+	for _, name := range fixtures {
+		src := filepath.Join(srcDir, name)
+		dst := filepath.Join(subDir, name)
+		in, err := os.Open(src)
+		if err != nil {
+			b.Fatalf("open %q: %v", src, err)
+		}
+		out, err := os.Create(dst)
+		if err != nil {
+			in.Close()
+			b.Fatalf("create %q: %v", dst, err)
+		}
+		_, copyErr := io.Copy(out, in)
+		in.Close()
+		out.Close()
+		if copyErr != nil {
+			b.Fatalf("copy: %v", copyErr)
+		}
+	}
+
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = parser.CollectSubagents(ctx, sessionDir)
 	}
 }

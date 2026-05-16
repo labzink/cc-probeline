@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,6 +28,14 @@ type SubagentStats struct {
 	// AgentID is the suffix of agent-<id>.jsonl and the "agentId" field inside
 	// each JSONL record. Stable identifier within one CC session.
 	AgentID string
+
+	// TaskID is the identifier passed by Claude Code in subagentStatusLine
+	// stdin (tasks[].id). For MVP this is left empty by CollectSubagents and
+	// populated by Phase 4 probe code under the hypothesis task.id == AgentID
+	// (specs.md §A3, CONCEPT §8 Q1). If hands-on verification in Phase 4
+	// reveals a different mapping, this field absorbs the difference without
+	// breaking the public API.
+	TaskID string
 
 	// AgentType is the "agentType" field from meta.json. Empty when meta.json
 	// is absent. Examples: "general-purpose", "code-reviewer".
@@ -60,9 +70,16 @@ type SubagentStats struct {
 	// that contained any tool_use block. Empty when no tool_use occurred.
 	LastTool string
 
-	// JSONLPath is the absolute path to agent-<id>.jsonl. Used by Phase 5 as
-	// a cache key and for mtime-based invalidation.
-	JSONLPath string
+	// TranscriptPath is the absolute path to agent-<id>.jsonl. Used by Phase 5
+	// as a cache key and for mtime-based invalidation.
+	TranscriptPath string
+
+	// JSONLModTime is the modification time of the agent's JSONL file.
+	// Used as a tie-break for sort when LastTimestamp is zero (e.g. a
+	// freshly-spawned subagent whose transcript has no records yet).
+	// Phase 5 cache layer also uses this for mtime-based invalidation
+	// (see specs.md §B2).
+	JSONLModTime time.Time
 }
 
 // subagentFile pairs a JSONL path with its sibling meta path before aggregation.
@@ -83,6 +100,9 @@ type subagentMeta struct {
 // agent-*.jsonl via ParseLines, aggregates each, and returns a SubagentStats
 // slice sorted by LastTimestamp descending (most recently active first).
 //
+// If sessionDir is empty or does not exist, returns ([], nil) — same as
+// a missing subagents/ subdirectory.
+//
 // Behaviour:
 //   - sessionDir is the directory <projects-root>/<slug>/<session-id>/.
 //     CollectSubagents appends "subagents/" internally.
@@ -92,11 +112,24 @@ type subagentMeta struct {
 //   - meta.json missing or malformed → AgentType/Description remain "".
 //     Logged at Warn level.
 //   - Subagent JSONL with zero assistant records → SubagentStats with AgentID +
-//     JSONLPath populated; all aggregates zero. Returned, not skipped.
+//     TranscriptPath populated; all aggregates zero. Returned, not skipped.
+//
+// Ordering of the returned slice:
+//  1. Primary: LastTimestamp DESC (most-recently-active first).
+//  2. When two records share LastTimestamp (non-zero): AgentID ASC.
+//  3. When LastTimestamp is zero on both (e.g. empty transcripts):
+//     JSONLModTime DESC (most-recently-touched on disk first).
 //
 // Returns a non-nil error only when listing subagents/ itself fails for an
 // unexpected reason (ENOENT is the fail-soft case above).
-func CollectSubagents(sessionDir string) ([]SubagentStats, error) {
+func CollectSubagents(ctx context.Context, sessionDir string) ([]SubagentStats, error) {
+	if sessionDir == "" {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	slog.Debug("parser.subagent: collect", "sessionDir", sessionDir)
 
 	files, err := listSubagentFiles(sessionDir)
@@ -108,60 +141,28 @@ func CollectSubagents(sessionDir string) ([]SubagentStats, error) {
 	results := make([]SubagentStats, 0, len(files))
 
 	for _, f := range files {
-		meta, metaErr := parseMeta(f.metaPath)
-		if metaErr != nil {
-			slog.Warn("parser.subagent: meta unavailable",
-				"agentID", f.agentID,
-				"path", f.metaPath,
-				"err", metaErr,
-			)
-			// Continue with zero meta — SubagentStats will have empty AgentType/Description.
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
-		fh, openErr := os.Open(f.jsonlPath)
-		if openErr != nil {
-			slog.Error("parser.subagent: open failed",
-				"agentID", f.agentID,
-				"path", f.jsonlPath,
-				"err", openErr,
-			)
+		stats, err := collectOne(f)
+		if err != nil {
+			// Per-file error: log and skip. Never propagate to caller.
 			continue
 		}
-		records, parseErrs, scanErr := ParseLines(fh)
-		fh.Close()
-
-		if len(parseErrs) > 0 {
-			slog.Debug("parser.subagent: parse errors",
-				"agentID", f.agentID,
-				"count", len(parseErrs),
-			)
-		}
-		if scanErr != nil {
-			slog.Error("parser.subagent: open failed",
-				"agentID", f.agentID,
-				"path", f.jsonlPath,
-				"err", scanErr,
-			)
-			continue
-		}
-
-		if len(records) == 0 {
-			slog.Info("parser.subagent: empty transcript", "agentID", f.agentID)
-		}
-
-		stats := aggregateSubagent(records)
-		stats.AgentID = f.agentID
-		stats.AgentType = meta.AgentType
-		stats.Description = meta.Description
-		stats.JSONLPath = f.jsonlPath
 
 		results = append(results, stats)
 	}
 
-	// Sort: LastTimestamp DESC; tie-break by AgentID ASC (deterministic).
+	// Sort: primary LastTimestamp DESC; tie-break when both non-zero: AgentID ASC;
+	// tie-break when both zero (empty transcripts): JSONLModTime DESC.
 	sort.SliceStable(results, func(i, j int) bool {
 		ti := results[i].LastTimestamp
 		tj := results[j].LastTimestamp
+		if ti.IsZero() && tj.IsZero() {
+			// Both empty transcripts: most-recently-touched JSONL file first.
+			return results[i].JSONLModTime.After(results[j].JSONLModTime)
+		}
 		if ti.Equal(tj) {
 			return results[i].AgentID < results[j].AgentID
 		}
@@ -169,6 +170,69 @@ func CollectSubagents(sessionDir string) ([]SubagentStats, error) {
 	})
 
 	return results, nil
+}
+
+// collectOne opens, parses, and aggregates one subagent JSONL file.
+// Returns the populated SubagentStats or an error (caller logs and skips).
+func collectOne(f subagentFile) (SubagentStats, error) {
+	meta, metaErr := parseMeta(f.metaPath)
+	if metaErr != nil {
+		slog.Warn("parser.subagent: meta unavailable",
+			"agentID", f.agentID,
+			"path", f.metaPath,
+			"err", metaErr,
+		)
+		// Continue with zero meta — SubagentStats will have empty AgentType/Description.
+	}
+
+	fh, openErr := os.Open(f.jsonlPath)
+	if openErr != nil {
+		slog.Error("parser.subagent: open failed",
+			"agentID", f.agentID,
+			"path", f.jsonlPath,
+			"err", openErr,
+		)
+		return SubagentStats{}, openErr
+	}
+	defer fh.Close()
+
+	records, parseErrs, scanErr := ParseLines(fh)
+
+	if len(parseErrs) > 0 {
+		slog.Debug("parser.subagent: parse errors",
+			"agentID", f.agentID,
+			"count", len(parseErrs),
+		)
+	}
+	if scanErr != nil {
+		slog.Error("parser.subagent: scan failed",
+			"agentID", f.agentID,
+			"path", f.jsonlPath,
+			"err", scanErr,
+		)
+		return SubagentStats{}, scanErr
+	}
+
+	if len(records) == 0 {
+		if len(parseErrs) > 0 {
+			slog.Warn("parser.subagent: all lines unparsable",
+				"agentID", f.agentID,
+				"path", f.jsonlPath,
+				"parseErrs", len(parseErrs),
+			)
+		} else {
+			slog.Info("parser.subagent: empty transcript", "agentID", f.agentID)
+		}
+	}
+
+	stats := aggregateSubagent(records)
+	stats.AgentID = f.agentID
+	stats.AgentType = meta.AgentType
+	stats.Description = meta.Description
+	stats.TranscriptPath = f.jsonlPath
+	stats.JSONLModTime = f.modTime
+
+	return stats, nil
 }
 
 // listSubagentFiles enumerates agent-*.jsonl files under sessionDir/subagents/
@@ -204,11 +268,23 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 	for _, e := range entries {
 		name := e.Name()
 
+		// Special-case orphan meta files: log Warn if companion .jsonl is missing.
+		if strings.HasPrefix(name, "agent-") && strings.HasSuffix(name, ".meta.json") {
+			base := strings.TrimSuffix(name, ".meta.json")
+			jsonlPath := filepath.Join(subDir, base+".jsonl")
+			if _, statErr := os.Stat(jsonlPath); errors.Is(statErr, fs.ErrNotExist) {
+				slog.Warn("parser.subagent: orphan meta",
+					"path", filepath.Join(subDir, name),
+				)
+			}
+			continue // meta files are never primary entries
+		}
+
 		// Skip directories and non-regular files (symlinks, devices, etc.).
 		if e.IsDir() || !e.Type().IsRegular() {
 			slog.Debug("parser.subagent: skip entry",
 				"name", name,
-				"reason", "name-not-matched",
+				"reason", "not-regular-file",
 			)
 			continue
 		}
@@ -225,9 +301,10 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 
 		info, infoErr := e.Info()
 		if infoErr != nil {
-			slog.Warn("parser.subagent: meta unavailable",
+			slog.Warn("parser.subagent: stat failed",
 				"agentID", agentID,
 				"path", filepath.Join(subDir, name),
+				"op", "Info",
 				"err", infoErr,
 			)
 			continue
@@ -253,8 +330,8 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 // tool_use ContentBlock encountered scanning records in forward order
 // (overwritten on each tool_use → keeps the final one).
 //
-// Pure function. AgentID, AgentType, Description, and JSONLPath are filled by
-// the caller (CollectSubagents).
+// Pure function. AgentID, TaskID, AgentType, Description, TranscriptPath, and
+// JSONLModTime are filled by the caller (CollectSubagents / collectOne).
 func aggregateSubagent(records []Record) SubagentStats {
 	if len(records) == 0 {
 		return SubagentStats{}
