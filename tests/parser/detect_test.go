@@ -384,17 +384,9 @@ func TestDetect_SessionIDMismatch(t *testing.T) {
 	}
 
 	// Warn log must mention the mismatch.
-	logOutput := buf.String()
-	if logOutput == "" {
-		// Behavior-only fallback: if log capture proves fragile, at minimum
-		// assert the function returned the correct file. Log assertion is
-		// best-effort; see Exit Report for rationale.
-		t.Log("WARN: log buffer empty — log assertion skipped (behavior-only mode)")
-	} else {
-		wantMsg := "sessionID jsonl not found"
-		if !bytes.Contains(buf.Bytes(), []byte(wantMsg)) {
-			t.Errorf("expected log to contain %q, got:\n%s", wantMsg, logOutput)
-		}
+	wantMsg := "sessionID jsonl not found"
+	if !bytes.Contains(buf.Bytes(), []byte(wantMsg)) {
+		t.Errorf("expected log to contain %q, got:\n%s", wantMsg, buf.String())
 	}
 }
 
@@ -481,12 +473,17 @@ func TestDetect_MissingDir(t *testing.T) {
 
 // TestDetect_TranscriptPathBypass verifies that when TranscriptPath is set and
 // the file lives inside the slug directory, it is returned verbatim without
-// consulting sessionID or mtime.
+// consulting sessionID or mtime. The test explicitly proves TranscriptPath beats
+// both: (1) SessionID pointing to a different file, and (2) a newer-mtime
+// candidate. Without this, a broken implementation falling through to mtime
+// or sessionID could still accidentally pass.
 func TestDetect_TranscriptPathBypass(t *testing.T) {
 	tmp := t.TempDir()
 	cwd := "/proj/bypass"
 	slug := "-proj-bypass"
 	dir := filepath.Join(tmp, ".claude", "projects", slug)
+
+	now := time.Now()
 
 	// Create the slug dir and both a normal candidate and the explicit path.
 	otherFile := filepath.Join(dir, "other.jsonl")
@@ -494,8 +491,16 @@ func TestDetect_TranscriptPathBypass(t *testing.T) {
 	writeFile(t, otherFile)
 	writeFile(t, explicitFile)
 
+	// Make otherFile newer than explicitFile so that mtime fallback would pick
+	// other.jsonl, not explicit.jsonl — proving TranscriptPath bypasses mtime.
+	setMtime(t, otherFile, now.Add(-1*time.Second))
+	setMtime(t, explicitFile, now.Add(-5*time.Second))
+
+	// Pass SessionID="other" so that sessionID lookup would also resolve to
+	// other.jsonl — proving TranscriptPath bypasses sessionID too.
 	got, err := parser.DetectActiveSession(parser.DetectInput{
 		CWD:            cwd,
+		SessionID:      "other",
 		TranscriptPath: explicitFile,
 		HomeDir:        tmp,
 	})
@@ -520,6 +525,7 @@ func TestDetect_TranscriptPathBypass(t *testing.T) {
 // TestDetect_TranscriptPathOutsideDir verifies the security guard: when
 // TranscriptPath resolves outside the slug directory, the detector logs a
 // warning and falls back to the sessionID/mtime path instead.
+// Two sub-cases: absolute path outside slug dir, and a ".." escape path.
 func TestDetect_TranscriptPathOutsideDir(t *testing.T) {
 	tmp := t.TempDir()
 	cwd := "/proj/security"
@@ -529,42 +535,75 @@ func TestDetect_TranscriptPathOutsideDir(t *testing.T) {
 	fallbackFile := filepath.Join(dir, "fallback.jsonl")
 	writeFile(t, fallbackFile)
 
-	// Capture slog output to assert the Warn message.
-	var buf bytes.Buffer
-	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
-	oldLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	wantMsg := "transcript_path outside slug dir"
 
-	got, err := parser.DetectActiveSession(parser.DetectInput{
-		CWD:            cwd,
-		TranscriptPath: "/etc/passwd", // clearly outside slug dir
-		HomeDir:        tmp,
-	})
-	if err != nil {
-		t.Fatalf("DetectActiveSession: unexpected error: %v", err)
-	}
+	t.Run("absolute outside", func(t *testing.T) {
+		// Capture slog output to assert the Warn message.
+		var buf bytes.Buffer
+		handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
+		oldLogger := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		t.Cleanup(func() { slog.SetDefault(oldLogger) })
 
-	// Must fall through to mtime fallback and return the real file.
-	if got.JSONLPath != fallbackFile {
-		t.Errorf("JSONLPath: want %q (mtime fallback after path-traversal guard), got %q",
-			fallbackFile, got.JSONLPath)
-	}
-	if got.Empty {
-		t.Error("Empty: want false, got true")
-	}
-
-	// Warn log must mention the guard.
-	logOutput := buf.String()
-	if logOutput == "" {
-		// Behavior-only fallback (see SC5 note).
-		t.Log("WARN: log buffer empty — log assertion skipped (behavior-only mode)")
-	} else {
-		wantMsg := "transcript_path outside slug dir"
-		if !bytes.Contains(buf.Bytes(), []byte(wantMsg)) {
-			t.Errorf("expected log to contain %q, got:\n%s", wantMsg, logOutput)
+		got, err := parser.DetectActiveSession(parser.DetectInput{
+			CWD:            cwd,
+			TranscriptPath: "/etc/passwd", // clearly outside slug dir
+			HomeDir:        tmp,
+		})
+		if err != nil {
+			t.Fatalf("DetectActiveSession: unexpected error: %v", err)
 		}
-	}
+
+		// Must fall through to mtime fallback and return the real file.
+		if got.JSONLPath != fallbackFile {
+			t.Errorf("JSONLPath: want %q (mtime fallback after path-traversal guard), got %q",
+				fallbackFile, got.JSONLPath)
+		}
+		if got.Empty {
+			t.Error("Empty: want false, got true")
+		}
+
+		// Warn log must mention the guard.
+		if !bytes.Contains(buf.Bytes(), []byte(wantMsg)) {
+			t.Errorf("expected log to contain %q, got:\n%s", wantMsg, buf.String())
+		}
+	})
+
+	t.Run("dotdot escape", func(t *testing.T) {
+		// filepath.Join(dir, "..", "escape.jsonl") produces a path that is
+		// syntactically constructed from dir but resolves outside it via "..".
+		// This tests the key case that motivated using filepath.Rel (OQ3).
+		escapePath := filepath.Join(dir, "..", "escape.jsonl")
+
+		var buf bytes.Buffer
+		handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
+		oldLogger := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+		got, err := parser.DetectActiveSession(parser.DetectInput{
+			CWD:            cwd,
+			TranscriptPath: escapePath,
+			HomeDir:        tmp,
+		})
+		if err != nil {
+			t.Fatalf("DetectActiveSession: unexpected error: %v", err)
+		}
+
+		// Must fall through to mtime fallback and return the real file.
+		if got.JSONLPath != fallbackFile {
+			t.Errorf("JSONLPath: want %q (mtime fallback after dotdot guard), got %q",
+				fallbackFile, got.JSONLPath)
+		}
+		if got.Empty {
+			t.Error("Empty: want false, got true")
+		}
+
+		// Warn log must mention the guard.
+		if !bytes.Contains(buf.Bytes(), []byte(wantMsg)) {
+			t.Errorf("expected log to contain %q, got:\n%s", wantMsg, buf.String())
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -582,26 +621,26 @@ func TestDetect_FiltersNonJsonl(t *testing.T) {
 	slug := "-proj-filter"
 	dir := filepath.Join(tmp, ".claude", "projects", slug)
 
-	// ✅ valid candidate
+	// valid candidate
 	sessFile := filepath.Join(dir, "sess.jsonl")
 	writeFile(t, sessFile)
 
-	// ❌ ignored: subdirectory "memory"
+	// ignored: subdirectory "memory"
 	if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o755); err != nil {
 		t.Fatalf("mkdir memory: %v", err)
 	}
 
-	// ❌ ignored: session subdirectory (name without .jsonl)
+	// ignored: session subdirectory (name without .jsonl)
 	if err := os.MkdirAll(filepath.Join(dir, "sess-uuid"), 0o755); err != nil {
 		t.Fatalf("mkdir sess-uuid: %v", err)
 	}
 
-	// ❌ ignored: .DS_Store (macOS junk, no .jsonl suffix)
+	// ignored: .DS_Store (macOS junk, no .jsonl suffix)
 	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), nil, 0o644); err != nil {
 		t.Fatalf("write .DS_Store: %v", err)
 	}
 
-	// ❌ ignored: notes.txt (wrong suffix)
+	// ignored: notes.txt (wrong suffix)
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), nil, 0o644); err != nil {
 		t.Fatalf("write notes.txt: %v", err)
 	}
@@ -616,6 +655,171 @@ func TestDetect_FiltersNonJsonl(t *testing.T) {
 
 	if got.JSONLPath != sessFile {
 		t.Errorf("JSONLPath: want %q (only jsonl candidate), got %q", sessFile, got.JSONLPath)
+	}
+	if got.Empty {
+		t.Error("Empty: want false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 13. TestProjectSlug_RejectsRelative — C1
+// ProjectSlug must return err != nil for non-absolute paths.
+// Concept §4.1: "if !filepath.IsAbs(clean) { return "", fmt.Errorf(...) }".
+// ---------------------------------------------------------------------------
+
+// TestProjectSlug_RejectsRelative verifies that ProjectSlug rejects relative
+// and empty paths with a non-nil error and an empty slug string.
+func TestProjectSlug_RejectsRelative(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TestProjectSlug_RejectsRelative: Unix-only test")
+	}
+
+	cases := []struct {
+		name string
+		cwd  string
+	}{
+		{name: "relative no leading slash", cwd: "foo/bar"},
+		{name: "relative with dot prefix", cwd: "./foo"},
+		{name: "empty string", cwd: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parser.ProjectSlug(tc.cwd)
+			if err == nil {
+				t.Errorf("ProjectSlug(%q): want error, got nil (slug=%q)", tc.cwd, got)
+			}
+			if got != "" {
+				t.Errorf("ProjectSlug(%q): want empty slug on error, got %q", tc.cwd, got)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 14. TestDetect_MtimeTieBreakingAlphabetical — I3
+// When multiple files share the same mtime, the alphabetically-first name wins.
+// Concept §3 mtime determinism.
+// ---------------------------------------------------------------------------
+
+// TestDetect_MtimeTieBreakingAlphabetical verifies that mtime ties are broken
+// by alphabetical order (smallest name wins), regardless of creation order.
+func TestDetect_MtimeTieBreakingAlphabetical(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := "/proj/tie"
+	slug := "-proj-tie"
+	dir := filepath.Join(tmp, ".claude", "projects", slug)
+
+	// Write files in intentionally non-alphabetical order.
+	fileC := filepath.Join(dir, "c.jsonl")
+	fileA := filepath.Join(dir, "a.jsonl")
+	fileB := filepath.Join(dir, "b.jsonl")
+	writeFile(t, fileC)
+	writeFile(t, fileA)
+	writeFile(t, fileB)
+
+	// Set ALL files to the same mtime so there is a guaranteed tie.
+	tieMtime := time.Now().Add(-1 * time.Hour)
+	setMtime(t, fileC, tieMtime)
+	setMtime(t, fileA, tieMtime)
+	setMtime(t, fileB, tieMtime)
+
+	got, err := parser.DetectActiveSession(parser.DetectInput{
+		CWD:     cwd,
+		HomeDir: tmp,
+	})
+	if err != nil {
+		t.Fatalf("DetectActiveSession: unexpected error: %v", err)
+	}
+
+	// Alphabetically first is "a.jsonl"; it must win the tie.
+	if got.JSONLPath != fileA {
+		t.Errorf("JSONLPath: want %q (alphabetically first on mtime tie), got %q", fileA, got.JSONLPath)
+	}
+	if got.Empty {
+		t.Error("Empty: want false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 15. TestDetect_TranscriptPathDotDotPrefixedFilename — I-D
+// A file whose name starts with ".." (e.g. "..hidden.jsonl") must NOT be
+// rejected by the path-traversal guard — it is a valid hidden file inside dir.
+// ---------------------------------------------------------------------------
+
+// TestDetect_TranscriptPathDotDotPrefixedFilename verifies that a TranscriptPath
+// pointing to a file named "..hidden.jsonl" inside the slug directory is accepted.
+// The old HasPrefix("..") guard would falsely reject this valid path.
+func TestDetect_TranscriptPathDotDotPrefixedFilename(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := "/proj/dotdot"
+	slug := "-proj-dotdot"
+	dir := filepath.Join(tmp, ".claude", "projects", slug)
+
+	// Create the hidden file inside the slug dir.
+	hiddenFile := filepath.Join(dir, "..hidden.jsonl")
+	writeFile(t, hiddenFile)
+
+	got, err := parser.DetectActiveSession(parser.DetectInput{
+		CWD:            cwd,
+		TranscriptPath: hiddenFile,
+		HomeDir:        tmp,
+	})
+	if err != nil {
+		t.Fatalf("DetectActiveSession: unexpected error: %v", err)
+	}
+
+	// The path-traversal guard must allow this valid file.
+	if got.JSONLPath != hiddenFile {
+		t.Errorf("JSONLPath: want %q (..hidden.jsonl is valid inside slug dir), got %q",
+			hiddenFile, got.JSONLPath)
+	}
+	if got.Empty {
+		t.Error("Empty: want false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 16. TestDetect_ConfigDirOverride_WithSessionID — I-E
+// ConfigDirEnv is honoured even when the resolution path is sessionID lookup,
+// not just mtime fallback.
+// Concept §8.2 + §8.3 combined.
+// ---------------------------------------------------------------------------
+
+// TestDetect_ConfigDirOverride_WithSessionID verifies that when ConfigDirEnv
+// is set AND a SessionID is provided, the detector searches for the sessionID
+// file inside ConfigDirEnv, not the default HomeDir/.claude base.
+func TestDetect_ConfigDirOverride_WithSessionID(t *testing.T) {
+	homeDir := t.TempDir() // must NOT be used as base
+	altBase := t.TempDir() // ConfigDirEnv points here
+
+	cwd := "/Users/me/bar"
+	slug := "-Users-me-bar"
+	altDir := filepath.Join(altBase, "projects", slug)
+	sessionFile := filepath.Join(altDir, "sess.jsonl")
+	writeFile(t, sessionFile)
+
+	// Sanity: file does NOT exist in the default home-based path.
+	defaultDir := filepath.Join(homeDir, ".claude", "projects", slug)
+	if _, err := os.Stat(defaultDir); err == nil {
+		t.Fatalf("setup error: default dir should not exist, but does: %s", defaultDir)
+	}
+
+	got, err := parser.DetectActiveSession(parser.DetectInput{
+		CWD:          cwd,
+		SessionID:    "sess",
+		HomeDir:      homeDir,
+		ConfigDirEnv: altBase,
+	})
+	if err != nil {
+		t.Fatalf("DetectActiveSession: unexpected error: %v", err)
+	}
+
+	if got.JSONLPath != sessionFile {
+		t.Errorf("JSONLPath: want %q (ConfigDirEnv + sessionID), got %q", sessionFile, got.JSONLPath)
+	}
+	if got.Dir != altDir {
+		t.Errorf("Dir: want %q, got %q", altDir, got.Dir)
 	}
 	if got.Empty {
 		t.Error("Empty: want false, got true")

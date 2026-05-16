@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -186,7 +187,7 @@ func DetectActiveSession(in DetectInput) (SessionLocation, error) {
 		return SessionLocation{}, fmt.Errorf("parser.detect: read dir: %w", err)
 	}
 
-	name, _, found := pickByMtime(entries, dir)
+	name, found := pickByMtime(entries, dir)
 	if !found {
 		loc.Empty = true
 		slog.Info("parser.detect: resolved",
@@ -220,11 +221,13 @@ func resolveBase(in DetectInput) string {
 }
 
 // validateTranscriptPath reports whether path resides inside dir.
-// Uses filepath.Rel to detect path-traversal attempts (".."-prefixed rel paths).
+// Uses filepath.Rel + filepath.IsLocal (Go 1.20) to detect path-traversal
+// attempts including ".."-escape while correctly allowing filenames that
+// start with ".." (e.g. "..hidden.jsonl").
 // Also verifies that the file exists on disk via os.Stat.
 func validateTranscriptPath(path, dir string) bool {
 	rel, err := filepath.Rel(dir, filepath.Clean(path))
-	if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
+	if err != nil || !filepath.IsLocal(rel) {
 		return false
 	}
 	_, statErr := os.Stat(path)
@@ -232,11 +235,17 @@ func validateTranscriptPath(path, dir string) bool {
 }
 
 // pickByMtime scans entries for the newest *.jsonl regular file.
-// Returns (filename, mtime, true) on success, ("", zero, false) when no
-// qualifying file is found.
-func pickByMtime(entries []fs.DirEntry, dir string) (string, time.Time, bool) {
+// When two files share the same mtime, the alphabetically-first name wins
+// (entries are sorted before the scan for determinism).
+// Returns (filename, true) on success, ("", false) when no qualifying file
+// is found.
+func pickByMtime(entries []fs.DirEntry, dir string) (string, bool) {
 	var newestName string
 	var newestMtime time.Time
+
+	// Sort alphabetically first so that ties resolve to the lexicographically
+	// smallest name rather than depending on OS readdir ordering.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 
 	for _, e := range entries {
 		// Skip directories and non-.jsonl files.
@@ -258,7 +267,7 @@ func pickByMtime(entries []fs.DirEntry, dir string) (string, time.Time, bool) {
 	}
 
 	if newestName == "" {
-		return "", time.Time{}, false
+		return "", false
 	}
-	return newestName, newestMtime, true
+	return newestName, true
 }
