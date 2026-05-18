@@ -26,5 +26,5 @@ to confirm golden values are unchanged.
 
 ## Golden values
 
-Expected token counts, turn counts, and timestamps live in
-`plans/tasks/phase-3-step5-golden.md`.
+Expected token counts, turn counts, and timestamps are embedded as constants
+in `tests/integration/parser_integration_test.go`.
