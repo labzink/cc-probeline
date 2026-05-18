@@ -5,21 +5,15 @@ import (
 )
 
 // EmailProbe renders the user's email address.
-// It is constructed with a Config so that Render can read cfg.Email without
-// a Config parameter (3-param Render to match Phase 4.1.a test contract).
+// Zero-state: all data comes from Config passed per-call to Visible and Render.
 //
 // Visible returns false when EmailEnabled=false or Email is empty.
 //
-// Note: Render uses the 3-param signature (d, t, level) to match the Phase 4.1.a
-// test contract. The 4-param Config form will be added in Phase 4.1.a GREEN.
-type EmailProbe struct {
-	cfg Config
-}
-
-// NewEmailProbe constructs an EmailProbe that will read the email from cfg.
-func NewEmailProbe(cfg Config) *EmailProbe {
-	return &EmailProbe{cfg: cfg}
-}
+// Display:
+//
+//	Full/Compact: full email unchanged.
+//	Minimal:      middle-truncate to at least 12 visible runes.
+type EmailProbe struct{}
 
 func (p *EmailProbe) Name() string  { return "email" }
 func (p *EmailProbe) Priority() int { return 2 }
@@ -34,8 +28,8 @@ func (p *EmailProbe) Visible(d Data, c Config) bool {
 //
 //	Full/Compact: full email unchanged.
 //	Minimal:      middle-truncate to at least 12 visible runes.
-func (p *EmailProbe) Render(d Data, t renderer.Theme, level Level) string {
-	email := p.cfg.Email
+func (p *EmailProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
+	email := c.Email
 	if email == "" {
 		return ""
 	}

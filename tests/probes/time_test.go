@@ -25,9 +25,9 @@ func TestTime_Render_Full(t *testing.T) {
 	th := renderer.Theme{}
 
 	tests := []struct {
-		name              string
+		name               string
 		totalAPIDurationMS int64
-		want              string
+		want               string
 	}{
 		// 2998000 ms = 2998 s = 49 min 58 s
 		{"49m58s", 2998000, "time: 49:58"},
@@ -41,7 +41,8 @@ func TestTime_Render_Full(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := p.Render(makeTimeData(tc.totalAPIDurationMS), th, probes.LevelFull)
+			cfg := probes.Config{}
+			got := p.Render(makeTimeData(tc.totalAPIDurationMS), cfg, th, probes.LevelFull)
 			if got != tc.want {
 				t.Errorf("Render(Full, %dms): want %q, got %q",
 					tc.totalAPIDurationMS, tc.want, got)
@@ -57,9 +58,9 @@ func TestTime_Render_Compact(t *testing.T) {
 	th := renderer.Theme{}
 
 	tests := []struct {
-		name              string
+		name               string
 		totalAPIDurationMS int64
-		want              string
+		want               string
 	}{
 		{"49m58s", 2998000, "49:58"},
 		{"1m00s", 60000, "01:00"},
@@ -68,7 +69,8 @@ func TestTime_Render_Compact(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := p.Render(makeTimeData(tc.totalAPIDurationMS), th, probes.LevelCompact)
+			cfg := probes.Config{}
+			got := p.Render(makeTimeData(tc.totalAPIDurationMS), cfg, th, probes.LevelCompact)
 			if got != tc.want {
 				t.Errorf("Render(Compact, %dms): want %q, got %q",
 					tc.totalAPIDurationMS, tc.want, got)
@@ -86,7 +88,7 @@ func TestTime_Render_Minimal(t *testing.T) {
 	cfg := probes.Config{}
 
 	tests := []struct {
-		name              string
+		name               string
 		totalAPIDurationMS int64
 	}{
 		{"typical", 2998000},
@@ -97,7 +99,7 @@ func TestTime_Render_Minimal(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := makeTimeData(tc.totalAPIDurationMS)
-			got := p.Render(d, th, probes.LevelMinimal)
+			got := p.Render(d, cfg, th, probes.LevelMinimal)
 			if got != "" {
 				t.Errorf("Render(Minimal, %dms): want %q (empty), got %q",
 					tc.totalAPIDurationMS, "", got)
@@ -122,13 +124,14 @@ func TestTime_Render_Zero(t *testing.T) {
 	cfg := probes.Config{}
 	d := makeTimeData(0)
 
-	if got := p.Render(d, th, probes.LevelFull); got != "time: 00:00" {
+	zeroCfg := probes.Config{}
+	if got := p.Render(d, zeroCfg, th, probes.LevelFull); got != "time: 00:00" {
 		t.Errorf("Render(Full, 0ms): want %q, got %q", "time: 00:00", got)
 	}
-	if got := p.Render(d, th, probes.LevelCompact); got != "00:00" {
+	if got := p.Render(d, zeroCfg, th, probes.LevelCompact); got != "00:00" {
 		t.Errorf("Render(Compact, 0ms): want %q, got %q", "00:00", got)
 	}
-	if got := p.Render(d, th, probes.LevelMinimal); got != "" {
+	if got := p.Render(d, zeroCfg, th, probes.LevelMinimal); got != "" {
 		t.Errorf("Render(Minimal, 0ms): want %q (empty), got %q", "", got)
 	}
 	if vis := p.Visible(d, cfg); !vis {

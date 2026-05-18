@@ -51,10 +51,10 @@ func TestCtx_Render_AllLevels(t *testing.T) {
 		ContextWindow: stdin.ContextWindow{
 			Size: 200000,
 			CurrentUsage: map[string]int{
-				"cache_read_input_tokens":       128000,
-				"input_tokens":                  0,
-				"cache_creation_input_tokens":   0,
-				"output_tokens":                 0,
+				"cache_read_input_tokens":     128000,
+				"input_tokens":                0,
+				"cache_creation_input_tokens": 0,
+				"output_tokens":               0,
 			},
 		},
 	}}

@@ -57,7 +57,8 @@ func TestCost_Render_Full(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
-			got := p.Render(d, th, probes.LevelFull)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, probes.LevelFull)
 			if got != tc.want {
 				t.Errorf("Render(Full, cost=%v): want %q, got %q", tc.cost, tc.want, got)
 			}
@@ -84,7 +85,8 @@ func TestCost_Render_Compact(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
-			got := p.Render(d, th, probes.LevelCompact)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, probes.LevelCompact)
 			if got != tc.want {
 				t.Errorf("Render(Compact, cost=%v): want %q, got %q", tc.cost, tc.want, got)
 			}
@@ -111,7 +113,8 @@ func TestCost_Render_Minimal(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
-			got := p.Render(d, th, probes.LevelMinimal)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, probes.LevelMinimal)
 			if got != tc.want {
 				t.Errorf("Render(Minimal, cost=%v): want %q, got %q", tc.cost, tc.want, got)
 			}

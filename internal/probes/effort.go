@@ -18,9 +18,6 @@ var effortIcon = map[string]string{
 
 // EffortProbe renders the effort level as a Unicode circle icon.
 // All three display levels render the same icon (effort is P0; icon is never dropped).
-//
-// Note: Render uses the 3-param signature (d, t, level) to match the Phase 4.1.a
-// test contract. The 4-param Config form will be added in Phase 4.1.a GREEN.
 type EffortProbe struct{}
 
 func (p *EffortProbe) Name() string  { return "effort" }
@@ -35,7 +32,7 @@ func (p *EffortProbe) Visible(d Data, c Config) bool {
 
 // Render returns the Unicode icon for the effort level.
 // Returns "" for "off" or unrecognised levels (renderer drops the separator).
-func (p *EffortProbe) Render(d Data, t renderer.Theme, level Level) string {
+func (p *EffortProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	icon, ok := effortIcon[d.Stdin.Effort.Level]
 	if !ok {
 		return ""

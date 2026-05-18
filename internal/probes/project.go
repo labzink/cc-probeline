@@ -9,9 +9,6 @@ import (
 // ProjectProbe renders the basename of the current working directory.
 // Falls back to "?" when Cwd is empty or the basename is empty (e.g. root "/").
 // Always visible. Priority P0.
-//
-// Note: Render uses the 3-param signature (d, t, level) to match the Phase 4.1.a
-// test contract. The 4-param Config form will be added in Phase 4.1.a GREEN.
 type ProjectProbe struct{}
 
 func (p *ProjectProbe) Name() string  { return "project" }
@@ -25,7 +22,7 @@ func (p *ProjectProbe) Visible(d Data, c Config) bool { return true }
 //
 //	Full/Compact: full basename (no truncation).
 //	Minimal:      middle-truncate to ≥ 8 chars if longer (using "…" as separator).
-func (p *ProjectProbe) Render(d Data, t renderer.Theme, level Level) string {
+func (p *ProjectProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	name := filepath.Base(d.Stdin.Cwd)
 	if name == "" || name == "." || name == "/" {
 		return "?"

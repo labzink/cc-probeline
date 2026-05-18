@@ -2,12 +2,8 @@
 // Covers visibility (disabled config, empty email), and rendering across all
 // three Levels with both short and long email addresses.
 //
-// Design note: EmailProbe.Render(d Data, t Theme, level Level) does not accept
-// Config directly (Probe interface constraint). The email value must therefore
-// be stored inside EmailProbe at construction time (EmailProbe{Cfg: cfg} or
-// similar). Tests assume EmailProbe embeds or stores Config so that Render can
-// read cfg.Email. If dev chooses a different approach, assertions stand as the
-// behavioural contract; the construction syntax may need adjustment.
+// EmailProbe is zero-state: Config is passed per-call to Visible and Render.
+// Construction is simply &probes.EmailProbe{}.
 package probes_test
 
 import (
@@ -22,6 +18,7 @@ import (
 // when Config.EmailEnabled is false, regardless of the Email value.
 func TestEmail_Visible_Disabled(t *testing.T) {
 	d := probes.Data{Stdin: stdin.Payload{}}
+	p := &probes.EmailProbe{}
 
 	tests := []struct {
 		name string
@@ -35,7 +32,6 @@ func TestEmail_Visible_Disabled(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := probes.NewEmailProbe(tc.cfg)
 			got := p.Visible(d, tc.cfg)
 			if got != tc.want {
 				t.Errorf("Visible(enabled=%v, email=%q): want %v, got %v",
@@ -50,7 +46,7 @@ func TestEmail_Visible_Disabled(t *testing.T) {
 func TestEmail_Visible_EmptyEmail(t *testing.T) {
 	d := probes.Data{Stdin: stdin.Payload{}}
 	cfg := probes.Config{EmailEnabled: true, Email: ""}
-	p := probes.NewEmailProbe(cfg)
+	p := &probes.EmailProbe{}
 
 	got := p.Visible(d, cfg)
 	if got != false {
@@ -66,6 +62,7 @@ func TestEmail_Visible_EmptyEmail(t *testing.T) {
 func TestEmail_Render_Levels(t *testing.T) {
 	th := renderer.Theme{}
 	d := probes.Data{Stdin: stdin.Payload{}}
+	p := &probes.EmailProbe{}
 
 	tests := []struct {
 		name  string
@@ -94,8 +91,7 @@ func TestEmail_Render_Levels(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := probes.Config{EmailEnabled: true, Email: tc.email}
-			p := probes.NewEmailProbe(cfg)
-			got := p.Render(d, th, tc.level)
+			got := p.Render(d, cfg, th, tc.level)
 			if got != tc.want {
 				t.Errorf("Render(email=%q, %v): want %q, got %q",
 					tc.email, tc.level, tc.want, got)

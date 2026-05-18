@@ -18,9 +18,9 @@ func TestModel_Visible(t *testing.T) {
 	cfg := probes.Config{}
 
 	tests := []struct {
-		name  string
-		id    string
-		want  bool
+		name string
+		id   string
+		want bool
 	}{
 		{"opus id set", "claude-opus-4-7-20250805", true},
 		{"sonnet id set", "claude-sonnet-4-6", true},
@@ -68,7 +68,8 @@ func TestModel_Render_AllLevels(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Model: stdin.Model{ID: tc.id}}}
-			got := p.Render(d, th, tc.level)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, tc.level)
 			if got != tc.want {
 				t.Errorf("Render(%q, %v): want %q, got %q", tc.id, tc.level, tc.want, got)
 			}

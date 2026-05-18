@@ -79,3 +79,19 @@ type Probe interface {
 	// Used by the renderer to decide which probes to drop when space is tight.
 	MinWidth() int
 }
+
+// Compile-time interface conformance checks: every probe type must satisfy
+// Probe. A missing 4-param Render or wrong Visible signature breaks the build.
+var (
+	_ Probe = (*ModelProbe)(nil)
+	_ Probe = (*EffortProbe)(nil)
+	_ Probe = (*CostProbe)(nil)
+	_ Probe = (*ProjectProbe)(nil)
+	_ Probe = (*EmailProbe)(nil)
+	_ Probe = (*TimeProbe)(nil)
+	_ Probe = (*CtxProbe)(nil)
+	_ Probe = (*CacheProbe)(nil)
+	_ Probe = (*QuotaProbe)(nil)
+	_ Probe = (*GitProbe)(nil)
+	_ Probe = (*SubagentProbe)(nil)
+)

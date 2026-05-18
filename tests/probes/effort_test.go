@@ -41,7 +41,7 @@ func TestEffort_Visible_Off(t *testing.T) {
 			}
 			// When off, Render must also return empty string (renderer drops the separator).
 			if !tc.want {
-				rendered := p.Render(d, th, probes.LevelFull)
+				rendered := p.Render(d, cfg, th, probes.LevelFull)
 				if rendered != "" {
 					t.Errorf("Render(%q, Full): want %q, got %q", tc.level, "", rendered)
 				}
@@ -95,7 +95,8 @@ func TestEffort_Render_Icons(t *testing.T) {
 		name := tc.effortLevel + "/" + tc.displayLvl.String()
 		t.Run(name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Effort: stdin.Effort{Level: tc.effortLevel}}}
-			got := p.Render(d, th, tc.displayLvl)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, tc.displayLvl)
 			if got != tc.want {
 				t.Errorf("Render(effort=%q, level=%v): want %q, got %q",
 					tc.effortLevel, tc.displayLvl, tc.want, got)

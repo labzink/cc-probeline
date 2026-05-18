@@ -50,7 +50,8 @@ func TestProject_Render_EmptyCwd(t *testing.T) {
 
 	for _, lvl := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
 		t.Run(lvl.String(), func(t *testing.T) {
-			got := p.Render(d, th, lvl)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, lvl)
 			if got != "?" {
 				t.Errorf("Render(empty cwd, %v): want %q, got %q", lvl, "?", got)
 			}
@@ -94,7 +95,8 @@ func TestProject_Render_Levels(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := probes.Data{Stdin: stdin.Payload{Cwd: tc.cwd}}
-			got := p.Render(d, th, tc.level)
+			cfg := probes.Config{}
+			got := p.Render(d, cfg, th, tc.level)
 			if got != tc.want {
 				t.Errorf("Render(cwd=%q, %v): want %q, got %q", tc.cwd, tc.level, tc.want, got)
 			}
