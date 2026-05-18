@@ -21,8 +21,9 @@ import (
 
 // ─── Fixture path resolution ──────────────────────────────────────────────────
 
-// findProjectRoot locates the repository root by walking up from the test
-// binary's working directory. Returns an error if not found.
+// findProjectRoot walks at most 2 levels up from cwd looking for go.mod.
+// Sufficient for the current tests/integration/ package depth; revisit if the
+// package is moved deeper.
 // Under `go test ./tests/integration/` the cwd is the package directory
 // (tests/integration/); under `go test ./...` from the repo root the cwd is
 // the repo root itself.
@@ -49,32 +50,20 @@ func isProjectRoot(dir string) bool {
 	return err == nil
 }
 
-// projectRoot returns the project root, fataling on the test if not found.
-func projectRoot(t *testing.T) string {
-	t.Helper()
-	root, err := findProjectRoot()
-	if err != nil {
-		t.Fatalf("projectRoot: cannot locate project root: %v", err)
-	}
-	return root
-}
-
 // fixturePath resolves a path relative to the project root.
-func fixturePath(t *testing.T, rel string) string {
-	t.Helper()
-	return filepath.Join(projectRoot(t), rel)
-}
-
-// benchmarkFixturePath resolves a path relative to the project root for
-// benchmarks (uses *testing.B).
-func benchmarkFixturePath(b *testing.B, rel string) string {
-	b.Helper()
+// Accepts both *testing.T and *testing.B via the testing.TB interface.
+func fixturePath(tb testing.TB, rel string) string {
+	tb.Helper()
 	root, err := findProjectRoot()
 	if err != nil {
-		b.Fatalf("benchmarkFixturePath: cannot locate project root: %v", err)
+		tb.Fatalf("fixturePath: cannot locate project root: %v", err)
 	}
 	return filepath.Join(root, rel)
 }
+
+// benchSink prevents the compiler from eliminating the Aggregate call via
+// dead-code elimination. Assigned inside BenchmarkParseMedium.
+var benchSink parser.SessionStats
 
 // ─── Fixture relative paths (resolved at runtime via projectRoot) ─────────────
 
@@ -207,91 +196,93 @@ func assertTotals(t *testing.T, label string, got parser.TokenCounts, wantIn, wa
 	}
 }
 
+// ─── DRY helper for single-model basic session tests ─────────────────────────
+
+// goldenBasicSession holds expected values for a single-model session test
+// (ShortSession, MediumSession). For multi-model or subagent sessions, use
+// the bespoke test body (see TestIntegration_SubagentsSession).
+type goldenBasicSession struct {
+	Fixture        string
+	TurnCount      int
+	ToolUseCount   int
+	FirstTimestamp string // RFC3339Nano (Z suffix)
+	LastTimestamp  string
+	Totals         parser.TokenCounts
+	ModelKey       string // canonicalModelKey output, e.g. "opus-4-7"
+}
+
+// runBasicSessionTest validates ParseLines+Aggregate for a basic single-model
+// session: turn/tool counts, time window, totals, and PerModel entry.
+func runBasicSessionTest(t *testing.T, g goldenBasicSession) {
+	t.Helper()
+	records := mustOpenAndParse(t, g.Fixture)
+	stats := parser.Aggregate(records)
+
+	if stats.TurnCount != g.TurnCount {
+		t.Errorf("TurnCount = %d, want %d", stats.TurnCount, g.TurnCount)
+	}
+	if stats.ToolUseCount != g.ToolUseCount {
+		t.Errorf("ToolUseCount = %d, want %d", stats.ToolUseCount, g.ToolUseCount)
+	}
+
+	wantFirst := mustParseTime(t, g.FirstTimestamp)
+	wantLast := mustParseTime(t, g.LastTimestamp)
+	if !stats.FirstTimestamp.Equal(wantFirst) {
+		t.Errorf("FirstTimestamp = %v, want %v", stats.FirstTimestamp, wantFirst)
+	}
+	if !stats.LastTimestamp.Equal(wantLast) {
+		t.Errorf("LastTimestamp = %v, want %v", stats.LastTimestamp, wantLast)
+	}
+
+	assertTotals(t, "Totals", stats.Totals,
+		g.Totals.Input, g.Totals.Output, g.Totals.CacheRead, g.Totals.CacheCreate)
+
+	pm, ok := stats.PerModel[g.ModelKey]
+	if !ok {
+		t.Fatalf("PerModel[%q] missing; keys present: %v", g.ModelKey, modelKeys(stats.PerModel))
+	}
+	assertTotals(t, "PerModel["+g.ModelKey+"]", pm,
+		g.Totals.Input, g.Totals.Output, g.Totals.CacheRead, g.Totals.CacheCreate)
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 // TestIntegration_ShortSession validates ParseLines+Aggregate on the short
 // fixture (21 turns, opus-only, no subagents).
 func TestIntegration_ShortSession(t *testing.T) {
-	records := mustOpenAndParse(t, fixtureShort)
-	stats := parser.Aggregate(records)
-
-	// Turn and tool counts.
-	if stats.TurnCount != shortTurnCount {
-		t.Errorf("TurnCount = %d, want %d", stats.TurnCount, shortTurnCount)
-	}
-	if stats.ToolUseCount != shortToolUseCount {
-		t.Errorf("ToolUseCount = %d, want %d", stats.ToolUseCount, shortToolUseCount)
-	}
-
-	// Time window.
-	wantFirst := mustParseTime(t, shortFirstTimestamp)
-	wantLast := mustParseTime(t, shortLastTimestamp)
-	if !stats.FirstTimestamp.Equal(wantFirst) {
-		t.Errorf("FirstTimestamp = %v, want %v", stats.FirstTimestamp, wantFirst)
-	}
-	if !stats.LastTimestamp.Equal(wantLast) {
-		t.Errorf("LastTimestamp = %v, want %v", stats.LastTimestamp, wantLast)
-	}
-
-	// Totals.
-	assertTotals(t, "Totals",
-		stats.Totals,
-		shortTotalsInput, shortTotalsOutput,
-		shortTotalsCacheRead, shortTotalsCacheCreate,
-	)
-
-	// PerModel — single model in this fixture.
-	// canonicalModelKey("claude-opus-4-7") == "opus-4-7"
-	const modelKey = "opus-4-7"
-	pm, ok := stats.PerModel[modelKey]
-	if !ok {
-		t.Fatalf("PerModel[%q] missing; keys present: %v", modelKey, modelKeys(stats.PerModel))
-	}
-	assertTotals(t, "PerModel["+modelKey+"]",
-		pm,
-		shortTotalsInput, shortTotalsOutput,
-		shortTotalsCacheRead, shortTotalsCacheCreate,
-	)
+	runBasicSessionTest(t, goldenBasicSession{
+		Fixture:        fixtureShort,
+		TurnCount:      shortTurnCount,
+		ToolUseCount:   shortToolUseCount,
+		FirstTimestamp: shortFirstTimestamp,
+		LastTimestamp:  shortLastTimestamp,
+		Totals: parser.TokenCounts{
+			Input:       shortTotalsInput,
+			Output:      shortTotalsOutput,
+			CacheRead:   shortTotalsCacheRead,
+			CacheCreate: shortTotalsCacheCreate,
+		},
+		ModelKey: "opus-4-7",
+	})
 }
 
 // TestIntegration_MediumSession validates ParseLines+Aggregate on the medium
 // fixture (25 turns, opus-only, longer session with higher cache traffic).
 func TestIntegration_MediumSession(t *testing.T) {
-	records := mustOpenAndParse(t, fixtureMedium)
-	stats := parser.Aggregate(records)
-
-	if stats.TurnCount != mediumTurnCount {
-		t.Errorf("TurnCount = %d, want %d", stats.TurnCount, mediumTurnCount)
-	}
-	if stats.ToolUseCount != mediumToolUseCount {
-		t.Errorf("ToolUseCount = %d, want %d", stats.ToolUseCount, mediumToolUseCount)
-	}
-
-	wantFirst := mustParseTime(t, mediumFirstTimestamp)
-	wantLast := mustParseTime(t, mediumLastTimestamp)
-	if !stats.FirstTimestamp.Equal(wantFirst) {
-		t.Errorf("FirstTimestamp = %v, want %v", stats.FirstTimestamp, wantFirst)
-	}
-	if !stats.LastTimestamp.Equal(wantLast) {
-		t.Errorf("LastTimestamp = %v, want %v", stats.LastTimestamp, wantLast)
-	}
-
-	assertTotals(t, "Totals",
-		stats.Totals,
-		mediumTotalsInput, mediumTotalsOutput,
-		mediumTotalsCacheRead, mediumTotalsCacheCreate,
-	)
-
-	const modelKey = "opus-4-7"
-	pm, ok := stats.PerModel[modelKey]
-	if !ok {
-		t.Fatalf("PerModel[%q] missing; keys present: %v", modelKey, modelKeys(stats.PerModel))
-	}
-	assertTotals(t, "PerModel["+modelKey+"]",
-		pm,
-		mediumTotalsInput, mediumTotalsOutput,
-		mediumTotalsCacheRead, mediumTotalsCacheCreate,
-	)
+	runBasicSessionTest(t, goldenBasicSession{
+		Fixture:        fixtureMedium,
+		TurnCount:      mediumTurnCount,
+		ToolUseCount:   mediumToolUseCount,
+		FirstTimestamp: mediumFirstTimestamp,
+		LastTimestamp:  mediumLastTimestamp,
+		Totals: parser.TokenCounts{
+			Input:       mediumTotalsInput,
+			Output:      mediumTotalsOutput,
+			CacheRead:   mediumTotalsCacheRead,
+			CacheCreate: mediumTotalsCacheCreate,
+		},
+		ModelKey: "opus-4-7",
+	})
 }
 
 // TestIntegration_SubagentsSession validates:
@@ -384,7 +375,7 @@ func TestIntegration_SubagentsSession(t *testing.T) {
 // b.ResetTimer() is called after os.Open so file-open latency is excluded.
 // Each iteration seeks to the beginning so parse work is real (not cached).
 func BenchmarkParseMedium(b *testing.B) {
-	path := benchmarkFixturePath(b, fixtureMedium)
+	path := fixturePath(b, fixtureMedium)
 	f, err := os.Open(path)
 	if err != nil {
 		b.Fatalf("os.Open(%q): %v", path, err)
@@ -402,7 +393,7 @@ func BenchmarkParseMedium(b *testing.B) {
 		if err != nil {
 			b.Fatalf("ParseLines: %v", err)
 		}
-		_ = parser.Aggregate(records)
+		benchSink = parser.Aggregate(records)
 	}
 }
 
