@@ -42,7 +42,6 @@ func TestPath_XDG(t *testing.T) {
 // back to $HOME/.config/cc-probeline/mode.
 // §4.2 Mode toggle — HOME fallback (C-1).
 func TestPath_NoXDG(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", tmpDir)
@@ -62,7 +61,6 @@ func TestPath_NoXDG(t *testing.T) {
 // storage file does not exist.
 // §4.2 Mode toggle — Default=Standard on missing file (C-3).
 func TestLoad_Default_NoFile(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 	// Do NOT create the mode file — it must not exist.
@@ -343,7 +341,9 @@ func TestToggle_Twice_RestoresOriginal(t *testing.T) {
 
 // TestConcurrent_TwoToggles verifies that two goroutines calling Toggle()
 // simultaneously do not produce a corrupt mode file. After both complete,
-// the file must contain exactly one of the two valid Mode values.
+// the file must contain exactly one of the two valid Mode values AND the
+// collected return values must each be one of the two valid modes (no stub
+// default leaking for a non-standard seed).
 //
 // Run with -race to detect data races.
 // §4.2 Mode toggle — atomic .tmp+rename+flock prevents concurrent corruption (C-2).
@@ -351,26 +351,30 @@ func TestConcurrent_TwoToggles(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	// Seed with Standard.
+	// Seed with SuperCompact so the first real Toggle must produce Standard —
+	// giving us a concrete assertion that is NOT the stub default (Standard).
+	// With the stub, Toggle always returns (Standard, nil) regardless of disk;
+	// so collecting results and verifying consistency exposes the stub's failure.
 	dir := filepath.Join(tmpDir, "cc-probeline")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("standard"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("super-compact"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
 	var wg sync.WaitGroup
+	results := make([]mode.Mode, 2)
 	errs := make([]error, 2)
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, errs[0] = mode.Toggle()
+		results[0], errs[0] = mode.Toggle()
 	}()
 	go func() {
 		defer wg.Done()
-		_, errs[1] = mode.Toggle()
+		results[1], errs[1] = mode.Toggle()
 	}()
 	wg.Wait()
 
@@ -378,6 +382,13 @@ func TestConcurrent_TwoToggles(t *testing.T) {
 	for i, err := range errs {
 		if err != nil {
 			t.Errorf("goroutine %d Toggle() error: %v", i, err)
+		}
+	}
+
+	// Each return value must be a known mode.
+	for i, r := range results {
+		if r != mode.SuperCompact && r != mode.Standard {
+			t.Errorf("goroutine %d returned corrupt mode %q", i, r)
 		}
 	}
 
@@ -389,5 +400,14 @@ func TestConcurrent_TwoToggles(t *testing.T) {
 	persisted := mode.Mode(strings.TrimSpace(string(raw)))
 	if persisted != mode.SuperCompact && persisted != mode.Standard {
 		t.Errorf("concurrent Toggles left corrupt file: got %q", persisted)
+	}
+
+	// The disk value must match one of the returned values: the last writer wins,
+	// so the on-disk mode must equal one of the two Toggle() return values.
+	// This ensures the stub cannot satisfy the test by leaving the file unchanged
+	// (stub returns Standard but disk has super-compact, which is a mismatch).
+	if persisted != results[0] && persisted != results[1] {
+		t.Errorf("disk value %q does not match either Toggle() result (%q, %q): stub did not persist",
+			persisted, results[0], results[1])
 	}
 }
