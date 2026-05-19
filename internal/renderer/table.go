@@ -156,6 +156,16 @@ func (b *Builder) Add(t parser.Turn) {
 	b.aggOut += t.Tokens.Output
 }
 
+// RenderForCols renders the table targeting cols terminal width, dropping
+// the duration column then middle-truncating tool/arg as needed (§4.3 T-9).
+// When cols <= 0 the current builder width is used (no truncation).
+//
+// Stub: delegates to Render and ignores cols. Real implementation in 4.3.d.
+func (b *Builder) RenderForCols(cols int) string {
+	_ = cols
+	return b.Render()
+}
+
 // Render returns the full table string (top border, rows, footer-separator,
 // footer, bottom border). Returns "" when no rows have been added.
 func (b *Builder) Render() string {
