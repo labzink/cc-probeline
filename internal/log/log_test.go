@@ -159,7 +159,7 @@ func TestPrune_Triggered(t *testing.T) {
 	path := logPath(dir)
 
 	now := time.Now().UTC()
-	old := now.Add(-8 * 24 * time.Hour) // 8 days ago → stale
+	old := now.Add(-8 * 24 * time.Hour)   // 8 days ago → stale
 	fresh := now.Add(-2 * 24 * time.Hour) // 2 days ago → keep
 
 	writeRawLines(t, path, []string{

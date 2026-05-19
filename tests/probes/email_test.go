@@ -80,11 +80,11 @@ func TestEmail_Render_Levels(t *testing.T) {
 		{"typical compact", "labzin.k@gmail.com", probes.LevelCompact, "labzin.k@gmail.com"},
 
 		// Typical email at Minimal — middle-truncate to min 12 visible chars.
-		// "labzin.k@gmail.com" (18) → first 6 + "…" + last 5 = "labzin…l.com" (12 chars)
-		{"typical minimal", "labzin.k@gmail.com", probes.LevelMinimal, "labzin…l.com"},
+		// "labzin.k@gmail.com" (18) → regime 1: head=9, tail=3 → "labzin.k@…com" (13 chars)
+		{"typical minimal", "labzin.k@gmail.com", probes.LevelMinimal, "labzin.k@…com"},
 
-		// Very long email at Minimal — same rule: ≥ 12 chars with "…".
-		// "averylongemail@example.com" (26) → first 6 + "…" + last 5 = "averyl…e.com"
+		// Very long email at Minimal — regime 2: head=6, tail=5 → "averyl…e.com" (12 chars)
+		// "averylongemail@example.com" (26): half=13 >= minWidth-1=11 → regime 2
 		{"long minimal", "averylongemail@example.com", probes.LevelMinimal, "averyl…e.com"},
 	}
 

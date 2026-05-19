@@ -1,8 +1,6 @@
 package probes
 
 import (
-	"fmt"
-
 	"github.com/labzink/cc-probeline/internal/renderer"
 )
 
@@ -27,10 +25,7 @@ func (p *TimeProbe) Render(d Data, _ Config, t renderer.Theme, level Level) stri
 	if level == LevelMinimal {
 		return ""
 	}
-	totalSec := d.Stdin.Cost.TotalAPIDurationMS / 1000
-	mins := totalSec / 60
-	secs := totalSec % 60
-	mmss := fmt.Sprintf("%02d:%02d", mins, secs)
+	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 	if level == LevelFull {
 		return "time: " + mmss
 	}

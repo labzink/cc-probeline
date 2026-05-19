@@ -4,6 +4,7 @@
 package probes_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -153,5 +154,31 @@ func TestCtx_Render_Percent(t *testing.T) {
 					tc.level, tc.used, tc.size, tc.want, got)
 			}
 		})
+	}
+}
+
+// TestCtx_RoundNearest10_ClampAbove100 verifies that roundNearest10 clamps
+// values above 100 to exactly 100 (the r > 100 branch, ctx.go:89-92).
+// This exercises the branch that existing tests do not cover (66.7% → 100%).
+func TestCtx_RoundNearest10_ClampAbove100(t *testing.T) {
+	p := &probes.CtxProbe{}
+	cfg := probes.Config{}
+	th := renderer.Theme{}
+
+	// Feed used > size so raw pct > 100 before clamping.
+	// size=100000, used=110000 → raw pct=110 → clamped to 100 → bar "█████".
+	d := probes.Data{Stdin: stdin.Payload{
+		ContextWindow: stdin.ContextWindow{
+			Size: 100000,
+			CurrentUsage: map[string]int{
+				"cache_read_input_tokens": 110000,
+			},
+		},
+	}}
+
+	got := p.Render(d, cfg, th, probes.LevelFull)
+	const wantBar = "█████"
+	if !strings.Contains(got, wantBar) {
+		t.Errorf("Render(used>size): want bar %q in output, got %q", wantBar, got)
 	}
 }

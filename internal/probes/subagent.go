@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -25,8 +26,8 @@ import (
 type SubagentProbe struct{}
 
 func (p *SubagentProbe) Name() string  { return "subagent" }
-func (p *SubagentProbe) Priority() int { return 1 }
-func (p *SubagentProbe) MinWidth() int { return len("? · ? · ?") }
+func (p *SubagentProbe) Priority() int { return 4 }
+func (p *SubagentProbe) MinWidth() int { return 40 } // <name>·<model>·<ctx> minimum
 
 // Visible returns false when Stdin.Tasks is empty or nil.
 func (p *SubagentProbe) Visible(d Data, c Config) bool {
@@ -40,13 +41,14 @@ func (p *SubagentProbe) Render(d Data, c Config, t renderer.Theme, level Level) 
 		stats, ok := findSubagentByID(d.Subagents, task.ID)
 		var line string
 		if ok {
-			line = renderMatchedLine(task, stats, level)
+			line = renderMatchedLine(task, stats, d.Now, level)
 		} else {
 			slog.Warn("probes.subagent: task.ID not matched",
 				"taskID", task.ID,
 				"taskName", task.Name,
+				"knownAgentIDs", agentIDList(d.Subagents),
 			)
-			line = renderFallbackLine(task.Name, level)
+			line = renderFallbackLine(task.Name, task.StartTime, d.Now, level)
 		}
 		lines = append(lines, line)
 	}
@@ -64,14 +66,16 @@ func findSubagentByID(subagents []parser.SubagentStats, id string) (parser.Subag
 }
 
 // renderMatchedLine renders the enriched display line for a matched task+stats pair.
-func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, level Level) string {
+func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, now time.Time, level Level) string {
 	// Phase 4.1: context window size is unknown for subagents — use "?" as max.
 	ctxK := formatK(stats.Tokens.Input)
 	ctxField := ctxK + "/?"
 
-	// Phase 4.1: no per-subagent cost or duration; use zero placeholders.
+	// Phase 4.1 stub: no cost source until Phase 6.
 	costField := fmt.Sprintf("$%.2f", 0.0)
-	timeField := "⏱00:00"
+
+	// Compute real elapsed time from task.StartTime to now.
+	timeField := formatElapsed(now.Sub(task.StartTime))
 
 	lastTool := stats.LastTool
 	if lastTool == "" {
@@ -91,13 +95,42 @@ func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, level Level)
 }
 
 // renderFallbackLine renders a fallback line when no SubagentStats matched the task.
-func renderFallbackLine(name string, level Level) string {
+// elapsed is computed from task.StartTime; cost remains "?" (no source until Phase 6).
+func renderFallbackLine(name string, startTime time.Time, now time.Time, level Level) string {
+	timeField := "⏱" + formatElapsed(now.Sub(startTime))
 	switch level {
 	case LevelMinimal:
 		return name + " · ? · ?"
 	case LevelCompact:
-		return name + " · ? · ? · $? · ⏱?"
+		return name + " · ? · ? · $? · " + timeField
 	default: // LevelFull
-		return name + " · ? · ? · $? · ⏱? · ?"
+		return name + " · ? · ? · $? · " + timeField + " · ?"
 	}
+}
+
+// formatElapsed formats a duration as "Nm SSs" (< 1h) or "NhMMm" (>= 1h).
+// Matches spec §A3 line 146.
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSec := int(d.Seconds())
+	if d < time.Hour {
+		m := totalSec / 60
+		s := totalSec % 60
+		return fmt.Sprintf("%dm %02ds", m, s)
+	}
+	h := totalSec / 3600
+	m := (totalSec % 3600) / 60
+	return fmt.Sprintf("%dh %02dm", h, m)
+}
+
+// agentIDList returns a slice of AgentID strings from a SubagentStats slice.
+// Used for structured slog logging when a task.ID lookup fails.
+func agentIDList(subs []parser.SubagentStats) []string {
+	ids := make([]string, len(subs))
+	for i, s := range subs {
+		ids[i] = s.AgentID
+	}
+	return ids
 }

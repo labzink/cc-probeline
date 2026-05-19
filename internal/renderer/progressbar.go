@@ -3,7 +3,7 @@ package renderer
 // ProgressBar returns a 5-segment UTF-8 progress bar for the given percentage.
 // Input is clamped to [0, 100]. Each segment represents 20% of the total.
 // Within each segment: <10% of segment → empty ("░"), 10-<20% → half ("▒"),
-// >=20% → full ("█"). The percentage is first rounded to the nearest 10.
+// >=20% → full ("█"). The percentage is first floored to the nearest lower multiple of 10.
 //
 // Canonical 11-point mapping (every 10%):
 //

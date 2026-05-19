@@ -358,7 +358,7 @@ func aggregateSubagent(records []Record) SubagentStats {
 	}
 
 	s.LastTimestamp = records[len(records)-1].Timestamp
-	s.Model = canonicalModelKey(records[len(records)-1].Model)
+	s.Model = CanonicalModelKey(records[len(records)-1].Model)
 	return s
 }
 

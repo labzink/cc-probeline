@@ -176,6 +176,32 @@ func TestDecode_StrictUnknownField(t *testing.T) {
 	}
 }
 
+// TestDecode_SecondPassUnmarshalError verifies that a valid top-level JSON object
+// with a known key but wrong value type triggers an error on the second-pass
+// unmarshal into the typed Payload struct.
+//
+// Example: {"cost": "notanobject"} passes the first-pass map decode (the value
+// is valid JSON), but fails the second pass because cost expects an object.
+// The test ensures an error is returned (payload.go:119).
+func TestDecode_SecondPassUnmarshalError(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"cost_string", `{"cost": "notanobject"}`},
+		{"context_window_string", `{"context_window": "string"}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := stdin.Decode(strings.NewReader(tc.in), false)
+			if err == nil {
+				t.Fatalf("Decode(%q): want error for wrong type, got nil", tc.in)
+			}
+		})
+	}
+}
+
 // TestDecode_MalformedJSON verifies that invalid JSON produces an error that
 // wraps a json.SyntaxError.
 func TestDecode_MalformedJSON(t *testing.T) {

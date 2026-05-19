@@ -40,7 +40,7 @@ func Aggregate(records []Record) SessionStats {
 	s.FirstTimestamp = records[0].Timestamp
 
 	for _, rec := range records {
-		key := canonicalModelKey(rec.Model)
+		key := CanonicalModelKey(rec.Model)
 
 		cur := s.PerModel[key]
 		cur.Input += rec.Usage.Input
@@ -71,9 +71,9 @@ func Aggregate(records []Record) SessionStats {
 	return s
 }
 
-// canonicalModelKey returns the short model name used as a PerModel key.
+// CanonicalModelKey returns the short model name used as a PerModel key.
 // Examples: "claude-opus-4-7-20250805" -> "opus-4-7", "" -> "unknown".
-func canonicalModelKey(rawModel string) string {
+func CanonicalModelKey(rawModel string) string {
 	if rawModel == "" {
 		return "unknown"
 	}

@@ -8,7 +8,8 @@ import (
 
 // CtxProbe renders the context window usage as a 5-segment progress bar.
 //
-// Used tokens = sum of all CurrentUsage values (input + cache_read + cache_creation + output).
+// Used tokens = sum of three input-side keys from CurrentUsage:
+// cache_read_input_tokens + cache_creation_input_tokens + input_tokens.
 // Percentage = used / Size * 100 (clamped to [0, 100]).
 //
 // Display:
@@ -34,10 +35,9 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		return ""
 	}
 
-	var used int
-	for _, v := range d.Stdin.ContextWindow.CurrentUsage {
-		used += v
-	}
+	// Sum only the three input-side keys per concept §4.1.b line 467.
+	cu := d.Stdin.ContextWindow.CurrentUsage
+	used := cu["cache_read_input_tokens"] + cu["cache_creation_input_tokens"] + cu["input_tokens"]
 
 	pct := float64(used) / float64(size) * 100.0
 	if pct < 0 {
@@ -69,15 +69,6 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 	// LevelFull: show bar + label + percentage (raw pct, not rounded).
 	pctInt := int(pct)
 	return fmt.Sprintf("ctx %s %s (%d%%)", bar, label, pctInt)
-}
-
-// formatK converts a token count to a "K" abbreviated string (e.g. 128000 → "128K").
-// Values < 1000 are returned as-is (e.g. 500 → "500").
-func formatK(n int) string {
-	if n >= 1000 {
-		return fmt.Sprintf("%dK", n/1000)
-	}
-	return fmt.Sprintf("%d", n)
 }
 
 // roundNearest10 rounds v to the nearest multiple of 10 using standard rounding

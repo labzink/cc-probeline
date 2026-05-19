@@ -28,6 +28,11 @@ func TestLevel_String(t *testing.T) {
 			}
 		})
 	}
+
+	// C5: Level(99) must return "unknown" (default branch, 80% → 100%).
+	if got := probes.Level(99).String(); got != "unknown" {
+		t.Errorf("Level(99).String(): want %q, got %q", "unknown", got)
+	}
 }
 
 // TestRegistry_OrderStable verifies that Line1Registry is a fixed-order slice:

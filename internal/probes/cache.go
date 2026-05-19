@@ -30,19 +30,11 @@ func (p *CacheProbe) Visible(d Data, c Config) bool {
 
 // Render formats the cache aggregate row at the given level.
 func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
-	if d.Session == nil {
-		return ""
-	}
-
 	readK := formatK(d.Session.Totals.CacheRead)
 	createK := formatK(d.Session.Totals.CacheCreate)
 	outK := formatK(d.Session.Totals.Output)
 	cost := fmt.Sprintf("$%.2f", d.Stdin.Cost.TotalCostUSD)
-
-	totalSec := d.Stdin.Cost.TotalAPIDurationMS / 1000
-	mins := totalSec / 60
-	secs := totalSec % 60
-	mmss := fmt.Sprintf("%02d:%02d", mins, secs)
+	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 
 	switch level {
 	case LevelFull:

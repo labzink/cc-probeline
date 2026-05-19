@@ -186,9 +186,9 @@ func TestDedup_MixedKeys(t *testing.T) {
 // the earliest timestamp wins regardless of input order.
 func TestDedup_ThreeWayDup(t *testing.T) {
 	input := []parser.Record{
-		makeRecord("req-x", "u", t2),  // latest → loser
-		makeRecord("req-x", "u", t0),  // earliest → winner
-		makeRecord("req-x", "u", t1),  // middle → loser
+		makeRecord("req-x", "u", t2), // latest → loser
+		makeRecord("req-x", "u", t0), // earliest → winner
+		makeRecord("req-x", "u", t1), // middle → loser
 	}
 
 	got := parser.Dedup(input)

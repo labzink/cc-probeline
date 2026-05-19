@@ -197,6 +197,62 @@ func TestSubagent_NoMatch_Fallback(t *testing.T) {
 	}
 }
 
+// TestSubagent_NoMatch_Fallback_Levels verifies that renderFallbackLine handles
+// LevelMinimal and LevelCompact branches (50% → 100% coverage of fallback path).
+func TestSubagent_NoMatch_Fallback_Levels(t *testing.T) {
+	p := &probes.SubagentProbe{}
+	cfg := probes.Config{}
+	th := renderer.Theme{}
+	d := probes.Data{
+		Stdin:     stdin.Payload{Tasks: []stdin.Task{{ID: "x", Name: "orphan"}}},
+		Subagents: []parser.SubagentStats{},
+	}
+
+	compact := p.Render(d, cfg, th, probes.LevelCompact)
+	// Must contain name, "$?" for cost, and "⏱" for time, but NOT last_tool "?".
+	// Compact = 5 fields: name · ? · ? · $? · ⏱<elapsed>
+	if strings.Count(compact, " · ") != 4 {
+		t.Errorf("fallback Compact: want 4 separators, got %q", compact)
+	}
+	if !strings.Contains(compact, "orphan") {
+		t.Errorf("fallback Compact: want task name in output, got %q", compact)
+	}
+	if !strings.Contains(compact, "⏱") {
+		t.Errorf("fallback Compact: want elapsed time field, got %q", compact)
+	}
+
+	minimal := p.Render(d, cfg, th, probes.LevelMinimal)
+	// Minimal = 3 fields: name · ? · ?  (2 separators)
+	if strings.Count(minimal, " · ") != 2 {
+		t.Errorf("fallback Minimal: want 2 separators, got %q", minimal)
+	}
+	if !strings.Contains(minimal, "orphan") {
+		t.Errorf("fallback Minimal: want task name in output, got %q", minimal)
+	}
+}
+
+// TestSubagent_MatchedLine_EmptyLastTool verifies that when LastTool is "" the
+// Full output contains " · ?" as the last field (renderMatchedLine fallback).
+func TestSubagent_MatchedLine_EmptyLastTool(t *testing.T) {
+	p := &probes.SubagentProbe{}
+	cfg := probes.Config{}
+	th := renderer.Theme{}
+	d := probes.Data{
+		Stdin: stdin.Payload{
+			Tasks: []stdin.Task{{ID: "a1", Name: "worker"}},
+		},
+		Subagents: []parser.SubagentStats{
+			{AgentID: "a1", Model: "haiku-4-5", LastTool: ""},
+		},
+	}
+
+	got := p.Render(d, cfg, th, probes.LevelFull)
+	// Full line ends with " · ?" when LastTool is empty.
+	if !strings.HasSuffix(got, " · ?") {
+		t.Errorf("Render(Full, LastTool=%q): want output ending with \" · ?\", got %q", "", got)
+	}
+}
+
 // TestSubagent_Levels verifies that the three display levels drop fields as
 // specified in the PLAN:
 //

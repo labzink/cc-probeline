@@ -6,12 +6,12 @@ package probes
 //
 // Row assignment (from Phase 4 concept §A4):
 //
-//	Line0Registry    — P0 probes: email, project name, quota indicator
-//	Line1Registry    — P1 probes: model, effort, git, ctx, cost, time
-//	Line2Registry    — P2 probes: cache aggregate row (CacheProbe)
+//	Line0Registry    — row 0 of the multiline output: email, project name, quota indicator
+//	Line1Registry    — row 1 of the multiline output: model, effort, git, ctx, cost, time
+//	Line2Registry    — row 2 of the multiline output: cache aggregate row (CacheProbe)
 //	SubagentRegistry — subagent status probes (one per active subagent)
 var (
-	// Line0Registry holds P0 probes rendered on the first status line.
+	// Line0Registry holds probes rendered on the first status line (row 0).
 	// Order: email, project, quota.
 	Line0Registry = []Probe{
 		&EmailProbe{},
@@ -19,7 +19,7 @@ var (
 		&QuotaProbe{},
 	}
 
-	// Line1Registry holds P1/P2 probes rendered on the second status line.
+	// Line1Registry holds probes rendered on the second status line (row 1).
 	// Order: model, effort, git, ctx, cost, time.
 	Line1Registry = []Probe{
 		&ModelProbe{},

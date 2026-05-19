@@ -32,11 +32,8 @@ func TestRegistry_Complete(t *testing.T) {
 
 // TestRegistry_TrivialGetters iterates every registered probe and calls
 // Name/Priority/MinWidth so that the trivial-getter coverage is exercised
-// uniformly. Asserts a few invariants:
-//
-//   - Name() is non-empty.
-//   - Priority() is in [0, 4] (per spec §A4 priority table).
-//   - MinWidth() is non-negative.
+// uniformly. Uses a per-probe expected-priority map to catch wrong Priority()
+// values (tighter than range-only check — see spec §A4 and code-review T3).
 //
 // This brings package coverage above the PLAN ≥85% threshold by visiting
 // all 33 trivial methods (11 probes × 3 getters) in one pass.
@@ -46,15 +43,32 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 	all = append(all, probes.Line2Registry...)
 	all = append(all, probes.SubagentRegistry...)
 
+	wantPriority := map[string]int{
+		"model":    0,
+		"effort":   0,
+		"cost":     0,
+		"email":    2,
+		"project":  2,
+		"quota":    1,
+		"ctx":      1,
+		"cache":    2,
+		"time":     3,
+		"git":      2,
+		"subagent": 4,
+	}
+
 	for _, p := range all {
 		name := p.Name()
 		if name == "" {
 			t.Errorf("probe %T: Name() returned empty string", p)
+			continue
 		}
 
-		prio := p.Priority()
-		if prio < 0 || prio > 4 {
-			t.Errorf("probe %s: Priority()=%d, want [0,4]", name, prio)
+		want, ok := wantPriority[name]
+		if !ok {
+			t.Errorf("probe %q: not in expected-priority map", name)
+		} else if got := p.Priority(); got != want {
+			t.Errorf("probe %q: Priority() = %d, want %d", name, got, want)
 		}
 
 		if mw := p.MinWidth(); mw < 0 {

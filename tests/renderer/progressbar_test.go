@@ -62,15 +62,15 @@ func TestProgressBar_All11Points(t *testing.T) {
 	}
 }
 
-// TestProgressBar_Granularity verifies rounding-to-nearest-10% behaviour at
+// TestProgressBar_Granularity verifies floor-to-nearest-10% behaviour at
 // boundary values that are commonly mishandled: 49, 50, 51, and 70.
 //
-// Expected (round half up to nearest 10):
+// Expected (floor to nearest lower multiple of 10):
 //
-//	49  → round to 50 → "██▒░░"   (two full, one half, two empty)
-//	50  → round to 50 → "██▒░░"
-//	51  → round to 50 → "██▒░░"   (rounds down to nearest 10)
-//	70  → round to 70 → "███▒░"
+//	49  → floor to 40 → "██░░░"   (two full, three empty)
+//	50  → floor to 50 → "██▒░░"
+//	51  → floor to 50 → "██▒░░"   (floor, not round)
+//	70  → floor to 70 → "███▒░"
 func TestProgressBar_Granularity(t *testing.T) {
 	tests := []struct {
 		percent float64

@@ -12,7 +12,7 @@ import (
 type QuotaProbe struct{}
 
 func (p *QuotaProbe) Name() string  { return "quota" }
-func (p *QuotaProbe) Priority() int { return 0 }
+func (p *QuotaProbe) Priority() int { return 1 }
 func (p *QuotaProbe) MinWidth() int { return len("23% · 41%") }
 
 // Visible returns true only when QuotaEnabled is true.

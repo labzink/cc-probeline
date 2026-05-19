@@ -1,8 +1,7 @@
 package probes
 
 import (
-	"strings"
-
+	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/renderer"
 )
 
@@ -19,22 +18,12 @@ func (p *ModelProbe) Visible(d Data, c Config) bool {
 	return d.Stdin.Model.ID != ""
 }
 
-// Render returns the canonical short model name by stripping the "claude-" prefix
-// and truncating to the first three dash-separated segments.
+// Render returns the canonical short model name via parser.CanonicalModelKey.
 // All display levels return the same value (model is never abbreviated).
 func (p *ModelProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	id := d.Stdin.Model.ID
 	if id == "" {
 		return ""
 	}
-	const prefix = "claude-"
-	if !strings.HasPrefix(id, prefix) {
-		return id
-	}
-	trimmed := id[len(prefix):]
-	parts := strings.SplitN(trimmed, "-", 4)
-	if len(parts) <= 3 {
-		return trimmed
-	}
-	return parts[0] + "-" + parts[1] + "-" + parts[2]
+	return parser.CanonicalModelKey(id)
 }

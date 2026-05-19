@@ -38,19 +38,19 @@ type rawMessage struct {
 }
 
 type rawLine struct {
-	Type            string     `json:"type"`
-	UUID            string     `json:"uuid"`
-	RequestID       string     `json:"requestId"`
-	RequestIDSnake  string     `json:"request_id"`
-	ParentUUID      string     `json:"parentUuid"`
-	Timestamp       string     `json:"timestamp"`
-	SessionID       string     `json:"sessionId"`
-	CWD             string     `json:"cwd"`
-	GitBranch       string     `json:"gitBranch"`
-	Version         string     `json:"version"`
-	IsSidechain     bool       `json:"isSidechain"`
-	UserType        string     `json:"userType"`
-	Message         rawMessage `json:"message"`
+	Type           string     `json:"type"`
+	UUID           string     `json:"uuid"`
+	RequestID      string     `json:"requestId"`
+	RequestIDSnake string     `json:"request_id"`
+	ParentUUID     string     `json:"parentUuid"`
+	Timestamp      string     `json:"timestamp"`
+	SessionID      string     `json:"sessionId"`
+	CWD            string     `json:"cwd"`
+	GitBranch      string     `json:"gitBranch"`
+	Version        string     `json:"version"`
+	IsSidechain    bool       `json:"isSidechain"`
+	UserType       string     `json:"userType"`
+	Message        rawMessage `json:"message"`
 }
 
 // ParseLines reads JSONL records from r, decodes them into Record values,

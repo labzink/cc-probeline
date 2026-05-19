@@ -5,7 +5,7 @@ import (
 )
 
 // effortIcon maps effort level strings to Unicode circle icons.
-// "off" and "" both map to the empty string (probe hidden).
+// "off" maps to the empty string (probe hidden via Visible).
 var effortIcon = map[string]string{
 	"low":    "○",
 	"medium": "◔",
@@ -13,7 +13,6 @@ var effortIcon = map[string]string{
 	"xhigh":  "◕",
 	"max":    "●",
 	"off":    "",
-	"":       "",
 }
 
 // EffortProbe renders the effort level as a Unicode circle icon.

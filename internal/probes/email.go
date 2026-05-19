@@ -30,24 +30,8 @@ func (p *EmailProbe) Visible(d Data, c Config) bool {
 //	Minimal:      middle-truncate to at least 12 visible runes.
 func (p *EmailProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	email := c.Email
-	if email == "" {
-		return ""
-	}
 	if level == LevelMinimal {
-		return emailMiddleTruncate(email, 12)
+		return middleTruncate(email, 12)
 	}
 	return email
-}
-
-// emailMiddleTruncate applies middle truncation with "…" targeting minWidth runes.
-// head = ceil((minWidth-1)/2), tail = floor((minWidth-1)/2).
-// Result is exactly minWidth runes when len(s) > minWidth.
-func emailMiddleTruncate(s string, minWidth int) string {
-	runes := []rune(s)
-	if len(runes) <= minWidth {
-		return s
-	}
-	tail := (minWidth - 1) / 2  // floor
-	head := minWidth - 1 - tail // ceil; head >= tail
-	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }
