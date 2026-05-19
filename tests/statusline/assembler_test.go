@@ -27,10 +27,10 @@ type fakeProbe struct {
 	out      string
 }
 
-func (f *fakeProbe) Name() string                                                              { return f.name }
-func (f *fakeProbe) Priority() int                                                             { return f.priority }
-func (f *fakeProbe) MinWidth() int                                                             { return f.minWidth }
-func (f *fakeProbe) Visible(_ probes.Data, _ probes.Config) bool                              { return f.visible }
+func (f *fakeProbe) Name() string                                { return f.name }
+func (f *fakeProbe) Priority() int                               { return f.priority }
+func (f *fakeProbe) MinWidth() int                               { return f.minWidth }
+func (f *fakeProbe) Visible(_ probes.Data, _ probes.Config) bool { return f.visible }
 func (f *fakeProbe) Render(_ probes.Data, _ probes.Config, _ renderer.Theme, _ probes.Level) string {
 	return f.out
 }
