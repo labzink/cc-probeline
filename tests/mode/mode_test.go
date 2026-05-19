@@ -1,0 +1,393 @@
+// Package mode_test verifies the persistence layer for the user's display
+// preference (super-compact vs standard).
+//
+// §4.2 Mode toggle — global storage, atomic write, XDG-aware Path resolution.
+//
+// RED phase: all tests fail because the stub in internal/mode/mode.go:
+//   - Path()   always returns ""
+//   - Load()   always returns Default (Standard)
+//   - Save()   is a no-op
+//   - Toggle() returns (Default, nil) without touching the filesystem
+package mode_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/labzink/cc-probeline/internal/mode"
+)
+
+// ---------------------------------------------------------------------------
+// Path resolution
+// ---------------------------------------------------------------------------
+
+// TestPath_XDG verifies that when XDG_CONFIG_HOME is set, Path() returns
+// $XDG_CONFIG_HOME/cc-probeline/mode.
+// §4.2 Mode toggle — XDG_CONFIG_HOME resolution (C-1).
+func TestPath_XDG(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	want := filepath.Join(tmpDir, "cc-probeline", "mode")
+	got := mode.Path()
+	if got != want {
+		t.Errorf("Path() with XDG_CONFIG_HOME=%q: got %q, want %q", tmpDir, got, want)
+	}
+}
+
+// TestPath_NoXDG verifies that when XDG_CONFIG_HOME is empty, Path() falls
+// back to $HOME/.config/cc-probeline/mode.
+// §4.2 Mode toggle — HOME fallback (C-1).
+func TestPath_NoXDG(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", tmpDir)
+
+	want := filepath.Join(tmpDir, ".config", "cc-probeline", "mode")
+	got := mode.Path()
+	if got != want {
+		t.Errorf("Path() with HOME=%q and no XDG: got %q, want %q", tmpDir, got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Load
+// ---------------------------------------------------------------------------
+
+// TestLoad_Default_NoFile verifies that Load() returns Standard when the
+// storage file does not exist.
+// §4.2 Mode toggle — Default=Standard on missing file (C-3).
+func TestLoad_Default_NoFile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	// Do NOT create the mode file — it must not exist.
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with no file: got %q, want %q", got, mode.Standard)
+	}
+}
+
+// TestLoad_Default_Corrupt verifies that Load() returns Standard when the
+// storage file contains an unrecognised value.
+// §4.2 Mode toggle — Default=Standard on corrupt content (C-3).
+func TestLoad_Default_Corrupt(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Write an invalid value to the mode file.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	p := filepath.Join(dir, "mode")
+	if err := os.WriteFile(p, []byte("garbage\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with corrupt file: got %q, want %q", got, mode.Standard)
+	}
+}
+
+// TestLoad_Valid_SuperCompact verifies that Load() returns SuperCompact when
+// the storage file contains "super-compact".
+// §4.2 Mode toggle — valid super-compact value (C-3).
+func TestLoad_Valid_SuperCompact(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	p := filepath.Join(dir, "mode")
+	if err := os.WriteFile(p, []byte("super-compact"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got := mode.Load()
+	if got != mode.SuperCompact {
+		t.Errorf("Load() with super-compact file: got %q, want %q", got, mode.SuperCompact)
+	}
+}
+
+// TestLoad_Valid_Standard verifies that Load() returns Standard when the
+// storage file contains "standard" (with optional trailing newline — trim).
+// §4.2 Mode toggle — valid standard value with whitespace trimming.
+func TestLoad_Valid_Standard(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	p := filepath.Join(dir, "mode")
+	// Include trailing newline to verify TrimSpace behaviour.
+	if err := os.WriteFile(p, []byte("standard\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with 'standard\\n' file: got %q, want %q", got, mode.Standard)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Save
+// ---------------------------------------------------------------------------
+
+// TestSave_Atomic verifies that Save() writes via a .tmp file then renames it,
+// leaving no .tmp artifact and writing the correct content.
+// §4.2 Mode toggle — atomic write: .tmp + rename (C-2).
+func TestSave_Atomic(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Pre-create the parent directory so we can observe the .tmp file.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if err := mode.Save(mode.SuperCompact); err != nil {
+		t.Fatalf("Save() returned error: %v", err)
+	}
+
+	p := filepath.Join(dir, "mode")
+	tmpPath := p + ".tmp"
+
+	// After Save the .tmp file must NOT exist (it was renamed away).
+	if _, err := os.Stat(tmpPath); err == nil {
+		t.Errorf("Save() left behind .tmp file at %q", tmpPath)
+	}
+
+	// The main file must exist and contain exactly the mode value.
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile after Save: %v", err)
+	}
+	got := strings.TrimSpace(string(raw))
+	want := string(mode.SuperCompact)
+	if got != want {
+		t.Errorf("Save() wrote %q, want %q", got, want)
+	}
+}
+
+// TestSave_MkdirP verifies that Save() creates all necessary parent directories
+// (with permissions 0755) when they do not exist yet.
+// §4.2 Mode toggle — MkdirAll(dirname, 0o755) before write (C-2).
+func TestSave_MkdirP(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Do NOT pre-create cc-probeline/ — Save must create it.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatalf("pre-condition failed: dir %q already exists", dir)
+	}
+
+	if err := mode.Save(mode.Standard); err != nil {
+		t.Fatalf("Save() returned error: %v", err)
+	}
+
+	// Parent directory must now exist.
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("parent dir not created by Save(): %v", err)
+	}
+	if !info.IsDir() {
+		t.Errorf("expected a directory at %q", dir)
+	}
+
+	// The mode file itself must be readable and contain the correct value.
+	p := filepath.Join(dir, "mode")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("mode file not created: %v", err)
+	}
+	got := strings.TrimSpace(string(raw))
+	if got != string(mode.Standard) {
+		t.Errorf("Save() wrote %q, want %q", got, string(mode.Standard))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Toggle
+// ---------------------------------------------------------------------------
+
+// TestToggle_StandardToSuperCompact verifies that Toggle() when the current
+// mode is Standard writes SuperCompact to disk and returns SuperCompact.
+// §4.2 Mode toggle — Toggle flips and persists (C-2).
+func TestToggle_StandardToSuperCompact(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Seed with Standard.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("standard"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := mode.Toggle()
+	if err != nil {
+		t.Fatalf("Toggle() returned error: %v", err)
+	}
+	if got != mode.SuperCompact {
+		t.Errorf("Toggle() return value: got %q, want %q", got, mode.SuperCompact)
+	}
+
+	// Verify persisted value on disk.
+	raw, err := os.ReadFile(filepath.Join(dir, "mode"))
+	if err != nil {
+		t.Fatalf("ReadFile after Toggle: %v", err)
+	}
+	persisted := mode.Mode(strings.TrimSpace(string(raw)))
+	if persisted != mode.SuperCompact {
+		t.Errorf("Toggle() persisted %q, want %q", persisted, mode.SuperCompact)
+	}
+}
+
+// TestToggle_SuperCompactToStandard verifies that Toggle() when the current
+// mode is SuperCompact writes Standard to disk and returns Standard.
+// §4.2 Mode toggle — Toggle flips and persists (C-2).
+func TestToggle_SuperCompactToStandard(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Seed with SuperCompact.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("super-compact"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := mode.Toggle()
+	if err != nil {
+		t.Fatalf("Toggle() returned error: %v", err)
+	}
+	if got != mode.Standard {
+		t.Errorf("Toggle() return value: got %q, want %q", got, mode.Standard)
+	}
+
+	// Verify persisted value on disk.
+	raw, err := os.ReadFile(filepath.Join(dir, "mode"))
+	if err != nil {
+		t.Fatalf("ReadFile after Toggle: %v", err)
+	}
+	persisted := mode.Mode(strings.TrimSpace(string(raw)))
+	if persisted != mode.Standard {
+		t.Errorf("Toggle() persisted %q, want %q", persisted, mode.Standard)
+	}
+}
+
+// TestToggle_Twice_RestoresOriginal verifies that two sequential Toggle() calls
+// return the original mode value (round-trip property).
+// §4.2 Mode toggle — double toggle restores original value.
+func TestToggle_Twice_RestoresOriginal(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Seed with Standard as the baseline.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("standard"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	first, err := mode.Toggle()
+	if err != nil {
+		t.Fatalf("first Toggle() error: %v", err)
+	}
+	if first != mode.SuperCompact {
+		t.Errorf("first Toggle(): got %q, want %q", first, mode.SuperCompact)
+	}
+
+	second, err := mode.Toggle()
+	if err != nil {
+		t.Fatalf("second Toggle() error: %v", err)
+	}
+	if second != mode.Standard {
+		t.Errorf("second Toggle() (restore): got %q, want %q", second, mode.Standard)
+	}
+
+	// Confirm disk state matches the returned value.
+	raw, err := os.ReadFile(filepath.Join(dir, "mode"))
+	if err != nil {
+		t.Fatalf("ReadFile after two Toggles: %v", err)
+	}
+	persisted := mode.Mode(strings.TrimSpace(string(raw)))
+	if persisted != mode.Standard {
+		t.Errorf("disk after two Toggles: got %q, want %q", persisted, mode.Standard)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
+
+// TestConcurrent_TwoToggles verifies that two goroutines calling Toggle()
+// simultaneously do not produce a corrupt mode file. After both complete,
+// the file must contain exactly one of the two valid Mode values.
+//
+// Run with -race to detect data races.
+// §4.2 Mode toggle — atomic .tmp+rename+flock prevents concurrent corruption (C-2).
+func TestConcurrent_TwoToggles(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Seed with Standard.
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("standard"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, errs[0] = mode.Toggle()
+	}()
+	go func() {
+		defer wg.Done()
+		_, errs[1] = mode.Toggle()
+	}()
+	wg.Wait()
+
+	// Neither goroutine must have returned an error.
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d Toggle() error: %v", i, err)
+		}
+	}
+
+	// The file must exist and contain exactly one of the two valid values.
+	raw, err := os.ReadFile(filepath.Join(dir, "mode"))
+	if err != nil {
+		t.Fatalf("ReadFile after concurrent Toggles: %v", err)
+	}
+	persisted := mode.Mode(strings.TrimSpace(string(raw)))
+	if persisted != mode.SuperCompact && persisted != mode.Standard {
+		t.Errorf("concurrent Toggles left corrupt file: got %q", persisted)
+	}
+}
