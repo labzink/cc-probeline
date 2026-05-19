@@ -152,16 +152,19 @@ func TestTable_R1Borders_MultiRow(t *testing.T) {
 
 	// Count lines that contain pipe-bordered row content (not border-only lines).
 	// Row content lines start with '│' and contain non-'─' content.
+	// The footer row also matches this pattern (merged label + aggregates, no
+	// '─' inside), so we subtract 1 at the end — identical accounting to
+	// TestTable_Cap20_NotEnforcedHere. Concept §4.2: footer is a regular row,
+	// distinguished only by the merged-separator line above it.
 	rowContentCount := 0
 	for _, l := range lines {
-		// A content row starts with │, has at least one space or letter after it,
-		// and does NOT look like a pure horizontal border (which only contains ─┼┤├┬┴).
 		if strings.HasPrefix(l, "│") && !strings.ContainsAny(l, "─") {
 			rowContentCount++
 		}
 	}
+	rowContentCount-- // footer row
 	if rowContentCount != 5 {
-		t.Errorf("expected 5 row-content lines; got %d\noutput:\n%s", rowContentCount, out)
+		t.Errorf("expected 5 row-content lines (after footer subtraction); got %d\noutput:\n%s", rowContentCount, out)
 	}
 
 	// Count separator lines (contain ┼ or ├…┤ patterns within rows section).
