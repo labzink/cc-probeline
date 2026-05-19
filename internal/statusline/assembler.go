@@ -5,6 +5,9 @@
 package statusline
 
 import (
+	"sort"
+	"strings"
+
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -22,6 +25,109 @@ type Assembler struct {
 }
 
 // Render produces the full status string with marker tokens (no ANSI escapes).
-// Caller is responsible for piping the result through renderer.Apply. Stub
-// returns "".
-func (a *Assembler) Render(_ probes.Data) string { return "" }
+// Caller is responsible for piping the result through renderer.Apply.
+//
+// Output structure:
+//
+//	line0  — probes from Line0Registry, separated by "{{dim}} • {{reset}}"
+//	line1  — probes from Line1Registry, separated by "{{dim}} • {{reset}}"
+//	line2  — probes from Line2Registry, separated by " | "
+//	[table] — Standard mode only: last 20 per-turn rows + footer
+//	[hint]  — Phase 4.4 stub; empty for now
+func (a *Assembler) Render(d probes.Data) string {
+	// Build the three header lines.
+	const bulletSep = "{{dim}} • {{reset}}"
+	const pipeSep = " | "
+
+	l0 := a.renderLine(probes.Line0Registry, bulletSep, 0, d)
+	l1 := a.renderLine(probes.Line1Registry, bulletSep, 1, d)
+	l2 := a.renderLine(probes.Line2Registry, pipeSep, 2, d)
+
+	lines := []string{l0, l1, l2}
+
+	// Standard mode: append per-turn table when there are rows (C-6).
+	if a.Mode == mode.Standard {
+		tableLines := a.perTurnTable(d)
+		lines = append(lines, tableLines...)
+	}
+
+	// Phase 4.4 hint widget stub (C-12): only append when non-empty.
+	if h := a.hint(d); h != "" {
+		lines = append(lines, h)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderLine iterates a probe registry, filters visible probes, sorts by
+// Priority ascending, renders each, and joins with sep. Level is passed
+// through to each probe's Render call (C-11).
+func (a *Assembler) renderLine(ps []probes.Probe, sep string, level probes.Level, d probes.Data) string {
+	// Collect visible probes preserving original slice indices for stable sort.
+	type entry struct {
+		priority int
+		out      string
+	}
+
+	var entries []entry
+	for _, p := range ps {
+		if !p.Visible(d, a.Config) {
+			continue
+		}
+		entries = append(entries, entry{
+			priority: p.Priority(),
+			out:      p.Render(d, a.Config, a.Theme, level),
+		})
+	}
+
+	// Sort by priority ascending (lower number = higher importance = leftmost).
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].priority < entries[j].priority
+	})
+
+	parts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		parts = append(parts, e.out)
+	}
+	return strings.Join(parts, sep)
+}
+
+// perTurnTable builds the box-drawing table for Standard mode.
+// It caps at the last 20 turns (C-6) and returns a slice of non-empty lines.
+// Returns nil when there are no turns (table block is skipped).
+func (a *Assembler) perTurnTable(d probes.Data) []string {
+	if d.Session == nil || len(d.Session.Turns) == 0 {
+		return nil
+	}
+
+	turns := d.Session.Turns
+	// C-6: cap to last 20 turns.
+	if len(turns) > 20 {
+		turns = turns[len(turns)-20:]
+	}
+
+	b := renderer.NewBuilder()
+	for _, t := range turns {
+		b.Add(t)
+	}
+
+	raw := b.Render()
+	if raw == "" {
+		return nil
+	}
+
+	// Render() appends a trailing '\n'; split and drop the final empty element.
+	all := strings.Split(raw, "\n")
+	if len(all) > 0 && all[len(all)-1] == "" {
+		all = all[:len(all)-1]
+	}
+	return all
+}
+
+// hint returns an optional hint string appended after the table.
+// TODO: Phase 4.4 hint widget — currently always returns "".
+func (a *Assembler) hint(_ probes.Data) string { return "" }
+
+// Compile-time check: Assembler.Render must accept probes.Data.
+// (Ensures refactors don't accidentally change the signature.)
+var _ func(probes.Data) string = (&Assembler{}).Render
