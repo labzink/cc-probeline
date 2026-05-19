@@ -82,6 +82,9 @@ func assertZeroStats(t *testing.T, got parser.SessionStats) {
 	if got.PerModel != nil {
 		t.Errorf("PerModel: want nil, got %v", got.PerModel)
 	}
+	if got.Turns != nil {
+		t.Errorf("Turns: want nil, got %v", got.Turns)
+	}
 	if !got.FirstTimestamp.IsZero() {
 		t.Errorf("FirstTimestamp: want zero, got %v", got.FirstTimestamp)
 	}
@@ -559,6 +562,113 @@ func TestAggregate_CacheBreakdown(t *testing.T) {
 	}
 	if got.Totals.CacheCreate1h != 400 {
 		t.Errorf("Totals.CacheCreate1h: want 400, got %d", got.Totals.CacheCreate1h)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 11.x — Turns slice: count, ordering, per-field correctness
+// Phase 4.2 extension: per-record snapshots used by the box-drawing table.
+// ---------------------------------------------------------------------------
+func TestAggregate_BuildsTurns_Count(t *testing.T) {
+	records := sessionFixtureReader(t, "small.jsonl")
+	got := parser.Aggregate(records)
+	if len(got.Turns) != got.TurnCount {
+		t.Errorf("len(Turns)=%d differs from TurnCount=%d", len(got.Turns), got.TurnCount)
+	}
+	if len(got.Turns) != len(records) {
+		t.Errorf("len(Turns)=%d differs from len(records)=%d", len(got.Turns), len(records))
+	}
+}
+
+func TestAggregate_BuildsTurns_FieldsFromFixture(t *testing.T) {
+	records := sessionFixtureReader(t, "small.jsonl")
+	got := parser.Aggregate(records)
+	if len(got.Turns) == 0 {
+		t.Fatal("expected non-empty Turns slice")
+	}
+	first := got.Turns[0]
+	if first.Index != 1 {
+		t.Errorf("Turns[0].Index: want 1, got %d", first.Index)
+	}
+	if first.Model != "opus-4-7" {
+		t.Errorf("Turns[0].Model: want opus-4-7, got %q", first.Model)
+	}
+	if first.Role != "orch" {
+		t.Errorf("Turns[0].Role: want orch, got %q", first.Role)
+	}
+	if first.Tokens != records[0].Usage {
+		t.Errorf("Turns[0].Tokens: want %+v, got %+v", records[0].Usage, first.Tokens)
+	}
+	if !first.Timestamp.Equal(records[0].Timestamp) {
+		t.Errorf("Turns[0].Timestamp: want %v, got %v", records[0].Timestamp, first.Timestamp)
+	}
+	if first.Duration != 0 {
+		t.Errorf("Turns[0].Duration: want 0 (first record), got %v", first.Duration)
+	}
+	// small.jsonl uuid-001 has a single tool_use named "Edit".
+	if first.ToolUse != "Edit" {
+		t.Errorf("Turns[0].ToolUse: want Edit, got %q", first.ToolUse)
+	}
+}
+
+func TestAggregate_BuildsTurns_SidechainRole(t *testing.T) {
+	ts := time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC)
+	model := "claude-sonnet-4-6"
+	records := []parser.Record{
+		{
+			Type: "assistant", UUID: "u-orch", RequestID: "r-orch",
+			Timestamp: ts, Model: model, IsSidechain: false,
+			Usage: parser.TokenCounts{Input: 1, Output: 1},
+		},
+		{
+			Type: "assistant", UUID: "u-agent", RequestID: "r-agent",
+			Timestamp: ts.Add(time.Minute), Model: model, IsSidechain: true,
+			Usage: parser.TokenCounts{Input: 1, Output: 1},
+		},
+	}
+	got := parser.Aggregate(records)
+	if len(got.Turns) != 2 {
+		t.Fatalf("len(Turns): want 2, got %d", len(got.Turns))
+	}
+	if got.Turns[0].Role != "orch" || got.Turns[0].IsSidechain {
+		t.Errorf("Turns[0]: want role=orch, IsSidechain=false; got role=%q IsSidechain=%v",
+			got.Turns[0].Role, got.Turns[0].IsSidechain)
+	}
+	if got.Turns[1].Role != "agent" || !got.Turns[1].IsSidechain {
+		t.Errorf("Turns[1]: want role=agent, IsSidechain=true; got role=%q IsSidechain=%v",
+			got.Turns[1].Role, got.Turns[1].IsSidechain)
+	}
+}
+
+func TestAggregate_BuildsTurns_DurationBetweenTimestamps(t *testing.T) {
+	ts := time.Date(2026, 5, 15, 10, 0, 0, 0, time.UTC)
+	model := "claude-opus-4-7"
+	records := []parser.Record{
+		{
+			Type: "assistant", UUID: "u-1", RequestID: "r-1",
+			Timestamp: ts, Model: model,
+			Usage: parser.TokenCounts{Input: 1, Output: 1},
+		},
+		{
+			Type: "assistant", UUID: "u-2", RequestID: "r-2",
+			Timestamp: ts.Add(30 * time.Second), Model: model,
+			Usage: parser.TokenCounts{Input: 1, Output: 1},
+		},
+		{
+			Type: "assistant", UUID: "u-3", RequestID: "r-3",
+			Timestamp: ts.Add(2 * time.Minute), Model: model,
+			Usage: parser.TokenCounts{Input: 1, Output: 1},
+		},
+	}
+	got := parser.Aggregate(records)
+	if got.Turns[0].Duration != 0 {
+		t.Errorf("Turns[0].Duration: want 0, got %v", got.Turns[0].Duration)
+	}
+	if got.Turns[1].Duration != 30*time.Second {
+		t.Errorf("Turns[1].Duration: want 30s, got %v", got.Turns[1].Duration)
+	}
+	if got.Turns[2].Duration != 90*time.Second {
+		t.Errorf("Turns[2].Duration: want 90s, got %v", got.Turns[2].Duration)
 	}
 }
 

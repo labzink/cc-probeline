@@ -7,7 +7,7 @@ import (
 
 // SessionStats is a single-pass snapshot of a parsed session.
 // Populated by Aggregate. Zero value (TurnCount == 0) means empty session.
-// PerModel is nil (not an empty map) when there are no records.
+// PerModel and Turns are nil (not empty containers) when there are no records.
 type SessionStats struct {
 	// Token aggregates
 	Totals   TokenCounts
@@ -20,6 +20,10 @@ type SessionStats struct {
 	// Counters
 	TurnCount    int
 	ToolUseCount int
+
+	// Per-record snapshots for Phase 4.2 box-drawing table. Same length and
+	// order as the deduplicated input []Record.
+	Turns []Turn
 }
 
 // Aggregate computes a SessionStats from a deduplicated, sorted []Record
@@ -37,9 +41,11 @@ func Aggregate(records []Record) SessionStats {
 	var s SessionStats
 	// Pre-allocate for typical session: Opus orchestrator + Sonnet/Haiku subagent + spare.
 	s.PerModel = make(map[string]TokenCounts, 4)
+	s.Turns = make([]Turn, 0, len(records))
 	s.FirstTimestamp = records[0].Timestamp
 
-	for _, rec := range records {
+	var prevTimestamp time.Time
+	for i, rec := range records {
 		key := CanonicalModelKey(rec.Model)
 
 		cur := s.PerModel[key]
@@ -60,11 +66,35 @@ func Aggregate(records []Record) SessionStats {
 
 		s.TurnCount++
 
+		toolUse := ""
 		for _, c := range rec.Content {
 			if c.Type == "tool_use" {
 				s.ToolUseCount++
+				if toolUse == "" {
+					toolUse = c.ToolName
+				}
 			}
 		}
+
+		role := "orch"
+		if rec.IsSidechain {
+			role = "agent"
+		}
+		var dur time.Duration
+		if i > 0 {
+			dur = rec.Timestamp.Sub(prevTimestamp)
+		}
+		s.Turns = append(s.Turns, Turn{
+			Index:       i + 1,
+			Role:        role,
+			Model:       key,
+			Tokens:      rec.Usage,
+			ToolUse:     toolUse,
+			Timestamp:   rec.Timestamp,
+			Duration:    dur,
+			IsSidechain: rec.IsSidechain,
+		})
+		prevTimestamp = rec.Timestamp
 	}
 
 	s.LastTimestamp = records[len(records)-1].Timestamp

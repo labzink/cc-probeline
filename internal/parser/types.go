@@ -45,3 +45,17 @@ type ParseError struct {
 	LineNumber int
 	Reason     string
 }
+
+// Turn is a per-record snapshot used by the Phase 4.2 renderer to populate the
+// box-drawing table (R1). One Turn corresponds to one deduplicated Record.
+// Built by Aggregate together with the existing totals.
+type Turn struct {
+	Index       int           // 1-based display position
+	Role        string        // "orch" when IsSidechain=false, "agent" when true
+	Model       string        // CanonicalModelKey(Record.Model)
+	Tokens      TokenCounts   // per-record usage
+	ToolUse     string        // name of the first tool_use ContentBlock; "" when none
+	Timestamp   time.Time     // Record.Timestamp (may be zero)
+	Duration    time.Duration // gap from the previous turn's Timestamp; 0 for first
+	IsSidechain bool          // mirrors Record.IsSidechain
+}
