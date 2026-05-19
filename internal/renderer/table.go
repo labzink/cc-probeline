@@ -19,7 +19,6 @@ const (
 
 // Cell is one slot in the R1 box-drawing table.
 type Cell struct {
-	Width   int
 	Content string
 	Align   Align
 }
@@ -30,27 +29,37 @@ type Row [7]Cell
 // Builder accumulates per-turn rows and renders the full R1-bordered table
 // with a merged "Total for request" footer (§4.2 C-4 / C-5).
 type Builder struct {
-	cols     [7]int
-	rows     []Row
-	aggCache [2]int // [0]=total CacheRead, [1]=total CacheCreate
-	aggOut   int    // total output tokens
+	cols         [7]int
+	terminalCols int // target terminal width (default 80)
+	rows         []Row
+	aggCache     [2]int // [0]=total CacheRead, [1]=total CacheCreate
+	aggOut       int    // total output tokens
 }
 
-// NewBuilder returns a Builder with default 80-column layout:
-// [#=3, role=6, model=10, cache=13, out=6, cost=6, tool/arg=16+flex].
-func NewBuilder() *Builder {
-	return &Builder{cols: [7]int{3, 6, 10, 13, 6, 6, 16}}
+// NewBuilder returns a Builder with default layout using the given terminal
+// width (cols). If cols <= 0, defaults to 80.
+// Column defaults: [#=3, role=6, model=10, cache=13, out=6, cost=6, tool/arg=16+flex].
+func NewBuilder(cols int) *Builder {
+	if cols <= 0 {
+		cols = 80
+	}
+	return &Builder{
+		cols:         [7]int{3, 6, 10, 13, 6, 6, 16},
+		terminalCols: cols,
+	}
 }
 
-// effectiveCols expands the last (flex) column so total rune-width is 80.
-// Formula: 80 = sum(cols) + 8 borders  →  flex = 72 - sum(cols[0..5]).
+// effectiveCols expands the last (flex) column so total rune-width equals
+// the configured terminal width.
+// Formula: terminalCols = sum(cols) + 8 borders  →  flex = (terminalCols-8) - sum(cols[0..5]).
 func (b *Builder) effectiveCols() [7]int {
 	c := b.cols
 	fixed := 0
 	for i := 0; i < 6; i++ {
 		fixed += c[i]
 	}
-	flex := 72 - fixed
+	// 8 border runes: left edge + 6 inner + right edge.
+	flex := (b.terminalCols - 8) - fixed
 	if flex < c[6] {
 		flex = c[6]
 	}
@@ -113,10 +122,16 @@ func renderRow(row Row, cols [7]int) string {
 	return sb.String()
 }
 
+// costFor returns the formatted cost string for a single turn.
+// TODO(phase-4.4): replace stub with CostCalculator.
+func (b *Builder) costFor(_ parser.Turn) string { return "$0.00" }
+
+// costForAgg returns the formatted total cost string for all aggregated turns.
+// TODO(phase-4.4): replace stub with CostCalculator.
+func (b *Builder) costForAgg() string { return "$0.00" }
+
 // Add appends one per-turn row built from a parser.Turn.
 func (b *Builder) Add(t parser.Turn) {
-	cols := b.effectiveCols()
-
 	model := t.Model
 	if strings.HasPrefix(model, "claude-") {
 		model = model[len("claude-"):]
@@ -127,13 +142,13 @@ func (b *Builder) Add(t parser.Turn) {
 	)
 
 	row := Row{
-		{Width: cols[0], Content: fmt.Sprintf("%d", t.Index), Align: AlignRight},
-		{Width: cols[1], Content: t.Role, Align: AlignLeft},
-		{Width: cols[2], Content: model, Align: AlignLeft},
-		{Width: cols[3], Content: cache, Align: AlignLeft},
-		{Width: cols[4], Content: format.FormatK(t.Tokens.Output), Align: AlignRight},
-		{Width: cols[5], Content: "$0.00", Align: AlignRight},
-		{Width: cols[6], Content: t.ToolUse, Align: AlignLeft},
+		{Content: fmt.Sprintf("%d", t.Index), Align: AlignRight},
+		{Content: t.Role, Align: AlignLeft},
+		{Content: model, Align: AlignLeft},
+		{Content: cache, Align: AlignLeft},
+		{Content: format.FormatK(t.Tokens.Output), Align: AlignRight},
+		{Content: b.costFor(t), Align: AlignRight},
+		{Content: t.ToolUse, Align: AlignLeft},
 	}
 	b.rows = append(b.rows, row)
 	b.aggCache[0] += t.Tokens.CacheRead
@@ -188,6 +203,6 @@ func (b *Builder) buildFooterRow(cols [7]int) string {
 		padCell("Total for request", mergedWidth, AlignLeft) + "│" +
 		padCell(aggCacheStr, cols[3], AlignLeft) + "│" +
 		padCell(format.FormatK(b.aggOut), cols[4], AlignRight) + "│" +
-		padCell("$0.00", cols[5], AlignRight) + "│" +
+		padCell(b.costForAgg(), cols[5], AlignRight) + "│" +
 		padCell("", cols[6], AlignLeft) + "│"
 }

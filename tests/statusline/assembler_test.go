@@ -283,6 +283,42 @@ func TestAssembler_MarkersPresent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestAssembler_Line2_PriorityOrder
+// §4.2 test-gap: probes with different Priority() values must appear in
+// ascending priority order (lower number = higher importance = leftmost).
+// ---------------------------------------------------------------------------
+func TestAssembler_Line2_PriorityOrder(t *testing.T) {
+	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "e"}})
+	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "m"}})
+
+	// probeA has lower priority number → appears first (leftmost).
+	probeA := &fakeProbe{name: "a", priority: 2, visible: true, out: "AAA"}
+	// probeB has higher priority number → appears second (rightmost).
+	probeB := &fakeProbe{name: "b", priority: 5, visible: true, out: "BBB"}
+	// Register in reverse order to verify sorting works.
+	swapLine2(t, []probes.Probe{probeB, probeA})
+
+	a := makeAssembler(mode.SuperCompact)
+	out := a.Render(makeData(0))
+
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("PriorityOrder: expected at least 3 lines, got %d; output: %q", len(lines), out)
+	}
+	line2 := lines[2]
+
+	// AAA (priority=2) must appear before BBB (priority=5).
+	posA := strings.Index(line2, "AAA")
+	posB := strings.Index(line2, "BBB")
+	if posA < 0 || posB < 0 {
+		t.Fatalf("PriorityOrder: line2=%q — expected both 'AAA' and 'BBB'", line2)
+	}
+	if posA >= posB {
+		t.Errorf("PriorityOrder: AAA (priority=2) must appear before BBB (priority=5); line2=%q", line2)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestAssembler_Line2_PipeSeparator
 // §4.2 C-9 + concept line 652: line2 uses " | " separator (NOT "•").
 // Use a 2-probe Line2Registry swap to force the separator to appear.

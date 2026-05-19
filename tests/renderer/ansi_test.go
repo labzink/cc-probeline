@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -177,6 +178,73 @@ func TestDetectAnsi_NoColorEnv(t *testing.T) {
 	if got != false {
 		t.Errorf("DetectAnsi with NO_COLOR=1: got %s, want false",
 			fmt.Sprintf("%v", got))
+	}
+}
+
+// TestApply_MultilineMultiMarker verifies that Apply handles multiline input and
+// resolves both color and style markers, leaving no leftover {{...}} tokens and
+// preserving newlines. §4.2 spec-Q4.
+func TestApply_MultilineMultiMarker(t *testing.T) {
+	input := "line0 {{dim}}sep{{reset}} mid\nline1 {{color:cyan}}foo{{reset}} bar"
+	theme := renderer.Theme{
+		AnsiEnabled: true,
+		Colors: renderer.ColorScheme{
+			DimGrey: "\x1b[2m",
+			Cyan:    "\x1b[36m",
+			Reset:   "\x1b[0m",
+		},
+	}
+	out := renderer.Apply(input, theme)
+
+	// No leftover markers.
+	if strings.Contains(out, "{{") {
+		t.Fatalf("leftover markers: %q", out)
+	}
+	// Newline must be preserved.
+	if !strings.Contains(out, "\n") {
+		t.Fatalf("newline lost: %q", out)
+	}
+	// Both color and style markers resolved.
+	if !strings.Contains(out, "\x1b[36m") || !strings.Contains(out, "\x1b[2m") {
+		t.Fatalf("missing ANSI codes: %q", out)
+	}
+}
+
+// TestResolveMarker_AllColors verifies that all named color branches in
+// resolveMarker produce the correct ANSI escape codes via Apply. §4.2 test-gap.
+func TestResolveMarker_AllColors(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+	}{
+		{"yellow", "\x1b[33m"},
+		{"orange", "\x1b[38;5;214m"},
+		{"magenta", "\x1b[35m"},
+		{"bold_green", "\x1b[1;32m"},
+		{"bold_yellow", "\x1b[1;33m"},
+		{"bold_red", "\x1b[1;31m"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			theme := renderer.Theme{
+				AnsiEnabled: true,
+				Colors: renderer.ColorScheme{
+					Yellow:     "\x1b[33m",
+					Orange:     "\x1b[38;5;214m",
+					Magenta:    "\x1b[35m",
+					BoldGreen:  "\x1b[1;32m",
+					BoldYellow: "\x1b[1;33m",
+					BoldRed:    "\x1b[1;31m",
+					Reset:      "\x1b[0m",
+				},
+			}
+			input := "{{color:" + tc.name + "}}X{{reset}}"
+			out := renderer.Apply(input, theme)
+			if !strings.Contains(out, tc.code) {
+				t.Errorf("Apply with color:%s: expected %q in output; got %q", tc.name, tc.code, out)
+			}
+		})
 	}
 }
 

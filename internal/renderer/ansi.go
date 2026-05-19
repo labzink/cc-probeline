@@ -14,6 +14,7 @@ var markerRe = regexp.MustCompile(`\{\{[a-z][a-z0-9:_-]*\}\}`)
 // resolveMarker returns the ANSI escape code for a marker token (without the
 // surrounding braces), or an empty string when the marker is unknown or the
 // color name has no mapping in the theme.
+// Color markers MUST use the {{color:NAME}} form. Style markers ({{dim}}, {{bold}}, {{italic}}, {{reset}}) are bare.
 func resolveMarker(token string, cs ColorScheme) string {
 	switch token {
 	case "dim":

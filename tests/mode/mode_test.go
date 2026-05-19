@@ -335,6 +335,76 @@ func TestToggle_Twice_RestoresOriginal(t *testing.T) {
 	}
 }
 
+// TestPath_EmptyHomeFallback verifies that Path() returns "" when both
+// XDG_CONFIG_HOME and HOME are empty, and that Save() returns an error
+// in that case without creating any file.
+// §4.2 sec — HOME validation.
+func TestPath_EmptyHomeFallback(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+
+	got := mode.Path()
+	if got != "" {
+		t.Errorf("Path() with empty HOME: got %q, want \"\"", got)
+	}
+
+	err := mode.Save(mode.Standard)
+	if err == nil {
+		t.Error("Save() with empty HOME: expected error, got nil")
+	}
+}
+
+// TestSave_RejectsUnknownMode verifies that Save() returns an error when
+// called with an unrecognised Mode value and does not create any file.
+// §4.2 sec — Save unknown mode validation.
+func TestSave_RejectsUnknownMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	err := mode.Save(mode.Mode("garbage"))
+	if err == nil {
+		t.Fatal("Save(garbage): expected error, got nil")
+	}
+
+	// The mode file must not have been created.
+	p := filepath.Join(tmpDir, "cc-probeline", "mode")
+	if _, statErr := os.Stat(p); statErr == nil {
+		t.Errorf("Save(garbage): file should not exist at %q", p)
+	}
+}
+
+// TestToggle_SaveError_ReturnsCurrent verifies that Toggle() returns the
+// current mode (not Default) when Save fails.
+// §4.2 code-I3 — Toggle returns current on Save error.
+func TestToggle_SaveError_ReturnsCurrent(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Seed with SuperCompact so current != Default (Standard).
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("super-compact"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Make the directory read-only so Save cannot write.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	defer os.Chmod(dir, 0o755) //nolint:errcheck
+
+	got, err := mode.Toggle()
+	if err == nil {
+		t.Fatal("Toggle() with read-only dir: expected error, got nil")
+	}
+	// Must return current (SuperCompact), not Default (Standard).
+	if got != mode.SuperCompact {
+		t.Errorf("Toggle() on Save error: got %q, want %q (current)", got, mode.SuperCompact)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Concurrency
 // ---------------------------------------------------------------------------

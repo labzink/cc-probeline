@@ -106,7 +106,7 @@ func (a *Assembler) perTurnTable(d probes.Data) []string {
 		turns = turns[len(turns)-20:]
 	}
 
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(a.Cols)
 	for _, t := range turns {
 		b.Add(t)
 	}

@@ -78,7 +78,7 @@ func splitLines(s string) []string {
 // the assembler (4.2.d) can detect "no table" and skip appending it.
 // -------------------------------------------------------------------
 func TestBuilder_EmptyRender(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	got := b.Render()
 	if got != "" {
 		t.Errorf("empty builder Render() = %q; want \"\"", got)
@@ -95,7 +95,7 @@ func TestBuilder_EmptyRender(t *testing.T) {
 //
 // -------------------------------------------------------------------
 func TestTable_R1Borders_SingleRow(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
 	out := b.Render()
@@ -131,7 +131,7 @@ func TestTable_R1Borders_SingleRow(t *testing.T) {
 //
 // -------------------------------------------------------------------
 func TestTable_R1Borders_MultiRow(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	for i := 1; i <= 5; i++ {
 		b.Add(makeTurn(i, "orch", "sonnet-4", "Edit", 500*i, 100*i, time.Duration(i)*time.Minute))
 	}
@@ -187,7 +187,7 @@ func TestTable_R1Borders_MultiRow(t *testing.T) {
 // where columns 1-2-3 are merged).
 // -------------------------------------------------------------------
 func TestTable_MergedFooter(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 5000, 300, 0))
 	b.Add(makeTurn(2, "orch", "opus-4-7", "Edit", 2000, 100, 2*time.Minute))
 
@@ -236,7 +236,7 @@ func TestTable_MergedFooter(t *testing.T) {
 // This is an explicit contract test.
 // -------------------------------------------------------------------
 func TestTable_Cap20_NotEnforcedHere(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	const n = 30
 	for i := 1; i <= n; i++ {
 		b.Add(makeTurn(i, "orch", "sonnet-4", "Bash", 100, 50, time.Duration(i)*time.Second))
@@ -274,7 +274,7 @@ func TestTable_Cap20_NotEnforcedHere(t *testing.T) {
 // -------------------------------------------------------------------
 func TestTable_LongToolArg_MiddleTruncate(t *testing.T) {
 	longTool := strings.Repeat("a", 20) + strings.Repeat("b", 20) // 40 chars
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	b.Add(parser.Turn{
 		Index:     1,
 		Role:      "orch",
@@ -324,7 +324,7 @@ func TestTable_LongToolArg_MiddleTruncate(t *testing.T) {
 // flex = 80 - (3+6+10+13+6+6) - 8 = 80 - 44 - 8 = 28 (last col becomes 28).
 // -------------------------------------------------------------------
 func TestTable_ColumnWidths_80Cols(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
 	out := b.Render()
@@ -372,7 +372,7 @@ func TestTable_ColumnWidths_80Cols(t *testing.T) {
 // We detect this by checking the character immediately after the opening │.
 // -------------------------------------------------------------------
 func TestTable_CellAlign(t *testing.T) {
-	b := renderer.NewBuilder()
+	b := renderer.NewBuilder(80)
 	// Use a 1-digit index so that right-alignment is visible (2 leading spaces
 	// in a 3-wide cell).
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
