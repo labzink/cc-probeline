@@ -20,7 +20,6 @@
 package probes_test
 
 import (
-	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -29,33 +28,8 @@ import (
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/stdin"
+	"github.com/labzink/cc-probeline/tests/testutil"
 )
-
-// captureHandler is a minimal slog.Handler that records log records so that
-// tests can assert on warning messages without I/O side-effects.
-// Copied verbatim from tests/stdin/payload_test.go lines 18-41.
-type captureHandler struct {
-	records []slog.Record
-}
-
-func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
-func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	h.records = append(h.records, r)
-	return nil
-}
-func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
-func (h *captureHandler) WithGroup(_ string) slog.Handler      { return h }
-
-// hasWarnContaining reports whether any captured record at Warn level
-// has a message containing substr.
-func (h *captureHandler) hasWarnContaining(substr string) bool {
-	for _, r := range h.records {
-		if r.Level == slog.LevelWarn && strings.Contains(r.Message, substr) {
-			return true
-		}
-	}
-	return false
-}
 
 // TestSubagent_NoTasks verifies that SubagentProbe.Visible returns false when
 // Stdin.Tasks is nil — no subagent widget should be rendered.
@@ -166,7 +140,7 @@ func TestSubagent_NoMatch_Fallback(t *testing.T) {
 	th := renderer.Theme{}
 
 	// Install capture handler before Render to intercept slog output.
-	h := &captureHandler{}
+	h := testutil.NewCaptureHandler()
 	prev := slog.Default()
 	slog.SetDefault(slog.New(h))
 	defer slog.SetDefault(prev)
@@ -184,8 +158,8 @@ func TestSubagent_NoMatch_Fallback(t *testing.T) {
 
 	// (a) slog.Warn must have been emitted with the exact match-failure message.
 	const wantWarn = "probes.subagent: task.ID not matched"
-	if !h.hasWarnContaining(wantWarn) {
-		t.Errorf("expected slog.Warn containing %q, got records: %v", wantWarn, h.records)
+	if !h.HasWarnContaining(wantWarn) {
+		t.Errorf("expected slog.Warn containing %q, got records: %v", wantWarn, h.Records)
 	}
 
 	// (b) Fallback render must contain task name and "?" placeholder.

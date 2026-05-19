@@ -5,7 +5,6 @@ package stdin_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -13,32 +12,8 @@ import (
 	"testing"
 
 	"github.com/labzink/cc-probeline/internal/stdin"
+	"github.com/labzink/cc-probeline/tests/testutil"
 )
-
-// captureHandler is a minimal slog.Handler that records log records
-// so that tests can assert on warning messages without I/O side-effects.
-type captureHandler struct {
-	records []slog.Record
-}
-
-func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
-func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	h.records = append(h.records, r)
-	return nil
-}
-func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
-func (h *captureHandler) WithGroup(name string) slog.Handler       { return h }
-
-// hasWarnContaining reports whether any captured record at Warn level
-// has a message containing substr.
-func (h *captureHandler) hasWarnContaining(substr string) bool {
-	for _, r := range h.records {
-		if r.Level == slog.LevelWarn && strings.Contains(r.Message, substr) {
-			return true
-		}
-	}
-	return false
-}
 
 // TestDecode_Empty verifies that an empty JSON object decodes to a zero-value
 // Payload without error.
@@ -144,7 +119,7 @@ func TestDecode_WithTasks(t *testing.T) {
 func TestDecode_UnknownField(t *testing.T) {
 	const raw = `{"unknown_top_level": "x", "model": {"id": "claude-opus-4-7"}}`
 
-	h := &captureHandler{}
+	h := testutil.NewCaptureHandler()
 	prev := slog.Default()
 	slog.SetDefault(slog.New(h))
 	defer slog.SetDefault(prev)
@@ -156,7 +131,7 @@ func TestDecode_UnknownField(t *testing.T) {
 	if got.Model.ID != "claude-opus-4-7" {
 		t.Errorf("Model.ID: want %q, got %q", "claude-opus-4-7", got.Model.ID)
 	}
-	if !h.hasWarnContaining("stdin.payload: unknown field") {
+	if !h.HasWarnContaining("stdin.payload: unknown field") {
 		t.Error("expected slog.Warn with message containing \"stdin.payload: unknown field\", got none")
 	}
 }
