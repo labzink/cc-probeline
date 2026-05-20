@@ -108,8 +108,16 @@ func TestFitLine_DowngradeP2ToCompact(t *testing.T) {
 	}
 }
 
-// §4.3 T-6 — with tiny cols=20, P0 stays Full; P1/P2/P3 go Minimal (or "").
-// pass=4 table: P0=Full, P1=Minimal, P2=Minimal, P3=Minimal.
+// §4.3 T-6 — with cols=5, every pass through 3 overflows so FitLine reaches
+// pass=4 where P0 stays Full and P1/P2/P3 render at Minimal ("" → dropped).
+// pass calculations for the inputs below (sep=" | " = 3 visual cols):
+//
+//	pass 0: "M | quota-long | proj-long | email-long" = 39 > 5
+//	pass 1: "M | quota-long | pl | el"                = 24 > 5
+//	pass 2: "M | ql | pl | el"                        = 16 > 5
+//	pass 3: "M | ql"                                  =  6 > 5
+//	pass 4: "M"                                       =  1 ≤ 5 → returned
+//
 // FAILS on stub: stub returns "".
 func TestFitLine_DowngradeAllNonP0ToMinimal(t *testing.T) {
 	entries := []renderer.ProbeEntry{
@@ -119,7 +127,7 @@ func TestFitLine_DowngradeAllNonP0ToMinimal(t *testing.T) {
 		makeEntry(3, "email-long", "el", ""), // P3: Minimal="" → dropped
 	}
 	const sep = " | "
-	const cols = 20
+	const cols = 5
 	out := renderer.FitLine(entries, cols, sep)
 	// P0 must be present.
 	if !strings.Contains(out, "M") {
@@ -402,10 +410,11 @@ func TestFitLine_OnlyP0Full_TinyCols(t *testing.T) {
 // Design: set cols so pass=0 overflows but pass=1 fits.
 // FAILS on stub: stub returns "".
 func TestPriorityGroup_Boundaries(t *testing.T) {
-	// Full assembly: "p0-full | p1-full | p2-full | p3-full | p99-full"
-	// VisualLen ≈ 53, exceeds cols=50 → pass=0 overflows.
-	// pass=1 assembly: "p0-full | p1-full | p2-c | p3-c | p99-c"
-	// VisualLen ≈ 41, fits in cols=50.
+	// pass=0 (all Full): "p0-full | p1-full | p2-full | p3-full | p99-full"
+	//   widths: 7 + 3 + 7 + 3 + 7 + 3 + 7 + 3 + 8 = 48
+	// pass=1 (P2/P3/P99 Compact): "p0-full | p1-full | p2-c | p3-c | p99-c"
+	//   widths: 7 + 3 + 7 + 3 + 4 + 3 + 4 + 3 + 5 = 39
+	// cols=47: pass=0 (48) overflows by 1, pass=1 (39) fits.
 	entries := []renderer.ProbeEntry{
 		makeEntry(0, "p0-full", "p0-compact", ""),
 		makeEntry(1, "p1-full", "p1-compact", ""),
@@ -414,7 +423,7 @@ func TestPriorityGroup_Boundaries(t *testing.T) {
 		makeEntry(99, "p99-full", "p99-c", ""),
 	}
 	const sep = " | "
-	const cols = 50
+	const cols = 47
 	out := renderer.FitLine(entries, cols, sep)
 	// P0 and P1 stay Full (pass=1 boundary: P0/P1 are Full).
 	if !strings.Contains(out, "p0-full") {

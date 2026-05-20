@@ -287,13 +287,14 @@ func TestAssembler_Render_SoftWrap_Line2_NarrowCols(t *testing.T) {
 	swapLine1(t, []probes.Probe{
 		&fakeProbe{name: "m", priority: 0, visible: true, out: "sonnet"},
 	})
-	// Three line2 probes; combined with " | " separators exceeds 40 cols:
-	// "cache: 10K/2K" (13) + " | "(3) + "out: 500" (8) + " | "(3) + "cost: $0.12" (11) = 38 → add padding.
-	// Use longer probe content to ensure overflow at cols=40.
+	// Three line2 probes, all P0 (inviolable per §4.3 T-7) so they cannot be
+	// downgraded away. Combined width: 18 + 3 + 15 + 3 + 11 = 50 > cols=40.
+	// Because no downgrade can shrink the line, FitLine falls through to
+	// pass=4 still overflowing → softWrap triggers (cols<50, sep==" | ").
 	swapLine2(t, []probes.Probe{
 		&fakeProbe{name: "c1", priority: 0, visible: true, out: "cache: 10K/2K-read"},
-		&fakeProbe{name: "c2", priority: 1, visible: true, out: "out: 500 tokens"},
-		&fakeProbe{name: "c3", priority: 2, visible: true, out: "cost: $0.12"},
+		&fakeProbe{name: "c2", priority: 0, visible: true, out: "out: 500 tokens"},
+		&fakeProbe{name: "c3", priority: 0, visible: true, out: "cost: $0.12"},
 	})
 
 	a := makeAssemblerForCols(mode.SuperCompact, 40)

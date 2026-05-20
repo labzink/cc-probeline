@@ -19,20 +19,36 @@ import (
 
 // fakeProbe is a minimal Probe implementation that returns fixed strings,
 // used to isolate assembler logic from real probe implementations.
+// Compact / minimal default to out / "" so existing Phase 4.2 tests that
+// only set `out` keep their previous behaviour (Full == Compact == out).
+// Phase 4.3 integration tests can populate compact and minimal explicitly to
+// exercise FitLine downgrade behaviour.
 type fakeProbe struct {
 	name     string
 	priority int
 	minWidth int
 	visible  bool
 	out      string
+	compact  string // optional: rendered at LevelCompact; if "" falls back to out
+	minimal  string // optional: rendered at LevelMinimal; "" means dropped by assemble
 }
 
 func (f *fakeProbe) Name() string                                { return f.name }
 func (f *fakeProbe) Priority() int                               { return f.priority }
 func (f *fakeProbe) MinWidth() int                               { return f.minWidth }
 func (f *fakeProbe) Visible(_ probes.Data, _ probes.Config) bool { return f.visible }
-func (f *fakeProbe) Render(_ probes.Data, _ probes.Config, _ renderer.Theme, _ probes.Level) string {
-	return f.out
+func (f *fakeProbe) Render(_ probes.Data, _ probes.Config, _ renderer.Theme, l probes.Level) string {
+	switch l {
+	case probes.LevelCompact:
+		if f.compact != "" {
+			return f.compact
+		}
+		return f.out
+	case probes.LevelMinimal:
+		return f.minimal
+	default: // LevelFull
+		return f.out
+	}
 }
 
 // makeTurns constructs a slice of n minimal parser.Turn values for use in test
