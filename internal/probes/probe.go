@@ -41,7 +41,8 @@ type Data struct {
 	Subagents    []parser.SubagentStats
 	Git          *parser.GitStatus // nil = not in a git repo or detection failed
 	Now          time.Time
-	TerminalCols int // 0 = detect failed; probes should fall back to 80
+	TerminalCols int    // 0 = detect failed; probes should fall back to 80
+	SessionID    string // CC session id; "" disables hint state persistence (Phase 4.4)
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

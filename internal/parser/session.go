@@ -24,6 +24,11 @@ type SessionStats struct {
 	// Per-record snapshots for Phase 4.2 box-drawing table. Same length and
 	// order as the deduplicated input []Record.
 	Turns []Turn
+
+	// Cache invalidation events detected over Turns. Populated by Aggregate
+	// via DetectCacheEvents. Phase 4.4.0 foundation: always nil (detector
+	// stub); real heuristics land in 4.4.a.
+	CacheEvents []CacheEvent
 }
 
 // Aggregate computes a SessionStats from a deduplicated, sorted []Record
@@ -98,6 +103,7 @@ func Aggregate(records []Record) SessionStats {
 	}
 
 	s.LastTimestamp = records[len(records)-1].Timestamp
+	s.CacheEvents = DetectCacheEvents(s.Turns, time.Now())
 	return s
 }
 
