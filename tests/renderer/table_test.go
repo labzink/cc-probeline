@@ -355,6 +355,128 @@ func TestTable_ColumnWidths_80Cols(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
+// TestBuilder_RenderForCols_NoTruncation — §4.3 T-9 cols=0 behaves identical to Render()
+//
+// RenderForCols(0) is the "no truncation" sentinel. The returned string must be
+// bit-for-bit identical to Render() because cols=0 means "use builder default".
+//
+// PASS on stub: stub always delegates to Render(), so cols=0 matches by definition.
+// This is a characterization invariant that must hold even after GREEN.
+// -------------------------------------------------------------------
+func TestBuilder_RenderForCols_NoTruncation(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+
+	wantRender := b.Render()
+	gotForCols := b.RenderForCols(0)
+
+	// §4.3 T-9: RenderForCols(0) ≡ Render() bit-for-bit.
+	if gotForCols != wantRender {
+		t.Errorf("RenderForCols(0) must equal Render() bit-for-bit\nwant: %q\n got: %q", wantRender, gotForCols)
+	}
+}
+
+// -------------------------------------------------------------------
+// TestBuilder_RenderForCols_DropDurColumn — §4.3 T-9 cols=60 narrows table
+//
+// The standard table at cols=80 is 80 runes wide. When cols=60 is requested,
+// RenderForCols must drop the lowest-priority (P3) column so that the
+// rendered table fits within 60 columns. The stub returns the full 80-wide
+// table and therefore FAILS this test (RED).
+//
+// "dur" in the plan refers to the lowest-priority numeric column (P3). The
+// current table has 7 columns; the GREEN implementation will drop one to fit.
+// Assertion: every line of RenderForCols(60) is ≤ 60 runes wide.
+// -------------------------------------------------------------------
+func TestBuilder_RenderForCols_DropDurColumn(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	// Add a representative turn.
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Edit", 5000, 300, 2*time.Minute))
+
+	out := b.RenderForCols(60)
+	if out == "" {
+		t.Fatal("RenderForCols(60) returned empty string; want non-empty table")
+	}
+
+	// §4.3 T-9: every line must fit within the requested cols.
+	for i, line := range splitLines(out) {
+		w := runeWidth(stripANSI(line))
+		if w > 60 {
+			t.Errorf("line[%d] rune-width = %d; want ≤ 60 (dur/P3 column must be dropped)\nline: %s", i, w, line)
+		}
+	}
+}
+
+// -------------------------------------------------------------------
+// TestBuilder_RenderForCols_MiddleTruncateToolArg — §4.3 T-9 cols=50 truncates tool/arg
+//
+// A Turn with a 20-rune ToolUse string is NOT truncated when rendered at the
+// default 80-col builder (flex col ≥ 16 → inner ≥ 15, still fits 20 chars? No:
+// inner=16-1=15 < 20, so it IS truncated at 80 cols inside the cell itself).
+// We use a longer tool name (30 chars) that definitely fits at 80 cols
+// (inner ≥ 27) but should be truncated when the column is squeezed at 50 cols.
+//
+// At cols=80: tool/arg flex = 80 - 44 - 8 = 28 → inner = 27. A 27-char tool
+// fits without "…". At cols=50: the column must be squeezed → "…" appears.
+//
+// Stub always returns Render() (80-col full table) → no "…" for 27-char tool
+// → test FAILS (RED).
+// -------------------------------------------------------------------
+func TestBuilder_RenderForCols_MiddleTruncateToolArg(t *testing.T) {
+	// Exactly 27 runes: fits in flex=28 at cols=80 (inner=27), but must be
+	// truncated at cols=50 when tool/arg column width is squeezed.
+	toolName := strings.Repeat("x", 27) // "xxx...xxx" (27 chars)
+
+	b := renderer.NewBuilder(80)
+	b.Add(parser.Turn{
+		Index:   1,
+		Role:    "orch",
+		Model:   "sonnet-4",
+		Tokens:  parser.TokenCounts{Output: 100},
+		ToolUse: toolName,
+	})
+
+	out := b.RenderForCols(50)
+	if out == "" {
+		t.Fatal("RenderForCols(50) returned empty string; want non-empty table")
+	}
+
+	// §4.3 T-9: tool/arg column must be middle-truncated with "…" at cols=50.
+	if !strings.Contains(out, "…") {
+		t.Errorf("RenderForCols(50) with 27-char ToolUse must produce middle-truncation (…); not found\noutput:\n%s", out)
+	}
+
+	// The full 27-char tool string must NOT appear verbatim (it was truncated).
+	if strings.Contains(out, toolName) {
+		t.Errorf("RenderForCols(50) must truncate 27-char ToolUse; full string found in output\noutput:\n%s", out)
+	}
+}
+
+// -------------------------------------------------------------------
+// TestBuilder_RenderForCols_AcceptOverflowIfTooNarrow — §4.3 T-9 cols=20 overflow accepted
+//
+// When cols is so small that no reasonable truncation fits (cols=20), the table
+// accepts overflow rather than becoming illegible. The output must be the same as
+// Render() (full table) — a "do nothing" path. This is an invariant: overflow is
+// always better than illegible truncation.
+//
+// PASS on stub: stub returns Render() always, which is exactly the expected
+// behaviour here. This is a characterization invariant.
+// -------------------------------------------------------------------
+func TestBuilder_RenderForCols_AcceptOverflowIfTooNarrow(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+
+	wantFull := b.Render()
+	gotNarrow := b.RenderForCols(20)
+
+	// §4.3 T-9: at cols=20 (too narrow for any column-drop), output must equal full Render().
+	if gotNarrow != wantFull {
+		t.Errorf("RenderForCols(20) must accept overflow and equal Render()\nwant: %q\n got: %q", wantFull, gotNarrow)
+	}
+}
+
+// -------------------------------------------------------------------
 // TestTable_CellAlign — §4.2 numeric columns right-aligned, text left-aligned
 //
 // Column layout (0-indexed):
