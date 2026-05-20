@@ -360,8 +360,14 @@ func TestDetectSubagentCacheEvents_SendMessageGap(t *testing.T) {
 	if len(gap) != 1 {
 		t.Fatalf("SendMessageGap: expected 1 event, got %d: %+v", len(gap), events)
 	}
-	if !strings.Contains(gap[0].Detail, "subagent#") {
-		t.Errorf("SendMessageGap: Detail %q must contain 'subagent#'", gap[0].Detail)
+	// Detail must hold only AgentID (no "subagent#" prefix) — alert template
+	// "⚠ Subagent#%s cache lost · ..." (hint/alerts.go) adds the prefix.
+	// See verify-RED Finding #1 (2026-05-20).
+	if !strings.Contains(gap[0].Detail, "abc123") {
+		t.Errorf("SendMessageGap: Detail %q must contain AgentID 'abc123' (without 'subagent#' prefix)", gap[0].Detail)
+	}
+	if strings.Contains(gap[0].Detail, "subagent#") {
+		t.Errorf("SendMessageGap: Detail %q must NOT contain 'subagent#' prefix (template owns the prefix)", gap[0].Detail)
 	}
 }
 
@@ -393,8 +399,12 @@ func TestDetectSubagentCacheEvents_SlowInternal(t *testing.T) {
 	if len(slow) != 1 {
 		t.Fatalf("SlowInternal: expected 1 event, got %d: %+v", len(slow), events)
 	}
-	if !strings.Contains(slow[0].Detail, "subagent#") {
-		t.Errorf("SlowInternal: Detail %q must contain 'subagent#'", slow[0].Detail)
+	// Detail holds only AgentID (no "subagent#" prefix); alert template owns prefix.
+	if !strings.Contains(slow[0].Detail, "def456") {
+		t.Errorf("SlowInternal: Detail %q must contain AgentID 'def456' (without 'subagent#' prefix)", slow[0].Detail)
+	}
+	if strings.Contains(slow[0].Detail, "subagent#") {
+		t.Errorf("SlowInternal: Detail %q must NOT contain 'subagent#' prefix", slow[0].Detail)
 	}
 }
 
