@@ -53,6 +53,88 @@ func invisibleEntry(priority int) renderer.ProbeEntry {
 }
 
 // ---------------------------------------------------------------------------
+// levelForPass direct tests (via FitLine as proxy)
+// ---------------------------------------------------------------------------
+
+// TestLevelForPass_Pass0 — at pass=0 all priority groups render at Full (level 0).
+// Verified indirectly: cols=1000 ensures FitLine never needs to downgrade, so
+// pass=0 is always selected. All groups (0/1/2/3) must appear at Full level.
+func TestLevelForPass_Pass0(t *testing.T) {
+	tt := []struct {
+		group int
+		full  string
+		comp  string
+	}{
+		{0, "g0-full", "g0-compact"},
+		{1, "g1-full", "g1-compact"},
+		{2, "g2-full", "g2-compact"},
+		{3, "g3-full", "g3-compact"},
+	}
+	entries := make([]renderer.ProbeEntry, len(tt))
+	for i, tc := range tt {
+		tc := tc
+		entries[i] = makeEntry(tc.group, tc.full, tc.comp, "")
+	}
+	const cols = 1000 // always fits at pass=0
+	out := renderer.FitLine(entries, cols, " | ")
+	for _, tc := range tt {
+		if !strings.Contains(out, tc.full) {
+			t.Errorf("pass=0 group=%d: want Full %q in output %q", tc.group, tc.full, out)
+		}
+	}
+}
+
+// TestLevelForPass_Pass4 — at pass=4 only P0 stays Full; all other groups go Minimal.
+// Verified indirectly: cols=2 forces FitLine to reach pass=4.
+// P0 renders "X" (fits even at cols=2). Groups 1/2/3 render "" at Minimal → dropped.
+func TestLevelForPass_Pass4(t *testing.T) {
+	entries := []renderer.ProbeEntry{
+		makeEntry(0, "X", "X", "X"),    // P0: always Full (level 0)
+		makeEntry(1, "g1f", "g1c", ""), // P1: Minimal="" → dropped at pass=4
+		makeEntry(2, "g2f", "g2c", ""), // P2: Minimal="" → dropped at pass=4
+		makeEntry(3, "g3f", "g3c", ""), // P3: Minimal="" → dropped at pass=4
+	}
+	const cols = 2 // forces pass=4 (only "X" fits)
+	out := renderer.FitLine(entries, cols, " | ")
+	if !strings.Contains(out, "X") {
+		t.Fatalf("pass=4: P0 (group=0) must be Full; got %q", out)
+	}
+	for _, forbidden := range []string{"g1", "g2", "g3"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("pass=4: group≥1 must be Minimal (empty, dropped); got %q containing %q", out, forbidden)
+		}
+	}
+}
+
+// TestLevelForPass_Pass5_Fallback — FitLine's fallback branch (pass>4) mirrors pass=4:
+// P0=Full, all others=Minimal. This branch is exercised when all 5 passes overflow.
+//
+// We verify the fallback indirectly: cols=2, sep=" | " (triggers soft-wrap path after
+// pass=4), but with only a single P0 entry "X" (len=1) and entries that produce ""
+// at Minimal, the final assembled string is "X" which fits (no soft-wrap needed).
+// The critical path is that the fallback inside levelForPass returns Full for g=0
+// and Minimal (2) for g≥1 — same contract as pass=4.
+func TestLevelForPass_Pass5_Fallback(t *testing.T) {
+	// Use cols=2 with sep=" | " so FitLine goes past pass=4 into the fallback.
+	// All non-P0 entries render "" at Minimal (level=2) → dropped. P0 "Y" stays.
+	entries := []renderer.ProbeEntry{
+		makeEntry(0, "Y", "Y", "Y"),
+		makeEntry(1, "p1full", "p1c", ""),
+		makeEntry(2, "p2full", "p2c", ""),
+	}
+	const cols = 2
+	out := renderer.FitLine(entries, cols, " | ")
+	if !strings.Contains(out, "Y") {
+		t.Fatalf("fallback: P0 must remain Full; got %q", out)
+	}
+	for _, forbidden := range []string{"p1", "p2"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("fallback: group≥1 must be dropped at Minimal; got %q containing %q", out, forbidden)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // T-6: FitLine — basic fit / downgrade tests
 // ---------------------------------------------------------------------------
 

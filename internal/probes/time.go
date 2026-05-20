@@ -5,12 +5,12 @@ import (
 )
 
 // TimeProbe renders the total API wall-clock duration in MM:SS format.
-// Priority P3: dropped at Minimal level (returns empty string).
+// Priority P0: inviolable group, dropped at Minimal level (returns empty string).
 // Visible returns true even at zero duration.
 type TimeProbe struct{}
 
 func (p *TimeProbe) Name() string  { return "time" }
-func (p *TimeProbe) Priority() int { return 3 }
+func (p *TimeProbe) Priority() int { return 0 }
 func (p *TimeProbe) MinWidth() int { return 0 } // dropped at Minimal
 
 // Visible always returns true: probe is present but renders empty at Minimal.

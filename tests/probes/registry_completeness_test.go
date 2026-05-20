@@ -46,14 +46,14 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 	wantPriority := map[string]int{
 		"model":    0,
 		"effort":   0,
-		"cost":     0,
-		"email":    2,
-		"project":  2,
+		"ctx":      0,
+		"time":     0,
 		"quota":    1,
-		"ctx":      1,
+		"project":  2,
 		"cache":    2,
-		"time":     3,
 		"git":      2,
+		"cost":     2,
+		"email":    3,
 		"subagent": 4,
 	}
 
@@ -74,6 +74,60 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 		if mw := p.MinWidth(); mw < 0 {
 			t.Errorf("probe %s: MinWidth()=%d, want >= 0", name, mw)
 		}
+	}
+}
+
+// TestRegistry_PriorityValues pins the exact Priority() value for each of the
+// 11 registered probes. Fails immediately if any probe's Priority() drifts from
+// the values specified in the Phase 4.3 PLAN (Pre-step #4) and the architecture
+// concept §4.3 line 869.
+//
+// Priority table (pinned):
+//
+//	model=0  effort=0  ctx=0  time=0
+//	quota=1
+//	project=2  cache=2  git=2  cost=2
+//	email=3
+//	subagent=4
+func TestRegistry_PriorityValues(t *testing.T) {
+	tt := []struct {
+		name string
+		want int
+	}{
+		{"model", 0},
+		{"effort", 0},
+		{"time", 0},
+		{"ctx", 0},
+		{"quota", 1},
+		{"project", 2},
+		{"cache", 2},
+		{"git", 2},
+		{"cost", 2},
+		{"email", 3},
+		{"subagent", 4},
+	}
+
+	all := append([]probes.Probe{}, probes.Line0Registry...)
+	all = append(all, probes.Line1Registry...)
+	all = append(all, probes.Line2Registry...)
+	all = append(all, probes.SubagentRegistry...)
+
+	byName := make(map[string]probes.Probe, len(all))
+	for _, p := range all {
+		byName[p.Name()] = p
+	}
+
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok := byName[tc.name]
+			if !ok {
+				t.Fatalf("probe %q not found in any registry", tc.name)
+			}
+			if got := p.Priority(); got != tc.want {
+				t.Fatalf("probe %q: Priority() = %d, want %d", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 

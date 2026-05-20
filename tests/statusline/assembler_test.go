@@ -40,6 +40,8 @@ func (f *fakeProbe) Visible(_ probes.Data, _ probes.Config) bool { return f.visi
 func (f *fakeProbe) Render(_ probes.Data, _ probes.Config, _ renderer.Theme, l probes.Level) string {
 	switch l {
 	case probes.LevelCompact:
+		// Empty compact means "not set" — falls back to out (Full).
+		// To express "invisible at Compact", use compactSet bool or a sentinel.
 		if f.compact != "" {
 			return f.compact
 		}

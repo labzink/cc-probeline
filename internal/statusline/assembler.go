@@ -88,39 +88,6 @@ func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data) []render
 	return entries
 }
 
-// renderLine iterates a probe registry, filters visible probes, sorts by
-// Priority ascending, renders each, and joins with sep. Level is passed
-// through to each probe's Render call (C-11).
-func (a *Assembler) renderLine(ps []probes.Probe, sep string, level probes.Level, d probes.Data) string {
-	// Collect visible probes preserving original slice indices for stable sort.
-	type entry struct {
-		priority int
-		out      string
-	}
-
-	var entries []entry
-	for _, p := range ps {
-		if !p.Visible(d, a.Config) {
-			continue
-		}
-		entries = append(entries, entry{
-			priority: p.Priority(),
-			out:      p.Render(d, a.Config, a.Theme, level),
-		})
-	}
-
-	// Sort by priority ascending (lower number = higher importance = leftmost).
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].priority < entries[j].priority
-	})
-
-	parts := make([]string, 0, len(entries))
-	for _, e := range entries {
-		parts = append(parts, e.out)
-	}
-	return strings.Join(parts, sep)
-}
-
 // perTurnTable builds the box-drawing table for Standard mode.
 // It caps at the last 20 turns (C-6), applies column-drop truncation via
 // Builder.RenderForCols(cols), and returns a slice of non-empty lines.
@@ -136,7 +103,7 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 		turns = turns[len(turns)-20:]
 	}
 
-	b := renderer.NewBuilder(a.Cols)
+	b := renderer.NewBuilder(cols)
 	for _, t := range turns {
 		b.Add(t)
 	}

@@ -1,20 +1,18 @@
-// Package statusline_test — RED integration tests for Phase 4.3.d.
+// Package statusline_test — integration tests for Phase 4.3.d.
 //
 // These tests exercise the wire-up between Assembler.Render, DetectCols, FitLine,
 // and Builder.RenderForCols. They fall into two groups:
 //
-//   - RED tests: FAIL on the current stubs because Assembler.renderLine does not
-//     call FitLine (FitLine stub returns "", so assembler keeps using the raw
-//     joined probe output which overflows the requested cols).
+//   - Fit tests: verify that Assembler.Render uses FitLine and the assembled
+//     probe output fits within the requested cols.
 //
 //   - Invariant tests (StillNoAnsi, MarkersStillPresent, RowCountStable,
-//     Cap20StillEnforced): PASS on the stub because they verify properties that
-//     already hold in Phase 4.2 and must continue to hold after GREEN.
+//     Cap20StillEnforced): verify properties that must hold both before and
+//     after GREEN.
 //
-// Detection strategy for RED tests: we register probes whose combined output
-// (with separators) exceeds the target cols. The current assembler joins them
-// raw without FitLine → output overflows → assertions on VisualLen > cols fail.
-// After GREEN, FitLine trims the output to fit → assertions pass.
+// Detection strategy: we register probes whose combined output (with separators)
+// exceeds the target cols. After GREEN, FitLine trims the output to fit →
+// assertions on VisualLen ≤ cols pass.
 package statusline_test
 
 import (

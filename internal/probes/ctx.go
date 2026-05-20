@@ -20,7 +20,7 @@ import (
 type CtxProbe struct{}
 
 func (p *CtxProbe) Name() string  { return "ctx" }
-func (p *CtxProbe) Priority() int { return 1 }
+func (p *CtxProbe) Priority() int { return 0 }
 func (p *CtxProbe) MinWidth() int { return len("128K/200K") }
 
 // Visible returns false when ContextWindow.Size is zero.

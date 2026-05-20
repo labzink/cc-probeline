@@ -164,8 +164,9 @@ func (b *Builder) Add(t parser.Turn) {
 //     a 6-column table at the requested cols. If that fits, return it.
 //  3. If the 6-column table still overflows, middle-truncate the tool/arg
 //     cell content so that each line fits within cols.
-//  4. If cols is too narrow even for the minimal layout (cols < 30), accept
+//  4. If cols is too narrow even for the minimal layout (cols < 46), accept
 //     overflow and return Render() unchanged.
+//     Threshold derivation: flex6 = (cols-7)-38 < 1  →  cols < 46.
 //
 // When cols == 0 the result is identical to Render() (no truncation).
 func (b *Builder) RenderForCols(cols int) string {
@@ -176,7 +177,7 @@ func (b *Builder) RenderForCols(cols int) string {
 	if full == "" {
 		return full
 	}
-	if maxLineWidth(full) <= cols {
+	if maxLineVisualLen(full) <= cols {
 		return full
 	}
 
@@ -192,7 +193,7 @@ func (b *Builder) RenderForCols(cols int) string {
 		return full
 	}
 	narrowed := b.render6Cols(cols, flex6, 0)
-	if maxLineWidth(narrowed) <= cols {
+	if maxLineVisualLen(narrowed) <= cols {
 		return narrowed
 	}
 
@@ -205,22 +206,14 @@ func (b *Builder) RenderForCols(cols int) string {
 	return b.render6Cols(cols, flex6, toolInner)
 }
 
-// maxLineWidth returns the maximum rune-count among all newline-delimited lines in s.
-func maxLineWidth(s string) int {
+// maxLineVisualLen returns the maximum terminal width (via format.VisualLen)
+// among all newline-delimited lines in s. This correctly accounts for
+// double-wide CJK characters and zero-width control sequences.
+func maxLineVisualLen(s string) int {
 	max := 0
-	start := 0
-	for i := 0; i <= len(s); i++ {
-		if i == len(s) || s[i] == '\n' {
-			line := s[start:i]
-			w := 0
-			for _, r := range line {
-				_ = r
-				w++
-			}
-			if w > max {
-				max = w
-			}
-			start = i + 1
+	for _, line := range strings.Split(s, "\n") {
+		if w := format.VisualLen(line); w > max {
+			max = w
 		}
 	}
 	return max

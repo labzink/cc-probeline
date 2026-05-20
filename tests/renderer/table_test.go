@@ -377,18 +377,16 @@ func TestBuilder_RenderForCols_NoTruncation(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// TestBuilder_RenderForCols_DropDurColumn — §4.3 T-9 cols=60 narrows table
+// TestBuilder_RenderForCols_DropsLowPriorityNumericColumn — §4.3 T-9 cols=60 narrows table
+//
+// "dur" from concept §4.3 maps to the lowest-priority numeric column (cost in 7-col layout).
 //
 // The standard table at cols=80 is 80 runes wide. When cols=60 is requested,
-// RenderForCols must drop the lowest-priority (P3) column so that the
-// rendered table fits within 60 columns. The stub returns the full 80-wide
-// table and therefore FAILS this test (RED).
-//
-// "dur" in the plan refers to the lowest-priority numeric column (P3). The
-// current table has 7 columns; the GREEN implementation will drop one to fit.
+// RenderForCols must drop the lowest-priority numeric column so that the
+// rendered table fits within 60 columns.
 // Assertion: every line of RenderForCols(60) is ≤ 60 runes wide.
 // -------------------------------------------------------------------
-func TestBuilder_RenderForCols_DropDurColumn(t *testing.T) {
+func TestBuilder_RenderForCols_DropsLowPriorityNumericColumn(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	// Add a representative turn.
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Edit", 5000, 300, 2*time.Minute))

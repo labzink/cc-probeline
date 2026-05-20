@@ -16,7 +16,7 @@ import (
 type EmailProbe struct{}
 
 func (p *EmailProbe) Name() string  { return "email" }
-func (p *EmailProbe) Priority() int { return 2 }
+func (p *EmailProbe) Priority() int { return 3 }
 func (p *EmailProbe) MinWidth() int { return 12 }
 
 // Visible returns true only when EmailEnabled=true and Email is non-empty.
