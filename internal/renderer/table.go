@@ -156,14 +156,164 @@ func (b *Builder) Add(t parser.Turn) {
 	b.aggOut += t.Tokens.Output
 }
 
-// RenderForCols renders the table targeting cols terminal width, dropping
-// the duration column then middle-truncating tool/arg as needed (§4.3 T-9).
-// When cols <= 0 the current builder width is used (no truncation).
+// RenderForCols renders the table targeting cols terminal width, applying a
+// two-step column-drop strategy (§4.3 T-9):
 //
-// Stub: delegates to Render and ignores cols. Real implementation in 4.3.d.
+//  1. If the full table already fits within cols, return Render() unchanged.
+//  2. Drop the lowest-priority numeric column (cost, col index 5) and render
+//     a 6-column table at the requested cols. If that fits, return it.
+//  3. If the 6-column table still overflows, middle-truncate the tool/arg
+//     cell content so that each line fits within cols.
+//  4. If cols is too narrow even for the minimal layout (cols < 30), accept
+//     overflow and return Render() unchanged.
+//
+// When cols == 0 the result is identical to Render() (no truncation).
 func (b *Builder) RenderForCols(cols int) string {
-	_ = cols
-	return b.Render()
+	if cols == 0 {
+		return b.Render()
+	}
+	full := b.Render()
+	if full == "" {
+		return full
+	}
+	if maxLineWidth(full) <= cols {
+		return full
+	}
+
+	// Step 1: try dropping the cost column (P3, col index 5).
+	// A 6-column layout uses borders: left + 5 inner + right = 7 runes.
+	const borders6 = 7
+	// Fixed cols: #(3) + role(6) + model(10) + cache(13) + out(6) = 38.
+	const fixed6 = 38
+	flexMin := 1 // tool/arg column minimum visible width
+	flex6 := (cols - borders6) - fixed6
+	if flex6 < flexMin {
+		// cols too narrow for any 6-col layout; accept overflow.
+		return full
+	}
+	narrowed := b.render6Cols(cols, flex6, 0)
+	if maxLineWidth(narrowed) <= cols {
+		return narrowed
+	}
+
+	// Step 2: middle-truncate tool/arg cell content.
+	// inner width of tool/arg cell = flex6 - 1 (1-space margin each side minus one).
+	toolInner := flex6 - 1
+	if toolInner < 1 {
+		return full
+	}
+	return b.render6Cols(cols, flex6, toolInner)
+}
+
+// maxLineWidth returns the maximum rune-count among all newline-delimited lines in s.
+func maxLineWidth(s string) int {
+	max := 0
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == '\n' {
+			line := s[start:i]
+			w := 0
+			for _, r := range line {
+				_ = r
+				w++
+			}
+			if w > max {
+				max = w
+			}
+			start = i + 1
+		}
+	}
+	return max
+}
+
+// render6Cols renders the table with 6 columns (cost column dropped).
+// termCols is the target terminal width (used to compute the flex column).
+// toolMaxInner, when > 0, limits the tool/arg cell content via MiddleTruncate.
+// When toolMaxInner == 0, the cell content is not truncated beyond normal padCell rules.
+func (b *Builder) render6Cols(termCols, flexWidth, toolMaxInner int) string {
+	if len(b.rows) == 0 {
+		return ""
+	}
+
+	// 6-column widths: #, role, model, cache, out, tool/arg(flex).
+	cols := [6]int{3, 6, 10, 13, 6, flexWidth}
+
+	topBorder := hline6(cols, '┌', '┬', '┐', '─', nil)
+	rowSep := hline6(cols, '├', '┼', '┤', '─', nil)
+	// Footer separator: cols 0-2 merged.
+	footerSep := hline6(cols, '├', '┼', '┤', '─', map[int]rune{0: '┴', 1: '┴'})
+	// Bottom border: cols 0-2 merged.
+	bottomBorder := hline6(cols, '└', '┴', '┘', '─', map[int]rune{0: '─', 1: '─'})
+
+	var sb strings.Builder
+	sb.WriteString(topBorder)
+	sb.WriteByte('\n')
+	for i, row := range b.rows {
+		sb.WriteString(renderRow6(row, cols, toolMaxInner))
+		sb.WriteByte('\n')
+		if i < len(b.rows)-1 {
+			sb.WriteString(rowSep)
+			sb.WriteByte('\n')
+		}
+	}
+	sb.WriteString(footerSep)
+	sb.WriteByte('\n')
+	sb.WriteString(b.buildFooterRow6(cols))
+	sb.WriteByte('\n')
+	sb.WriteString(bottomBorder)
+	sb.WriteByte('\n')
+	return sb.String()
+}
+
+// hline6 builds a horizontal border line for a 6-column table.
+func hline6(cols [6]int, left, join, right, fill rune, mergeAt map[int]rune) string {
+	var sb strings.Builder
+	sb.WriteRune(left)
+	for i, w := range cols {
+		sb.WriteString(strings.Repeat(string(fill), w))
+		if i < len(cols)-1 {
+			if r, ok := mergeAt[i]; ok {
+				sb.WriteRune(r)
+			} else {
+				sb.WriteRune(join)
+			}
+		}
+	}
+	sb.WriteRune(right)
+	return sb.String()
+}
+
+// renderRow6 renders one content row for the 6-column layout (cost dropped).
+// toolMaxInner, when > 0, limits tool/arg cell via MiddleTruncate.
+func renderRow6(row Row, cols [6]int, toolMaxInner int) string {
+	// Map 7-col row to 6-col: skip col 5 (cost).
+	// Indices: 0=#, 1=role, 2=model, 3=cache, 4=out, 5=tool/arg (was col 6).
+	mapped := [6]Cell{row[0], row[1], row[2], row[3], row[4], row[6]}
+	if toolMaxInner > 0 {
+		tool := mapped[5].Content
+		mapped[5].Content = format.MiddleTruncate(tool, toolMaxInner)
+	}
+	var sb strings.Builder
+	sb.WriteRune('│')
+	for i, cell := range mapped {
+		sb.WriteString(padCell(cell.Content, cols[i], cell.Align))
+		sb.WriteRune('│')
+	}
+	return sb.String()
+}
+
+// buildFooterRow6 returns the footer line for the 6-column layout.
+func (b *Builder) buildFooterRow6(cols [6]int) string {
+	mergedWidth := cols[0] + 1 + cols[1] + 1 + cols[2]
+	aggCacheStr := fmt.Sprintf("%s/%s",
+		format.FormatK(b.aggCache[0]),
+		format.FormatK(b.aggCache[1]),
+	)
+	return "│" +
+		padCell("Total for request", mergedWidth, AlignLeft) + "│" +
+		padCell(aggCacheStr, cols[3], AlignLeft) + "│" +
+		padCell(format.FormatK(b.aggOut), cols[4], AlignRight) + "│" +
+		padCell("", cols[5], AlignLeft) + "│"
 }
 
 // Render returns the full table string (top border, rows, footer-separator,

@@ -35,19 +35,25 @@ type Assembler struct {
 //	[table] — Standard mode only: last 20 per-turn rows + footer
 //	[hint]  — Phase 4.4 stub; empty for now
 func (a *Assembler) Render(d probes.Data) string {
-	// Build the three header lines.
+	// Resolve effective terminal width (§4.3 T-10).
+	cols := a.Cols
+	if cols == 0 {
+		cols = renderer.DetectCols()
+	}
+
+	// Build the three header lines via FitLine (§4.3 T-11).
 	const bulletSep = "{{dim}} • {{reset}}"
 	const pipeSep = " | "
 
-	l0 := a.renderLine(probes.Line0Registry, bulletSep, 0, d)
-	l1 := a.renderLine(probes.Line1Registry, bulletSep, 1, d)
-	l2 := a.renderLine(probes.Line2Registry, pipeSep, 2, d)
+	l0 := renderer.FitLine(a.buildProbeEntries(probes.Line0Registry, d), cols, bulletSep)
+	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d), cols, bulletSep)
+	l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d), cols, pipeSep)
 
 	lines := []string{l0, l1, l2}
 
 	// Standard mode: append per-turn table when there are rows (C-6).
 	if a.Mode == mode.Standard {
-		tableLines := a.perTurnTable(d)
+		tableLines := a.perTurnTable(d, cols)
 		lines = append(lines, tableLines...)
 	}
 
@@ -57,6 +63,29 @@ func (a *Assembler) Render(d probes.Data) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// buildProbeEntries converts a probe registry slice into []renderer.ProbeEntry
+// for consumption by FitLine. Invisible probes are excluded (§4.3 T-11).
+func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data) []renderer.ProbeEntry {
+	entries := make([]renderer.ProbeEntry, 0, len(ps))
+	for _, p := range ps {
+		if !p.Visible(d, a.Config) {
+			continue
+		}
+		pp := p // capture loop variable
+		entries = append(entries, renderer.ProbeEntry{
+			Priority: pp.Priority(),
+			Render: func(level int) string {
+				return pp.Render(d, a.Config, a.Theme, probes.Level(level))
+			},
+		})
+	}
+	// Sort by priority ascending so FitLine sees probes in display order.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Priority < entries[j].Priority
+	})
+	return entries
 }
 
 // renderLine iterates a probe registry, filters visible probes, sorts by
@@ -93,9 +122,10 @@ func (a *Assembler) renderLine(ps []probes.Probe, sep string, level probes.Level
 }
 
 // perTurnTable builds the box-drawing table for Standard mode.
-// It caps at the last 20 turns (C-6) and returns a slice of non-empty lines.
+// It caps at the last 20 turns (C-6), applies column-drop truncation via
+// Builder.RenderForCols(cols), and returns a slice of non-empty lines.
 // Returns nil when there are no turns (table block is skipped).
-func (a *Assembler) perTurnTable(d probes.Data) []string {
+func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	if d.Session == nil || len(d.Session.Turns) == 0 {
 		return nil
 	}
@@ -111,12 +141,13 @@ func (a *Assembler) perTurnTable(d probes.Data) []string {
 		b.Add(t)
 	}
 
-	raw := b.Render()
+	// Use RenderForCols for column-drop truncation (§4.3 T-9).
+	raw := b.RenderForCols(cols)
 	if raw == "" {
 		return nil
 	}
 
-	// Render() appends a trailing '\n'; split and drop the final empty element.
+	// RenderForCols appends a trailing '\n'; split and drop the final empty element.
 	all := strings.Split(raw, "\n")
 	if len(all) > 0 && all[len(all)-1] == "" {
 		all = all[:len(all)-1]
