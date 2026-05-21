@@ -112,3 +112,38 @@ func TestSoftWrap_SingleChunkUnchanged(t *testing.T) {
 		t.Errorf("single-chunk must not contain marker; got: %q", out)
 	}
 }
+
+// TestSoftWrap_WrappedChunks_AllHaveMarker is an affirmative regression test
+// that verifies every continuation chunk (index >= 1) starts with "↪ " even
+// when the input wraps into 3+ chunks. A regression that removes or skips the
+// marker for intermediate chunks would be caught here.
+func TestSoftWrap_WrappedChunks_AllHaveMarker(t *testing.T) {
+	// 6 entries of 10 chars each at cols=12: forces 3+ wrapped chunks.
+	// Full join: "aaaaaaaaaa | bbbbbbbbbb | cccccccccc | dddddddddd | eeeeeeeeee | ffffffffff"
+	entries := []renderer.ProbeEntry{
+		makeEntry(0, "aaaaaaaaaa", "aaaaaaaaaa", "aaaaaaaaaa"),
+		makeEntry(0, "bbbbbbbbbb", "bbbbbbbbbb", "bbbbbbbbbb"),
+		makeEntry(0, "cccccccccc", "cccccccccc", "cccccccccc"),
+		makeEntry(0, "dddddddddd", "dddddddddd", "dddddddddd"),
+		makeEntry(0, "eeeeeeeeee", "eeeeeeeeee", "eeeeeeeeee"),
+		makeEntry(0, "ffffffffff", "ffffffffff", "ffffffffff"),
+	}
+	const sep = " | "
+	const cols = 12
+	out := renderer.FitLine(entries, cols, sep)
+
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 wrapped lines for cols=%d, got %d; output: %q", cols, len(lines), out)
+	}
+	// Every continuation line (index >= 1) must begin with the marker.
+	for i, line := range lines[1:] {
+		if !strings.HasPrefix(line, "↪ ") {
+			t.Errorf("wrapped chunk[%d] = %q: missing '↪ ' marker", i+1, line)
+		}
+	}
+	// First line must not have the marker.
+	if strings.HasPrefix(lines[0], "↪ ") {
+		t.Errorf("first chunk must not have marker; got: %q", lines[0])
+	}
+}

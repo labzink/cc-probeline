@@ -239,6 +239,27 @@ func TestDetectCacheEvents_NoSidechainInOrchTTL(t *testing.T) {
 	}
 }
 
+// TestDetectCacheEvents_OrchTTL_NotFiredWhenPrevIsSidechain verifies that
+// OrchTTL does NOT fire when prev.IsSidechain=true, even if the timestamp
+// gap exceeds the threshold and curr is an orch turn. A subagent→orch
+// transition after >60 min must not produce a false OrchTTL event.
+func TestDetectCacheEvents_OrchTTL_NotFiredWhenPrevIsSidechain(t *testing.T) {
+	// prev: sidechain (subagent) turn, CacheRead=50K
+	// curr: orch turn, CacheRead=0, gap=70 min — base condition met, but
+	// prev.IsSidechain=true means this is NOT an orch-to-orch transition.
+	prev := mkTurn(1, "claude-opus-4-7-20250805", 50000, base, true) // sidechain!
+	curr := mkTurn(2, "claude-opus-4-7-20250805", 0, base.Add(70*time.Minute), false)
+
+	turns := []parser.Turn{prev, curr}
+	events := parser.DetectCacheEvents(turns, base.Add(75*time.Minute))
+
+	for _, e := range events {
+		if e.Type == parser.OrchTTL {
+			t.Errorf("OrchTTL_NotFiredWhenPrevIsSidechain: OrchTTL must not fire when prev is a sidechain turn; got events: %+v", events)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // DetectCacheEvents — edge cases
 // ---------------------------------------------------------------------------

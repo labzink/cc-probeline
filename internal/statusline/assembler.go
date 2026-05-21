@@ -136,11 +136,24 @@ func (a *Assembler) hint(d probes.Data) string {
 	if d.Session != nil {
 		cacheEvents = d.Session.CacheEvents
 	}
+	// Merge subagent-scope events (T-9 SendMessageGap, T-10 SlowInternal).
+	// SubagentStats live outside SessionStats so Aggregate cannot include them.
+	if len(d.Subagents) > 0 {
+		cacheEvents = append(cacheEvents,
+			parser.DetectSubagentCacheEvents(d.Subagents, d.Now)...)
+	}
 	w := hint.Widget{
 		State:  state,
 		Events: cacheEvents,
 	}
-	text := w.Pick(time.Now())
+	// Use d.Now for deterministic clock (hypothesis insurance #3).
+	// Fall back to time.Now() so the CLI entrypoint (Phase 5) is safe if
+	// it forgets to populate d.Now.
+	now := d.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	text := w.Pick(now)
 	// Persist updated state (rotation advanced). Ignore error: on
 	// permission-denied or disk-full the widget degrades to memory-only mode.
 	if d.SessionID != "" {

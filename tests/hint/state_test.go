@@ -220,6 +220,55 @@ func TestLoad_CorruptJson_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Save — error paths
+// ---------------------------------------------------------------------------
+
+// TestSave_WriteFileFails_ReadOnlyDir verifies that Save returns an error when
+// the cache directory is read-only (os.WriteFile cannot create the .tmp file).
+func TestSave_WriteFileFails_ReadOnlyDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	// Create the cc-probeline subdir first so MkdirAll succeeds, then make it
+	// read-only so os.WriteFile fails when trying to create the .tmp file.
+	ccDir := filepath.Join(dir, "cc-probeline")
+	if err := os.MkdirAll(ccDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(ccDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	// Restore write permission in cleanup so t.TempDir() can clean up.
+	t.Cleanup(func() { _ = os.Chmod(ccDir, 0o755) })
+
+	s := hint.State{ShownIndices: []int{0}, CurrentIndex: 0}
+	err := hint.Save("readonly-sess", s)
+	if err == nil {
+		t.Error("Save to read-only dir: expected error, got nil")
+	}
+}
+
+// TestSave_MkdirAllFails_ParentIsFile verifies that Save returns an error when
+// the path where MkdirAll would create the cc-probeline directory is already
+// occupied by a plain file (not a directory).
+func TestSave_MkdirAllFails_ParentIsFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	// Place a regular file where MkdirAll expects to create a directory.
+	conflict := filepath.Join(dir, "cc-probeline")
+	if err := os.WriteFile(conflict, []byte("conflict"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := hint.State{ShownIndices: []int{0}, CurrentIndex: 0}
+	err := hint.Save("conflict-sess", s)
+	if err == nil {
+		t.Error("Save with file blocking dir creation: expected error, got nil")
+	}
+}
+
 // TestSave_ConcurrentCallsSafe verifies that 5 goroutines calling Save
 // simultaneously do not cause a data race and leave a valid JSON file on disk.
 func TestSave_ConcurrentCallsSafe(t *testing.T) {

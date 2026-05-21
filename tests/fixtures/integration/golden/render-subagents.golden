@@ -44,4 +44,4 @@ cache 3007K/141K | out 62K | cost: $0.00 | time: 00:00
 ├───┴──────┴──────────┼─────────────┼──────┼───────┼───────────────────────────┤
 │ Total for request   │ ≡ 2397K/73K │↗ 45K │ $8.40 │ ⏱ 49:45                   │
 └─────────────────────┴─────────────┴──────┴───────┴───────────────────────────┘
-⚠ cache miss/alert · [high] reasoning effort
+⚠ Subagent#a09c2d1be526067ce cache lost · 5-min SendMessage gap

@@ -47,7 +47,10 @@ type CacheEvent struct {
 // sub-detectors). Covers: curr==0 and large-drop (ratio < cacheShrinkRatio).
 func isCacheInvalidated(prev, curr Turn) bool {
 	if prev.Tokens.CacheRead == 0 {
-		// No previous cache — nothing to lose.
+		// DRIFT from PLAN T-6: requires prev.CacheRead > 0 as a precondition.
+		// T-6 allows "curr.CacheRead == 0" as sufficient, but firing on a session's
+		// first turn (no prior cache) would produce a spurious alert. Deliberate
+		// improvement over the spec.
 		return false
 	}
 	ratio := float64(curr.Tokens.CacheRead) / float64(prev.Tokens.CacheRead)
@@ -56,8 +59,10 @@ func isCacheInvalidated(prev, curr Turn) bool {
 
 // detectOrchTTL returns an OrchTTL event if both turns are orchestrator turns
 // and the timestamp gap exceeds orchTTLThreshold.
+// Both prev and curr must be non-sidechain to avoid a false positive when a
+// subagent turn (prev.IsSidechain=true) is followed by an orch turn after >60 min.
 func detectOrchTTL(prev, curr Turn) *CacheEvent {
-	if curr.IsSidechain {
+	if prev.IsSidechain || curr.IsSidechain {
 		return nil
 	}
 	gap := curr.Timestamp.Sub(prev.Timestamp)
@@ -67,7 +72,7 @@ func detectOrchTTL(prev, curr Turn) *CacheEvent {
 	return &CacheEvent{
 		Type:      OrchTTL,
 		Timestamp: curr.Timestamp,
-		Detail:    fmt.Sprintf("60-min idle (%.0f min)", gap.Minutes()),
+		Detail:    fmt.Sprintf("%.0f-min idle (%.0f min)", orchTTLThreshold.Minutes(), gap.Minutes()),
 	}
 }
 
