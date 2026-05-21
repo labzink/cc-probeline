@@ -47,10 +47,23 @@ func BuildAlert(events []parser.CacheEvent) string {
 			continue
 		}
 		tpl := AlertTexts[t]
-		if last.Detail != "" {
+		// Only interpolate Detail when the template contains a %s verb.
+		// Templates without %s (e.g. CompactHeuristic) are returned as-is to
+		// avoid fmt.Sprintf producing spurious %!(EXTRA ...) output.
+		if last.Detail != "" && containsVerb(tpl) {
 			return fmt.Sprintf(tpl, last.Detail)
 		}
 		return tpl
 	}
 	return ""
+}
+
+// containsVerb reports whether s contains a fmt %s verb.
+func containsVerb(s string) bool {
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] == '%' && s[i+1] == 's' {
+			return true
+		}
+	}
+	return false
 }
