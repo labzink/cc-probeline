@@ -3,7 +3,9 @@ package renderer
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/format"
 	"github.com/labzink/cc-probeline/internal/parser"
 )
@@ -32,8 +34,10 @@ type Builder struct {
 	cols         [7]int
 	terminalCols int // target terminal width (default 80)
 	rows         []Row
-	aggCache     [2]int // [0]=total CacheRead, [1]=total CacheCreate
-	aggOut       int    // total output tokens
+	turns        []parser.Turn // raw turns for cost aggregation
+	aggCache     [2]int        // [0]=total CacheRead, [1]=total CacheCreate
+	aggOut       int           // total output tokens
+	aggDur       time.Duration // sum of all turn Durations
 }
 
 // NewBuilder returns a Builder with default layout using the given terminal
@@ -44,7 +48,7 @@ func NewBuilder(cols int) *Builder {
 		cols = 80
 	}
 	return &Builder{
-		cols:         [7]int{3, 6, 10, 13, 6, 6, 16},
+		cols:         [7]int{3, 6, 10, 13, 6, 7, 16},
 		terminalCols: cols,
 	}
 }
@@ -123,12 +127,13 @@ func renderRow(row Row, cols [7]int) string {
 }
 
 // costFor returns the formatted cost string for a single turn.
-// TODO(phase-4.4): replace stub with CostCalculator.
-func (b *Builder) costFor(_ parser.Turn) string { return "$0.00" }
+func (b *Builder) costFor(t parser.Turn) string { return cost.Format(cost.Compute(t)) }
 
 // costForAgg returns the formatted total cost string for all aggregated turns.
-// TODO(phase-4.4): replace stub with CostCalculator.
-func (b *Builder) costForAgg() string { return "$0.00" }
+func (b *Builder) costForAgg() string { return cost.Format(cost.ComputeAggregate(b.turns)) }
+
+// durationAggregate returns the sum of all turn Durations.
+func (b *Builder) durationAggregate() time.Duration { return b.aggDur }
 
 // Add appends one per-turn row built from a parser.Turn.
 func (b *Builder) Add(t parser.Turn) {
@@ -151,9 +156,11 @@ func (b *Builder) Add(t parser.Turn) {
 		{Content: t.ToolUse, Align: AlignLeft},
 	}
 	b.rows = append(b.rows, row)
+	b.turns = append(b.turns, t)
 	b.aggCache[0] += t.Tokens.CacheRead
 	b.aggCache[1] += t.Tokens.CacheCreate
 	b.aggOut += t.Tokens.Output
+	b.aggDur += t.Duration
 }
 
 // RenderForCols renders the table targeting cols terminal width, applying a
@@ -345,17 +352,24 @@ func (b *Builder) Render() string {
 }
 
 // buildFooterRow returns the footer line with "Total for request" label spanning
-// the merged cols 0+1+2 region, and aggregated token/cost totals in cols 3-6.
+// the merged cols 0+1+2 region, and aggregated token/cost/duration totals in
+// cols 3-6. Footer icons: ≡ (U+2261) cache, ↗ (U+2197) output, ⏱ (U+23F1) duration.
 func (b *Builder) buildFooterRow(cols [7]int) string {
 	mergedWidth := cols[0] + 1 + cols[1] + 1 + cols[2]
-	aggCacheStr := fmt.Sprintf("%s/%s",
+	// Cache cell: "≡ readK/createK"
+	aggCacheStr := fmt.Sprintf("≡ %s/%s",
 		format.FormatK(b.aggCache[0]),
 		format.FormatK(b.aggCache[1]),
 	)
+	// Output cell: "↗ outK"
+	outStr := fmt.Sprintf("↗ %s", format.FormatK(b.aggOut))
+	// Duration cell: "⏱ MM:SS"
+	durMS := b.durationAggregate().Milliseconds()
+	durStr := fmt.Sprintf("⏱ %s", format.FormatMMSS(durMS))
 	return "│" +
 		padCell("Total for request", mergedWidth, AlignLeft) + "│" +
 		padCell(aggCacheStr, cols[3], AlignLeft) + "│" +
-		padCell(format.FormatK(b.aggOut), cols[4], AlignRight) + "│" +
+		padCell(outStr, cols[4], AlignRight) + "│" +
 		padCell(b.costForAgg(), cols[5], AlignRight) + "│" +
-		padCell("", cols[6], AlignLeft) + "│"
+		padCell(durStr, cols[6], AlignLeft) + "│"
 }
