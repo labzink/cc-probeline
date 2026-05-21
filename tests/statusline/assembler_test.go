@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -122,10 +123,12 @@ func swapLine2(t *testing.T, ps []probes.Probe) {
 
 // ---------------------------------------------------------------------------
 // TestAssembler_SuperCompact_3Lines
-// §4.2 concept: SuperCompact mode emits only line0 + line1 + line2 — no table,
-// no footer, no hint. Result must have exactly 2 "\n" (= 3 lines).
+// §4.2 concept: SuperCompact mode emits line0 + line1 + line2 — no table, no
+// footer. The hint widget may add one more line (Phase 4.4), so the result has
+// ≥2 "\n" (≥3 lines). No table border "┌" must appear.
 // ---------------------------------------------------------------------------
 func TestAssembler_SuperCompact_3Lines(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "email@x"}})
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "sonnet"}})
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "cache:0"}})
@@ -133,9 +136,10 @@ func TestAssembler_SuperCompact_3Lines(t *testing.T) {
 	a := makeAssembler(mode.SuperCompact)
 	out := a.Render(makeData(0))
 
-	// §4.2 concept line 638-643: SuperCompact path stops after line2.
-	if got := strings.Count(out, "\n"); got != 2 {
-		t.Errorf("SuperCompact: expected 2 newlines (3 lines), got %d; output: %q", got, out)
+	// §4.2 concept line 638-643: SuperCompact path emits 3 header lines; hint
+	// widget (Phase 4.4) may add a 4th line. Assert ≥2 newlines (≥3 lines).
+	if got := strings.Count(out, "\n"); got < 2 {
+		t.Errorf("SuperCompact: expected at least 2 newlines (≥3 lines), got %d; output: %q", got, out)
 	}
 
 	// No table border in SuperCompact.
@@ -229,23 +233,46 @@ func TestAssembler_Standard_NoTurns_NoTable(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestAssembler_HintStub_Empty
-// §4.2 concept line 644-646 + C-12: hint() stub returns "". When hint is empty
-// it must NOT add an extra trailing line beyond line2 (or table+footer).
-// In SuperCompact: output should have exactly 2 newlines (3 lines, no extra).
+// TestAssembler_HintEmpty_NoExtraLine
+// §4.2 C-12: when hint widget returns "" (all hints shown, no alert), the
+// assembler must NOT append an extra blank line beyond line2.
+// We force the "all shown" scenario by pre-saving a fully-exhausted state.
 // ---------------------------------------------------------------------------
-func TestAssembler_HintStub_Empty(t *testing.T) {
+func TestAssembler_HintEmpty_NoExtraLine(t *testing.T) {
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+
+	// Pre-save fully-exhausted hint state so widget returns "".
+	shown := make([]int, len(hint.DefaultHints))
+	for i := range shown {
+		shown[i] = i
+	}
+	state := hint.State{
+		ShownIndices: shown,
+		CurrentIndex: len(hint.DefaultHints) - 1,
+		LastSwitch:   time.Now(),
+	}
+	const sid = "exhausted-session"
+	if err := hint.Save(sid, state); err != nil {
+		t.Fatalf("hint.Save: %v", err)
+	}
+
 	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "email@x"}})
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "sonnet"}})
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "cache:0"}})
 
 	a := makeAssembler(mode.SuperCompact)
-	out := a.Render(makeData(0))
+	d := probes.Data{
+		Session:      &parser.SessionStats{},
+		SessionID:    sid,
+		Now:          time.Now(),
+		TerminalCols: 80,
+	}
+	out := a.Render(d)
 
-	// §4.2 C-12: hint stub returns "" → strings.Join on 3-line slice has 2 "\n".
-	// With an erroneous extra "" appended: Join would add a 3rd "\n".
+	// C-12: empty hint → exactly 3 lines (2 newlines). No blank trailing line.
 	if got := strings.Count(out, "\n"); got != 2 {
-		t.Errorf("HintStub: expected 2 newlines (no trailing hint line), got %d; output: %q", got, out)
+		t.Errorf("HintEmpty: expected 2 newlines (3 lines, no trailing hint), got %d; output: %q", got, out)
 	}
 }
 

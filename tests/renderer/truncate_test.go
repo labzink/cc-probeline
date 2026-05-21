@@ -399,10 +399,18 @@ func TestSoftWrap_Basic(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("softWrap: FitLine() = %q: expected multi-line output for cols=%d, got %d line(s)", out, cols, len(lines))
 	}
-	// Each line must not exceed cols.
+	// Phase 4.4 spec-S4: continuation lines are prefixed with "↪ " (runewidth=2).
+	// The first line must fit in cols; continuation lines fit in cols+2 (marker overhead).
+	const wrapMarkerWidth = 2
 	for i, line := range lines {
-		if vl := format.VisualLen(line); vl > cols {
-			t.Fatalf("softWrap: line[%d] = %q: VisualLen=%d exceeds cols=%d", i, line, vl, cols)
+		vl := format.VisualLen(line)
+		limit := cols
+		if i > 0 {
+			limit = cols + wrapMarkerWidth
+		}
+		if vl > limit {
+			t.Fatalf("softWrap: line[%d] = %q: VisualLen=%d exceeds limit=%d (cols=%d, markerWidth=%d)",
+				i, line, vl, limit, cols, wrapMarkerWidth)
 		}
 	}
 	// All content must be preserved.

@@ -103,10 +103,17 @@ func assemble(entries []ProbeEntry, pass int, sep string) string {
 	return strings.Join(parts, sep)
 }
 
+// wrapMarker is the continuation prefix for wrapped lines (U+21AA + space,
+// runewidth = 2). Visible to the user as a curved arrow, making line
+// continuations easy to spot.
+const wrapMarker = "↪ "
+
 // softWrap splits s by sep and accumulates chunks into lines. A new line is
 // started whenever adding the next chunk (with sep) would exceed cols
 // (measured via format.VisualLen). Chunks within a line are joined by sep;
-// lines are joined by "\n" with no indent. A single chunk is returned as-is.
+// lines are joined by "\n". Continuation lines are prefixed with wrapMarker
+// so the user can distinguish line2 wraps from line0/line1 bullets.
+// A single chunk is returned as-is.
 func softWrap(s, sep string, cols int) string {
 	chunks := strings.Split(s, sep)
 	if len(chunks) <= 1 {
@@ -122,7 +129,7 @@ func softWrap(s, sep string, cols int) string {
 			current = candidate
 		} else {
 			lines = append(lines, current)
-			current = chunk
+			current = wrapMarker + chunk
 		}
 	}
 	lines = append(lines, current)

@@ -11,6 +11,7 @@
 package mode_test
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/labzink/cc-probeline/internal/mode"
+	"github.com/labzink/cc-probeline/tests/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -479,5 +481,124 @@ func TestConcurrent_TwoToggles(t *testing.T) {
 	if persisted != results[0] && persisted != results[1] {
 		t.Errorf("disk value %q does not match either Toggle() result (%q, %q): stub did not persist",
 			persisted, results[0], results[1])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// spec-I4: slog.Warn on non-ErrNotExist errors in Load
+// ---------------------------------------------------------------------------
+
+// setDefaultLogger installs h as the default slog logger for the duration of
+// the test and restores the previous logger via t.Cleanup.
+func setDefaultLogger(t *testing.T, h slog.Handler) {
+	t.Helper()
+	old := slog.Default()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(old) })
+}
+
+// TestLoad_FileNotExist_NoWarn verifies that Load() returns Default when the
+// file is missing and does NOT emit a slog.Warn (ErrNotExist is expected).
+// spec-I4: only non-ErrNotExist errors produce a warning.
+func TestLoad_FileNotExist_NoWarn(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	// Do NOT create the file.
+
+	h := testutil.NewCaptureHandler()
+	setDefaultLogger(t, h)
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with no file: got %q, want %q", got, mode.Standard)
+	}
+	if h.HasWarnContaining("mode.Load") {
+		t.Error("Load() with missing file: unexpected slog.Warn emitted")
+	}
+}
+
+// TestLoad_PermissionDenied_WarnEmitted verifies that Load() returns Default
+// and emits slog.Warn("mode.Load: read failed") when the file is unreadable.
+// spec-I4: permission-denied is a non-ErrNotExist error that must warn.
+func TestLoad_PermissionDenied_WarnEmitted(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permissions — skipping")
+	}
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	p := filepath.Join(dir, "mode")
+	if err := os.WriteFile(p, []byte("standard"), 0o000); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	defer os.Chmod(p, 0o644) //nolint:errcheck
+
+	h := testutil.NewCaptureHandler()
+	setDefaultLogger(t, h)
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with unreadable file: got %q, want %q", got, mode.Standard)
+	}
+	if !h.HasWarnContaining("mode.Load: read failed") {
+		t.Errorf("Load() with unreadable file: expected slog.Warn with 'mode.Load: read failed'; got records: %v", h.Records)
+	}
+}
+
+// TestLoad_UnknownValue_WarnEmitted verifies that Load() returns Default and
+// emits slog.Warn("mode.Load: unknown mode value") when the file has garbage.
+// spec-I4: unknown value triggers warn in addition to returning Default.
+func TestLoad_UnknownValue_WarnEmitted(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("garbage"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	h := testutil.NewCaptureHandler()
+	setDefaultLogger(t, h)
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with unknown value: got %q, want %q", got, mode.Standard)
+	}
+	if !h.HasWarnContaining("mode.Load: unknown mode value") {
+		t.Errorf("Load() with garbage file: expected slog.Warn with 'mode.Load: unknown mode value'; got records: %v", h.Records)
+	}
+}
+
+// TestLoad_ValidStandard_NoWarn verifies that Load() returns Standard with no
+// warning when the file is valid.
+// spec-I4: clean path must not produce any slog output.
+func TestLoad_ValidStandard_NoWarn(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	dir := filepath.Join(tmpDir, "cc-probeline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("standard"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	h := testutil.NewCaptureHandler()
+	setDefaultLogger(t, h)
+
+	got := mode.Load()
+	if got != mode.Standard {
+		t.Errorf("Load() with valid file: got %q, want %q", got, mode.Standard)
+	}
+	if h.HasWarnContaining("mode.Load") {
+		t.Error("Load() with valid file: unexpected slog.Warn emitted")
 	}
 }

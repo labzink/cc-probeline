@@ -7,8 +7,11 @@ package statusline
 import (
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
+	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
 )
@@ -122,9 +125,29 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	return all
 }
 
-// hint returns an optional hint string appended after the table.
-// TODO: Phase 4.4 hint widget — currently always returns "".
-func (a *Assembler) hint(_ probes.Data) string { return "" }
+// hint returns the hint widget text for this session's rotation state.
+// Returns "" when all hints have been shown and no critical alert is active
+// (caller skips adding the hint row in that case, per C-12).
+func (a *Assembler) hint(d probes.Data) string {
+	state := hint.Load(d.SessionID)
+
+	// Build a Widget using the real CacheEvents from the session.
+	var cacheEvents []parser.CacheEvent
+	if d.Session != nil {
+		cacheEvents = d.Session.CacheEvents
+	}
+	w := hint.Widget{
+		State:  state,
+		Events: cacheEvents,
+	}
+	text := w.Pick(time.Now())
+	// Persist updated state (rotation advanced). Ignore error: on
+	// permission-denied or disk-full the widget degrades to memory-only mode.
+	if d.SessionID != "" {
+		_ = hint.Save(d.SessionID, w.State)
+	}
+	return text
+}
 
 // Compile-time check: Assembler.Render must accept probes.Data.
 // (Ensures refactors don't accidentally change the signature.)

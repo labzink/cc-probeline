@@ -4,7 +4,9 @@
 package mode
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,10 +54,14 @@ func Load() Mode {
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("mode.Load: read failed", "path", p, "err", err)
+		}
 		return Default
 	}
 	m := Mode(strings.TrimSpace(string(b)))
 	if m != SuperCompact && m != Standard {
+		slog.Warn("mode.Load: unknown mode value", "path", p, "value", string(b))
 		return Default
 	}
 	return m
