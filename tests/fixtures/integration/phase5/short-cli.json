@@ -1,0 +1,8 @@
+{
+  "transcript_path": "/tmp/nonexistent.jsonl",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "model": {"id": "claude-3-5-sonnet-20241022", "display_name": "Sonnet 3.5"},
+  "workspace": {"current_dir": "/tmp"},
+  "cwd": "/tmp",
+  "version": "1.2.3"
+}
