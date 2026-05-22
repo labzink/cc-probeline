@@ -116,10 +116,18 @@ func detectCompactHeuristic(prev, curr Turn, turns []Turn, currIdx int) *CacheEv
 	}
 }
 
-// DetectCacheEvents scans turns for orchestrator-level cache invalidation:
-// OrchTTL, ModelSwitched, Compact, CompactHeuristic. Subagent-scoped events
-// (SendMessageGap, SlowInternal) live in DetectSubagentCacheEvents because
-// they require SubagentStats which Aggregate does not have access to.
+// DetectCacheEvents scans turns for orchestrator-level cache invalidation events
+// (orch TTL gap, model switch, compaction heuristic).
+//
+// The now parameter is reserved for future detectors that compare the latest
+// turn's Timestamp against wall-clock time (e.g. "orchestrator stalled" — no
+// detector currently uses it). Production callers should pass time.Now();
+// tests pass a fixed time for determinism. Removing this parameter is a
+// breaking change deferred to Phase 7+ if no caller materializes.
+//
+// Subagent-scoped events (SendMessageGap, SlowInternal) live in
+// DetectSubagentCacheEvents because they require SubagentStats which
+// Aggregate does not have access to.
 //
 // Returns nil (not empty slice) when input is nil or has fewer than 2 turns.
 func DetectCacheEvents(turns []Turn, now time.Time) []CacheEvent {
@@ -161,11 +169,15 @@ func DetectCacheEvents(turns []Turn, now time.Time) []CacheEvent {
 	return events
 }
 
-// DetectSubagentCacheEvents scans subagent stats for cache invalidation:
-//   - SendMessageGap: TurnCount >= 2 and gap between first and last turn > 5 min
-//     (subagent received multiple SendMessage calls with a long idle between them).
-//   - SlowInternal: TurnCount == 1 and span > 5 min (single slow internal turn;
-//     dead branch on real-world data — Phase 7 backlog, Finding #2).
+// DetectSubagentCacheEvents scans subagent stats for subagent-level cache
+// invalidation events (SendMessageGap, SlowInternal).
+//
+// The now parameter is reserved for future detectors that compare the latest
+// subagent span against wall-clock time (e.g. "subagent still running after
+// N minutes" — span proxy uses internal timestamps, so now is not consumed
+// by any current detector). Production callers should pass time.Now();
+// tests pass a fixed time for determinism. Removing this parameter is a
+// breaking change deferred to Phase 7+ if no caller materializes.
 //
 // Detail holds only AgentID (no "subagent#" prefix). The prefix is added by
 // hint.AlertTemplate (verify-RED Finding #1, 2026-05-20).
