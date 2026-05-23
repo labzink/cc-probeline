@@ -57,8 +57,7 @@ func md5File(t *testing.T, path string) string {
 // exit 0.
 // Concept §5.2.1.
 func TestInstall_NoSettingsFile(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	// Do NOT create .claude/settings.json.
 
@@ -81,8 +80,7 @@ func TestInstall_NoSettingsFile(t *testing.T) {
 // Second run must not change the file content.
 // Concept §7.6, §5.2.3.
 func TestInstall_Idempotent(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	args := []string{"--merge-settings", "--binary-path", binaryPath}
 
@@ -110,8 +108,7 @@ func TestInstall_Idempotent(t *testing.T) {
 // theme and permissions intact, statusLine is ours.
 // Concept §7.7, §5.2.2.
 func TestInstall_PreservesOtherKeys(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"theme": "dark",
@@ -154,8 +151,7 @@ func TestInstall_PreservesOtherKeys(t *testing.T) {
 // stderr contains "non-cc-probeline", settings.json unchanged.
 // Concept §7.8, §5.2.4.
 func TestInstall_RefusesForeign(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	initial := map[string]any{
 		"statusLine": map[string]any{
@@ -186,14 +182,22 @@ func TestInstall_RefusesForeign(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("settings.json was modified when refusing foreign statusLine")
 	}
+
+	// No backup file must be created when refusing a foreign statusLine (F3).
+	baks, err := filepath.Glob(filepath.Join(home, ".claude", ".cc-probeline.bak.*"))
+	if err != nil {
+		t.Fatalf("Glob backup: %v", err)
+	}
+	if len(baks) != 0 {
+		t.Fatalf("backup file created on foreign refuse (want 0): %v", baks)
+	}
 }
 
 // T-E5: settings.json pre-seeded with foreign statusLine + --force →
 // exit 0, backup file exists, new statusLine is ours.
 // Concept §7.9, §5.2.4.
 func TestInstall_ForceWithBackup(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"statusLine": map[string]any{
@@ -239,8 +243,7 @@ func TestInstall_ForceWithBackup(t *testing.T) {
 // T-E6: --refresh-interval 7 → final block has refreshInterval=7.
 // Concept §5.1.
 func TestInstall_RefreshIntervalFlag(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	_, _, code := runInstallCmd(t, home,
 		"--merge-settings", "--binary-path", binaryPath, "--refresh-interval", "7")
@@ -270,8 +273,7 @@ func TestInstall_RefreshIntervalFlag(t *testing.T) {
 // T-E7: --binary-path /custom/path → final block command=/custom/path.
 // Concept §5.1.
 func TestInstall_BinaryPathFlag(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	customPath := "/custom/path/cc-probeline"
 	_, _, code := runInstallCmd(t, home, "--merge-settings", "--binary-path", customPath)
@@ -293,8 +295,7 @@ func TestInstall_BinaryPathFlag(t *testing.T) {
 // (os.Executable semantics: must end with "cc-probeline").
 // Concept §5.1, §3.e plan §3.
 func TestInstall_DefaultBinaryPath(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	// Run without --binary-path; the binary resolves itself via os.Executable.
 	_, _, code := runInstallCmd(t, home, "--merge-settings")
@@ -316,16 +317,15 @@ func TestInstall_DefaultBinaryPath(t *testing.T) {
 	}
 }
 
-// T-E9: "cc-probeline install" without --merge-settings → exit 64,
+// T-E9: "cc-probeline install" without --merge-settings → exit 2,
 // stdout/stderr contains "Phase 7" hint.
 // Concept §2.1.1, plan §3.
 func TestInstall_NoMergeSettingsFlag(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	stdout, stderr, code := runInstallCmd(t, home /* no --merge-settings */)
-	if code != 64 {
-		t.Fatalf("exit code = %d; want 64", code)
+	if code != 2 {
+		t.Fatalf("exit code = %d; want 2", code)
 	}
 	combined := stdout + stderr
 	if !strings.Contains(combined, "Phase 7") && !strings.Contains(combined, "phase 7") {

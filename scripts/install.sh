@@ -11,6 +11,12 @@
 #   64  unknown flag
 set -euo pipefail
 
+tmp=""
+cleanup() {
+    if [ -n "$tmp" ]; then rm -f "$tmp"; fi
+}
+trap cleanup EXIT
+
 # ---------------------------------------------------------------------------
 # print_usage — written before flag parsing so --help can reference it early.
 # ---------------------------------------------------------------------------
@@ -165,7 +171,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 8: smoke check — pipe minimal JSON payload, expect exit 0.
 # ---------------------------------------------------------------------------
-smoke_payload='{"transcript_path":"/dev/null","session_id":"00000000-0000-0000-0000-000000000000","model":{"id":"claude-3-5-sonnet"},"cwd":"/tmp"}'
+smoke_payload='{"transcript_path":"/dev/null","session_id":"smoke-12345678","model":{"id":"claude-sonnet-4-5"},"cwd":"/tmp","effort":{"level":"medium"},"context_window":{"context_window_size":200000,"current_usage":{}}}'
 if printf '%s' "$smoke_payload" | "$dest" >/dev/null 2>&1; then
     echo "cc-probeline: installed at $dest"
 else

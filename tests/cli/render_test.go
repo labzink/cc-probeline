@@ -352,7 +352,9 @@ func TestLogDefaultDiscard(t *testing.T) {
 // DEVIATION from plan §6: plan offered two options — (a) e2e with --now flag,
 // (b) unit test of buildProbeData helper. Option (b) is chosen here because:
 // (1) adding a --now debug flag would be a production code change outside 5.a
-//     GREEN scope (and might confuse users / linters);
+//
+//	GREEN scope (and might confuse users / linters);
+//
 // (2) the intent of §6.5 is testability of the `now` wiring, not the flag.
 //
 // Since runRender() is package main (not exported), this test verifies the

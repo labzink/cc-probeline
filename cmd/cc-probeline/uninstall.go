@@ -29,11 +29,17 @@ func hasFlag(flag string) bool {
 //	0 – success (including "nothing to do" cases)
 //	2 – I/O or parse error
 func runUninstallImpl() int {
+	setupLogger(os.Getenv("CC_PROBELINE_LOG"), os.Getenv("CC_PROBELINE_DEBUG") == "1")
+
 	dryRun := hasFlag("--dry-run")
 	keepBinary := hasFlag("--keep-binary")
 	_ = keepBinary // MVP: binary removal not implemented (Phase 5, §4.3)
 
 	path := settingsfile.Path()
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "cc-probeline: cannot determine home directory")
+		return 2
+	}
 
 	s, err := settingsfile.Load(path)
 	if err != nil {

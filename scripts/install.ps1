@@ -41,6 +41,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 # 1. Arch detection (MVP: AMD64 only, Windows ARM deferred to Phase 7)
 if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
@@ -113,5 +114,9 @@ if (-not $NoSettings) {
 # 7. Smoke check — send a minimal JSON payload to the binary via stdin.
 $payload = '{"transcript_path":"NUL","session_id":"00000000-0000-0000-0000-000000000000","model":{"id":"claude-3-5-sonnet"},"cwd":"."}'
 $payload | & $Dest | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Smoke check failed (binary ran but returned $LASTEXITCODE)"
+    exit 1
+}
 
 Write-Host "cc-probeline: installed at $Dest"

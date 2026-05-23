@@ -18,15 +18,12 @@ import (
 
 // homeDir creates a minimal XDG-style home directory under t.TempDir()
 // and sets HOME so that cc-probeline reads/writes settings from there.
-// Returns the home path and a cleanup function that restores the original HOME.
-func homeDir(t *testing.T) (string, func()) {
+// Returns the home path; cleanup is handled automatically via t.Cleanup.
+func homeDir(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	origHome := os.Getenv("HOME")
-	if err := os.Setenv("HOME", home); err != nil {
-		t.Fatalf("Setenv HOME: %v", err)
-	}
-	return home, func() { os.Setenv("HOME", origHome) } //nolint:errcheck
+	t.Setenv("HOME", home)
+	return home
 }
 
 // claudeDir returns (and creates) the ~/.claude directory under home.
@@ -98,8 +95,7 @@ func runUninstallCmd(t *testing.T, home string, extra ...string) (stdout, stderr
 
 // T-B1: No settings.json present → exit 0, message "nothing to uninstall".
 func TestUninstall_NoSettings(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	// Do NOT create .claude/settings.json — file must be absent.
 	stdout, _, code := runUninstallCmd(t, home)
@@ -114,8 +110,7 @@ func TestUninstall_NoSettings(t *testing.T) {
 
 // T-B2: settings.json contains our statusLine → deleted, backup created, exit 0.
 func TestUninstall_OurBlock(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"theme": "dark",
@@ -164,8 +159,7 @@ func TestUninstall_OurBlock(t *testing.T) {
 // T-B3: settings.json has a foreign statusLine → block is left intact, exit 0,
 // message "leaving it alone".
 func TestUninstall_ForeignBlock(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"statusLine": map[string]any{
@@ -202,8 +196,7 @@ func TestUninstall_ForeignBlock(t *testing.T) {
 // T-B4: Round-trip — install (manual JSON write) then uninstall restores the file
 // to its pre-install state (modulo whitespace-normalisation).
 func TestUninstall_RoundTrip(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	// Initial settings without statusLine.
 	initial := map[string]any{
@@ -255,8 +248,7 @@ func TestUninstall_RoundTrip(t *testing.T) {
 
 // T-B5: --dry-run flag → settings.json unchanged, exit 0.
 func TestUninstall_DryRun(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"statusLine": map[string]any{
@@ -289,8 +281,7 @@ func TestUninstall_DryRun(t *testing.T) {
 // T-B6: After successful uninstall a .cc-probeline.bak.* file exists and is
 // valid JSON.
 func TestUninstall_BackupCreated(t *testing.T) {
-	home, cleanup := homeDir(t)
-	defer cleanup()
+	home := homeDir(t)
 
 	writeSettings(t, home, map[string]any{
 		"statusLine": map[string]any{

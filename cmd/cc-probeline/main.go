@@ -42,21 +42,18 @@ const (
 	modeBad // unknown flag: exit 64
 )
 
-// strictFlag is set when --strict-stdin is present in os.Args.
-var strictFlag bool
-
 func main() {
-	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+	os.Exit(run(os.Args))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
-	m := parseMode(args)
+func run(args []string) int {
+	m, strict, _ := parseMode(args)
 	switch m {
 	case modeVersion:
-		fmt.Fprintf(stdout, "%s\n", versionString())
+		fmt.Fprintf(os.Stdout, "%s\n", versionString())
 		return 0
 	case modeHelp:
-		printUsage(stdout)
+		printUsage(os.Stdout)
 		return 0
 	case modeUninstall:
 		return runUninstall()
@@ -67,39 +64,39 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case modeBad:
 		return 64
 	default: // modeRender
-		return runRender()
+		return runRender(strict)
 	}
 }
 
 // parseMode inspects args to determine the operating mode.
 // Unknown flags (start with "-" but not a known flag) print an error to stderr
 // and return modeBad (exit 64). Unknown positional args fall through to modeRender.
-func parseMode(args []string) runMode {
+// Returns the mode, whether --strict-stdin was set, and the bad flag string (if any).
+func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 	if len(args) < 2 {
-		return modeRender
+		return modeRender, false, ""
 	}
 	a := args[1]
 	switch a {
 	case "--version", "-V":
-		return modeVersion
+		return modeVersion, false, ""
 	case "--help", "-h":
-		return modeHelp
+		return modeHelp, false, ""
 	case "uninstall":
-		return modeUninstall
+		return modeUninstall, false, ""
 	case "install":
-		return modeInstall
+		return modeInstall, false, ""
 	case "--check":
-		return modeCheck
+		return modeCheck, false, ""
 	case "--strict-stdin":
-		strictFlag = true
-		return modeRender
+		return modeRender, true, ""
 	}
 	if strings.HasPrefix(a, "-") {
 		fmt.Fprintln(os.Stderr, "unknown flag: "+a)
-		return modeBad
+		return modeBad, false, a
 	}
 	// Unrecognised positional arg: fall through to render mode (CC invocation pattern).
-	return modeRender
+	return modeRender, false, ""
 }
 
 func printUsage(w io.Writer) {
@@ -135,13 +132,15 @@ func setupLogger(logPath string, debug bool) {
 // stdin, runs it through the parser/assembler pipeline, and prints the
 // resulting status line to stdout.
 //
+// strict enables rejection of unknown JSON fields in stdin payload.
+//
 // Exit codes:
 //   - 0: success
 //   - 1: stdin decode error (error sentinel printed to stdout)
-func runRender() int {
+func runRender(strict bool) int {
 	setupLogger(os.Getenv("CC_PROBELINE_LOG"), os.Getenv("CC_PROBELINE_DEBUG") == "1")
 
-	strict := os.Getenv("CC_PROBELINE_STRICT_STDIN") == "1" || strictFlag
+	strict = os.Getenv("CC_PROBELINE_STRICT_STDIN") == "1" || strict
 	payload, err := stdin.Decode(os.Stdin, strict)
 	if err != nil {
 		fmt.Fprintln(os.Stdout, "cc-probeline · stdin parse error")

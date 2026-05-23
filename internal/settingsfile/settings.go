@@ -42,6 +42,11 @@ func Save(path string, s Settings) error {
 	if err != nil {
 		return fmt.Errorf("settingsfile.Save: marshal: %w", err)
 	}
+	// Post-marshal validate: ensure the bytes round-trip before committing to disk.
+	var verify Settings
+	if err := json.Unmarshal(data, &verify); err != nil {
+		return fmt.Errorf("settingsfile.Save: validate marshalled bytes: %w", err)
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("settingsfile.Save: write tmp: %w", err)

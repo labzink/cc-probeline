@@ -150,11 +150,7 @@ func TestPath_NoHome(t *testing.T) {
 	// and check that Path still returns something meaningful or handles it.
 	// This test exercises the os.UserHomeDir call path even if it always succeeds
 	// in test environments — the important thing is the function is called.
-	origHome := os.Getenv("HOME")
-	if err := os.Setenv("HOME", ""); err != nil {
-		t.Skip("cannot unset HOME")
-	}
-	t.Cleanup(func() { os.Setenv("HOME", origHome) }) //nolint:errcheck
+	t.Setenv("HOME", "")
 
 	// With HOME="" os.UserHomeDir may still succeed via passwd — that's fine.
 	// We just ensure Path() doesn't panic and returns a string (possibly empty).
