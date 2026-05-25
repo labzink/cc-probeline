@@ -16,6 +16,7 @@ type ColorScheme struct {
 	Orange  string // progress 70-90%
 	Magenta string // [high] effort indicator
 	Italic  string // hint widget
+	Dim     string // muted colour for secondary text; used by theme palettes (Phase 6)
 
 	// Pre-computed combinations used frequently by probes.
 	BoldGreen  string

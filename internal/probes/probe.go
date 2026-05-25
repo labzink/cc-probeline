@@ -51,11 +51,35 @@ type Data struct {
 
 // Config carries per-invocation configuration flags. It is a lightweight struct
 // (not the full internal/config.Config) scoped to what probes actually need.
-// Additional fields will be added as Phase 4 subtasks require them.
+// All XEnabled fields default to false; callers must populate from config.ToProbesConfig.
 type Config struct {
-	Email        string
-	EmailEnabled bool
-	QuotaEnabled bool
+	// Per-widget toggles (Phase 6 — from config.Widgets). Default false; set
+	// via ToProbesConfig to mirror the user's config. Phase 4-5 callers that
+	// do not populate these fields should use Default()-sourced Config to get
+	// all-true behaviour.
+	ModelEnabled    bool
+	EffortEnabled   bool
+	CostEnabled     bool
+	ProjectEnabled  bool
+	EmailEnabled    bool
+	TimeEnabled     bool
+	CtxEnabled      bool
+	CacheEnabled    bool
+	QuotaEnabled    bool
+	GitEnabled      bool
+	SubagentEnabled bool
+
+	// Per-probe values (Phase 6 — from config.Probes).
+	// Email is the override address for the Email probe. When empty the probe
+	// reads the address from the CC session JSONL.
+	Email string
+
+	// Threshold values (Phase 6 — from config.Thresholds).
+	CostBudgetUSD      float64
+	CtxWarnRatio       float64
+	CtxCriticalRatio   float64
+	OrchTTLMinutes     int
+	SubagentGapMinutes int
 }
 
 // Probe is the single interface every status-line block must implement.
