@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -21,8 +22,40 @@ func hasFlag(flag string) bool {
 	return false
 }
 
+// copyFile copies src to dst by reading the full payload and writing via
+// tmp + rename for atomic replacement.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close() //nolint:errcheck
+
+	tmp := dst + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close() //nolint:errcheck
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // runUninstallImpl removes the statusLine block written by cc-probeline from
-// ~/.claude/settings.json. It is invoked from main.go via runUninstall().
+// ~/.claude/settings.json. When an install-state file records a pre-install
+// backup of a foreign statusLine, that backup is restored byte-for-byte
+// instead of removing the block.
 //
 // Exit codes:
 //
@@ -57,8 +90,47 @@ func runUninstallImpl() int {
 		return 0
 	}
 
+	// Try to restore from an install-state backup (foreign statusLine that
+	// was replaced during install). Falls back to plain block removal when
+	// no state, corrupted state, or missing backup file.
+	statePath := settingsfile.StatePath()
+	var restoreFrom string
+	if statePath != "" {
+		st, loadErr := settingsfile.LoadState(statePath)
+		if loadErr != nil {
+			fmt.Fprintln(os.Stderr, "cc-probeline: warning: install state unreadable, falling back to plain removal:", loadErr)
+		} else if st != nil && st.PreInstallBackup != "" {
+			if _, statErr := os.Stat(st.PreInstallBackup); statErr == nil {
+				restoreFrom = st.PreInstallBackup
+			} else {
+				fmt.Fprintln(os.Stderr, "cc-probeline: warning: recorded backup missing, falling back to plain removal:", st.PreInstallBackup)
+			}
+		}
+	}
+
 	if dryRun {
-		fmt.Println("cc-probeline: dry-run — would remove statusLine block")
+		if restoreFrom != "" {
+			fmt.Println("cc-probeline: dry-run — would restore previous statusLine from", restoreFrom)
+		} else {
+			fmt.Println("cc-probeline: dry-run — would remove statusLine block")
+		}
+		return 0
+	}
+
+	if restoreFrom != "" {
+		// Restore overwrites settings.json with the byte-for-byte pre-install
+		// content. The atomic tmp+rename in copyFile is sufficient — an extra
+		// safety backup would only collide with the install-time backup when
+		// both run inside the same HHMMSS window.
+		if err := copyFile(restoreFrom, path); err != nil {
+			fmt.Fprintln(os.Stderr, "cc-probeline: restore failed:", err)
+			return 2
+		}
+		if err := settingsfile.RemoveState(statePath); err != nil {
+			fmt.Fprintln(os.Stderr, "cc-probeline: warning: could not remove install state:", err)
+		}
+		fmt.Println("cc-probeline: restored previous statusLine from", restoreFrom)
+		fmt.Println("To remove the binary: rm", os.Args[0])
 		return 0
 	}
 
@@ -67,12 +139,13 @@ func runUninstallImpl() int {
 		fmt.Fprintln(os.Stderr, "cc-probeline: backup failed:", err)
 		return 2
 	}
-
 	if err := settingsfile.Save(path, settingsfile.RemoveStatusLine(s)); err != nil {
 		fmt.Fprintln(os.Stderr, "cc-probeline: write failed:", err)
 		return 2
 	}
-
+	if statePath != "" {
+		_ = settingsfile.RemoveState(statePath)
+	}
 	fmt.Println("cc-probeline: uninstalled (backup:", bak+")")
 	fmt.Println("To remove the binary: rm", os.Args[0])
 	return 0

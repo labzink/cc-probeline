@@ -74,7 +74,7 @@ func runUninstallCmd(t *testing.T, home string, extra ...string) (stdout, stderr
 	t.Helper()
 	args := append([]string{"uninstall"}, extra...)
 	cmd := exec.Command(binaryPath, args...)
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"))
 
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
@@ -275,6 +275,108 @@ func TestUninstall_DryRun(t *testing.T) {
 
 	if string(before) != string(after) {
 		t.Fatal("--dry-run modified settings.json; it must not")
+	}
+}
+
+// T-B7: full round-trip — pre-seed foreign statusLine → install --force →
+// uninstall — settings.json must match the original foreign content
+// byte-for-byte, and install-state.json must be removed.
+func TestUninstall_RestoresForeignStatusLine(t *testing.T) {
+	home := homeDir(t)
+
+	foreign := map[string]any{
+		"theme": "dark",
+		"statusLine": map[string]any{
+			"type":    "command",
+			"command": "/usr/local/bin/other-plugin",
+		},
+	}
+	writeSettings(t, home, foreign)
+
+	// Snapshot the original (foreign) settings file before install rewrites it.
+	original, err := os.ReadFile(settingsPath(home))
+	if err != nil {
+		t.Fatalf("ReadFile original settings: %v", err)
+	}
+
+	// install --force replaces the foreign statusLine with ours and records
+	// the pre-install backup path in install-state.json.
+	installCmd := exec.Command(binaryPath,
+		"install", "--merge-settings", "--binary-path", binaryPath, "--force")
+	installCmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"))
+	if out, err := installCmd.CombinedOutput(); err != nil {
+		t.Fatalf("install failed: %v\noutput: %s", err, out)
+	}
+
+	// Sanity-check: install rewrote settings.json (our block, not the foreign one).
+	betweenInstallAndUninstall := readSettings(t, home)
+	sl, _ := betweenInstallAndUninstall["statusLine"].(map[string]any)
+	cmd, _ := sl["command"].(string)
+	if !strings.HasSuffix(cmd, "cc-probeline") {
+		t.Fatalf("after install, statusLine.command should be ours, got %q", cmd)
+	}
+
+	// uninstall restores from install-state backup.
+	stdout, _, code := runUninstallCmd(t, home)
+	if code != 0 {
+		t.Fatalf("uninstall exit code = %d; want 0", code)
+	}
+	if !strings.Contains(stdout, "restored previous statusLine") {
+		t.Fatalf("uninstall stdout missing 'restored previous statusLine'; got: %q", stdout)
+	}
+
+	restored, err := os.ReadFile(settingsPath(home))
+	if err != nil {
+		t.Fatalf("ReadFile restored settings: %v", err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("settings.json after restore does not match original\noriginal: %s\nrestored: %s",
+			original, restored)
+	}
+
+	statePath := filepath.Join(home, ".config", "cc-probeline", "install-state.json")
+	if _, err := os.Stat(statePath); err == nil {
+		t.Fatalf("install-state.json must be removed after restore; still exists at %s", statePath)
+	}
+}
+
+// T-B8: uninstall with no install-state.json (clean install path) falls back
+// to plain block removal — backwards-compatible with pre-restore behavior.
+func TestUninstall_NoStateFile_RemovesOurBlock(t *testing.T) {
+	home := homeDir(t)
+
+	writeSettings(t, home, map[string]any{
+		"theme": "light",
+		"statusLine": map[string]any{
+			"type":            "command",
+			"command":         filepath.Join(home, ".local", "bin", "cc-probeline"),
+			"padding":         0,
+			"refreshInterval": 5,
+		},
+	})
+
+	// Ensure no state file exists.
+	statePath := filepath.Join(home, ".config", "cc-probeline", "install-state.json")
+	if _, err := os.Stat(statePath); err == nil {
+		t.Fatalf("precondition: state file should not exist at %s", statePath)
+	}
+
+	stdout, _, code := runUninstallCmd(t, home)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0", code)
+	}
+	if !strings.Contains(stdout, "uninstalled") {
+		t.Fatalf("stdout missing 'uninstalled'; got: %q", stdout)
+	}
+
+	got := readSettings(t, home)
+	if _, ok := got["statusLine"]; ok {
+		t.Fatal("statusLine still present after uninstall")
+	}
+	if got["theme"] != "light" {
+		t.Fatalf("theme not preserved; got %v", got["theme"])
 	}
 }
 

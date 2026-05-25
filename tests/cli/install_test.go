@@ -24,7 +24,7 @@ func runInstallCmd(t *testing.T, home string, extra ...string) (stdout, stderr s
 	t.Helper()
 	args := append([]string{"install"}, extra...)
 	cmd := exec.Command(binaryPath, args...)
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"))
 
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
@@ -314,6 +314,59 @@ func TestInstall_DefaultBinaryPath(t *testing.T) {
 	}
 	if !filepath.IsAbs(cmd) {
 		t.Fatalf("block.command is not an absolute path: %q", cmd)
+	}
+}
+
+// T-E10: foreign statusLine + --force → install-state.json is written under
+// XDG_CONFIG_HOME with the path of the backup that captured the user's
+// previous statusLine. This file drives the restore step in uninstall.
+func TestInstall_ForeignWithForce_WritesInstallState(t *testing.T) {
+	home := homeDir(t)
+
+	writeSettings(t, home, map[string]any{
+		"statusLine": map[string]any{
+			"type":    "command",
+			"command": "/usr/local/bin/other-plugin",
+		},
+	})
+
+	_, _, code := runInstallCmd(t, home,
+		"--merge-settings", "--binary-path", binaryPath, "--force")
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0", code)
+	}
+
+	statePath := filepath.Join(home, ".config", "cc-probeline", "install-state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("install-state.json not created at %s: %v", statePath, err)
+	}
+	var st map[string]any
+	if err := json.Unmarshal(data, &st); err != nil {
+		t.Fatalf("install-state.json not valid JSON: %v", err)
+	}
+	bak, _ := st["pre_install_backup"].(string)
+	if bak == "" {
+		t.Fatalf("pre_install_backup missing from state: %v", st)
+	}
+	if _, err := os.Stat(bak); err != nil {
+		t.Fatalf("recorded backup file does not exist: %s: %v", bak, err)
+	}
+}
+
+// T-E11: clean install (no prior statusLine) does NOT write install-state.json
+// — there is nothing to restore on uninstall.
+func TestInstall_CleanInstall_NoStateFile(t *testing.T) {
+	home := homeDir(t)
+
+	_, _, code := runInstallCmd(t, home, "--merge-settings", "--binary-path", binaryPath)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0", code)
+	}
+
+	statePath := filepath.Join(home, ".config", "cc-probeline", "install-state.json")
+	if _, err := os.Stat(statePath); err == nil {
+		t.Fatalf("install-state.json must not be created on clean install: %s exists", statePath)
 	}
 }
 
