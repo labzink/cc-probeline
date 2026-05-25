@@ -43,6 +43,10 @@ type Data struct {
 	Now          time.Time
 	TerminalCols int    // 0 = detect failed; probes should fall back to 80
 	SessionID    string // CC session id; "" disables hint state persistence (Phase 4.4)
+
+	// ExtraCacheEvents lets main inject synthetic alerts (e.g. config load
+	// errors) that are not derived from session/subagent JSONL data. Phase 6.
+	ExtraCacheEvents []parser.CacheEvent
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

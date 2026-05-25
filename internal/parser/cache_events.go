@@ -18,6 +18,7 @@ const (
 	SlowInternal
 	Compact
 	CompactHeuristic
+	ConfigError // Phase 6: synthesised by main from config.LoadCascade errors
 )
 
 // cacheShrinkRatio is the threshold below which a drop in cache_read is

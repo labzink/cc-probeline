@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/gofrs/flock v0.12.1
 	github.com/mattn/go-runewidth v0.0.23
+	github.com/pelletier/go-toml/v2 v2.3.1
 	golang.org/x/term v0.25.0
 )
 
