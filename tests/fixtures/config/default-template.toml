@@ -1,0 +1,43 @@
+# cc-probeline default configuration template (~700 bytes)
+version = 1
+
+[general]
+tutorial_hints = true
+no_color = false
+nerd_font = false
+refresh_interval_hint = 5
+
+[theme]
+name = "default"
+
+[theme.colors]
+cyan = ""
+yellow = ""
+red = ""
+green = ""
+orange = ""
+magenta = ""
+dim = ""
+
+[widgets]
+model = true
+effort = true
+cost = true
+project = true
+email = true
+time = true
+ctx = true
+cache = true
+quota = true
+git = true
+subagent = true
+
+[thresholds]
+cost_budget_usd = 0.0
+ctx_warn_ratio = 0.70
+ctx_critical_ratio = 0.90
+orch_ttl_minutes = 60
+subagent_gap_minutes = 5
+
+[probes.email]
+address = ""

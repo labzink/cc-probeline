@@ -1,0 +1,42 @@
+version = 1
+
+[general]
+tutorial_hints = false
+no_color = true
+nerd_font = true
+refresh_interval_hint = 10
+
+[theme]
+name = "high-contrast"
+
+[theme.colors]
+cyan = "#00FFFF"
+yellow = "#FFFF00"
+red = "#FF0000"
+green = "#00FF00"
+orange = "#FFA500"
+magenta = "#FF00FF"
+dim = "#888888"
+
+[widgets]
+model = true
+effort = false
+cost = true
+project = false
+email = true
+time = false
+ctx = true
+cache = false
+quota = true
+git = false
+subagent = true
+
+[thresholds]
+cost_budget_usd = 5.0
+ctx_warn_ratio = 0.65
+ctx_critical_ratio = 0.85
+orch_ttl_minutes = 30
+subagent_gap_minutes = 3
+
+[probes.email]
+address = "test@example.com"
