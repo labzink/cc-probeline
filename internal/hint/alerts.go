@@ -15,6 +15,7 @@ var AlertTexts = map[parser.CacheEventType]string{
 	parser.SlowInternal:     "⚠ Subagent#%s stalled >5 min · cache expired",
 	parser.Compact:          "Cache rebuilt by /compact (normal)",
 	parser.CompactHeuristic: "Likely /compact triggered (cache shrunk)",
+	parser.ConfigError:      "⚠ Config error · run cc-probeline check-config",
 }
 
 // criticalTypes defines priority order for tie-breaking when multiple events
@@ -26,6 +27,7 @@ var criticalTypes = []parser.CacheEventType{
 	parser.SlowInternal,
 	parser.Compact,
 	parser.CompactHeuristic,
+	parser.ConfigError, // Phase 6: config load errors surface as critical alerts
 }
 
 // BuildAlert returns the most critical alert text for events, or "" when

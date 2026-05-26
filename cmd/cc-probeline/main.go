@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -186,20 +187,34 @@ func runRender(strict bool) int {
 		}
 	}
 
+	// Load config cascade (Phase 6). Always lenient: errors become alerts, not crashes.
+	ccfg, source, configErrs := config.LoadCascade(payload.Cwd)
+	// Apply NO_COLOR from config only when env NO_COLOR is not already set.
+	// ENV NO_COLOR > config.no_color > auto-detect (concept §7.3).
+	baseTheme := renderer.Theme{AnsiEnabled: renderer.DetectAnsi(os.Stdout)}
+	if ccfg.General.NoColor && os.Getenv("NO_COLOR") == "" {
+		baseTheme.AnsiEnabled = false
+	}
+	// Sanitise invalid numeric ranges; ignore changed-field list (lenient render).
+	_ = config.ApplyRangeFix(ccfg)
+	pcfg := config.ToProbesConfig(*ccfg)
+	theme := config.ToTheme(*ccfg, baseTheme)
+	configAlerts := config.ToCacheEvents(configErrs)
+	slog.Debug("config loaded", "source", source, "errors", len(configErrs))
+
 	modeVal := mode.Load()
-	theme := renderer.Theme{AnsiEnabled: renderer.DetectAnsi(os.Stdout)}
-	cfg := probes.Config{} // defaults; TOML config lands in Phase 6
 
 	d := probes.Data{
-		Stdin:     payload,
-		Session:   &session,
-		Subagents: subagents,
-		Now:       now,
-		SessionID: payload.SessionID,
+		Stdin:            payload,
+		Session:          &session,
+		Subagents:        subagents,
+		Now:              now,
+		SessionID:        payload.SessionID,
+		ExtraCacheEvents: configAlerts,
 	}
 
 	cols := renderer.DetectCols()
-	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: cfg}
+	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
 	final := renderer.Apply(raw, theme)
 	fmt.Fprintln(os.Stdout, final)

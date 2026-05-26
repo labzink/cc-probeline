@@ -36,13 +36,16 @@ var _ statusline.Renderer = (*statusline.Assembler)(nil)
 
 // makeHintData builds probes.Data with a session that has the given sessionID
 // and cache events. CacheHome is set so hint.Save writes to a temp dir.
+// A single dummy Turn is included so that the Phase 6.d D1 guard does not
+// suppress session-derived CacheEvents (D1 fires only when Turns is empty).
 func makeHintData(t *testing.T, sessionID string, events []parser.CacheEvent) probes.Data {
 	t.Helper()
 	cacheHome := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheHome)
 
 	session := &parser.SessionStats{
-		TurnCount:   0,
+		TurnCount: 1,
+		Turns:     []parser.Turn{{Index: 1, Role: "orch"}},
 		CacheEvents: events,
 	}
 	return probes.Data{
@@ -196,6 +199,10 @@ func TestAssembler_Render_HintAlert_OverridesRotation(t *testing.T) {
 	a := makeHintAssembler()
 	d := probes.Data{
 		Session: &parser.SessionStats{
+			// At least one Turn is required so D1 guard (Phase 6.d) does not
+			// suppress session-derived CacheEvents on a zero-turn session.
+			Turns:     []parser.Turn{{Index: 1, Role: "orch"}},
+			TurnCount: 1,
 			CacheEvents: []parser.CacheEvent{
 				{Type: parser.ModelSwitched, Detail: "opus -> sonnet"},
 			},

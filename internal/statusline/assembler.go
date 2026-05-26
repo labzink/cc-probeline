@@ -131,9 +131,11 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 func (a *Assembler) hint(d probes.Data) string {
 	state := hint.Load(d.SessionID)
 
-	// Build a Widget using the real CacheEvents from the session.
+	// D1 guard: skip session-derived alerts when no turns exist (§11).
+	// A newly opened session has no turns; surfacing cache alerts at turn-zero
+	// is noise because the cache has not been used yet.
 	var cacheEvents []parser.CacheEvent
-	if d.Session != nil {
+	if d.Session != nil && len(d.Session.Turns) > 0 {
 		cacheEvents = d.Session.CacheEvents
 	}
 	// Merge subagent-scope events (T-9 SendMessageGap, T-10 SlowInternal).
@@ -141,6 +143,11 @@ func (a *Assembler) hint(d probes.Data) string {
 	if len(d.Subagents) > 0 {
 		cacheEvents = append(cacheEvents,
 			parser.DetectSubagentCacheEvents(d.Subagents, d.Now)...)
+	}
+	// Phase 6: config-error alerts ALWAYS surface, even on an empty session.
+	// ExtraCacheEvents are not session-derived and are not gated by D1.
+	if len(d.ExtraCacheEvents) > 0 {
+		cacheEvents = append(cacheEvents, d.ExtraCacheEvents...)
 	}
 	w := hint.Widget{
 		State:  state,
