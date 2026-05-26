@@ -225,11 +225,10 @@ func TestLoad_UnknownField(t *testing.T) {
 	if len(errs) == 0 {
 		t.Fatal("T-L6: expected 1+ errors, got 0")
 	}
-	// GREEN renames Key→Field in errors.go. Until then, check Key (current stub field).
-	// After GREEN: change e.Key to e.Field here.
+	// Field is the new name (GREEN renamed Key→Field in errors.go).
 	foundWarning := false
 	for _, e := range errs {
-		if e.Severity == config.SeverityWarning && strings.Contains(e.Key, "ctx_silly_ratio") {
+		if e.Severity == config.SeverityWarning && strings.Contains(e.Field, "ctx_silly_ratio") {
 			foundWarning = true
 		}
 	}
@@ -305,12 +304,11 @@ func TestLoad_LineColumnExtraction(t *testing.T) {
 		t.Errorf("T-L8: no SeverityError with Line=%d Column=%d; errs=%v", wantLine, wantCol, errs)
 	}
 
-	// Also verify Path (current stub field; GREEN renames Path→File in errors.go).
-	// After GREEN: change e.Path to e.File here.
+	// File is the new name (GREEN renamed Path→File in errors.go).
 	for _, e := range errs {
 		if e.Severity == config.SeverityError {
-			if e.Path == "" {
-				t.Errorf("T-L8: Error.Path/File is empty; want absolute path")
+			if e.File == "" {
+				t.Errorf("T-L8: Error.File is empty; want absolute path")
 			}
 		}
 	}
