@@ -39,7 +39,9 @@ const (
 	modeUninstall
 	modeInstall
 	modeCheck
-	modeBad // unknown flag: exit 64
+	modeCheckConfig // Phase 6.e: cc-probeline check-config
+	modeHints       // Phase 6.f: cc-probeline hints on/off
+	modeBad         // unknown flag: exit 64
 )
 
 func main() {
@@ -61,6 +63,8 @@ func run(args []string) int {
 		return runInstall()
 	case modeCheck:
 		return runCheck()
+	case modeCheckConfig:
+		return runCheckConfig(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -88,6 +92,8 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeInstall, false, ""
 	case "--check":
 		return modeCheck, false, ""
+	case "check-config":
+		return modeCheckConfig, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}
