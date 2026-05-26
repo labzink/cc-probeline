@@ -65,6 +65,8 @@ func run(args []string) int {
 		return runCheck()
 	case modeCheckConfig:
 		return runCheckConfig(args[2:])
+	case modeHints:
+		return runHints(args)
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -94,6 +96,8 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeCheck, false, ""
 	case "check-config":
 		return modeCheckConfig, false, ""
+	case "hints":
+		return modeHints, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}
