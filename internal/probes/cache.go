@@ -23,8 +23,11 @@ func (p *CacheProbe) Name() string  { return "cache" }
 func (p *CacheProbe) Priority() int { return 2 }
 func (p *CacheProbe) MinWidth() int { return len("0K/0K | 0K | $0.00") }
 
-// Visible returns false when Session is nil (no JSONL data parsed yet).
+// Visible returns false when CacheEnabled is false or Session is nil (no JSONL data parsed yet).
 func (p *CacheProbe) Visible(d Data, c Config) bool {
+	if !c.CacheEnabled {
+		return false
+	}
 	return d.Session != nil
 }
 

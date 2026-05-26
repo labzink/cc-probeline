@@ -23,8 +23,11 @@ func (p *EffortProbe) Name() string  { return "effort" }
 func (p *EffortProbe) Priority() int { return 0 }
 func (p *EffortProbe) MinWidth() int { return 1 } // single rune icon
 
-// Visible returns false when the effort level is "off" or empty.
+// Visible returns false when EffortEnabled is false or the effort level is "off" or empty.
 func (p *EffortProbe) Visible(d Data, c Config) bool {
+	if !c.EffortEnabled {
+		return false
+	}
 	lvl := d.Stdin.Effort.Level
 	return lvl != "" && lvl != "off"
 }

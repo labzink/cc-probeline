@@ -17,7 +17,7 @@ import (
 // concept statement "if empty — '?'" with no mention of hiding.
 func TestProject_Visible_EmptyCwd(t *testing.T) {
 	p := &probes.ProjectProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 
 	tests := []struct {
 		name string

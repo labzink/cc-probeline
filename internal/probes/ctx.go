@@ -23,8 +23,11 @@ func (p *CtxProbe) Name() string  { return "ctx" }
 func (p *CtxProbe) Priority() int { return 0 }
 func (p *CtxProbe) MinWidth() int { return len("128K/200K") }
 
-// Visible returns false when ContextWindow.Size is zero.
+// Visible returns false when CtxEnabled is false or ContextWindow.Size is zero.
 func (p *CtxProbe) Visible(d Data, c Config) bool {
+	if !c.CtxEnabled {
+		return false
+	}
 	return d.Stdin.ContextWindow.Size > 0
 }
 

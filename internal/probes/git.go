@@ -19,8 +19,11 @@ func (p *GitProbe) Name() string  { return "git" }
 func (p *GitProbe) Priority() int { return 2 }
 func (p *GitProbe) MinWidth() int { return 8 }
 
-// Visible returns false when d.Git is nil.
+// Visible returns false when GitEnabled is false or d.Git is nil.
 func (p *GitProbe) Visible(d Data, c Config) bool {
+	if !c.GitEnabled {
+		return false
+	}
 	return d.Git != nil
 }
 

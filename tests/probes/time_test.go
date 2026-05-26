@@ -85,7 +85,7 @@ func TestTime_Render_Compact(t *testing.T) {
 func TestTime_Render_Minimal(t *testing.T) {
 	p := &probes.TimeProbe{}
 	th := renderer.Theme{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 
 	tests := []struct {
 		name               string
@@ -121,10 +121,10 @@ func TestTime_Render_Minimal(t *testing.T) {
 func TestTime_Render_Zero(t *testing.T) {
 	p := &probes.TimeProbe{}
 	th := renderer.Theme{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 	d := makeTimeData(0)
 
-	zeroCfg := probes.Config{}
+	zeroCfg := cfgAllOn()
 	if got := p.Render(d, zeroCfg, th, probes.LevelFull); got != "time: 00:00" {
 		t.Errorf("Render(Full, 0ms): want %q, got %q", "time: 00:00", got)
 	}

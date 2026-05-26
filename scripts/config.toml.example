@@ -1,0 +1,73 @@
+# cc-probeline configuration template.
+#
+# Location options (in precedence order):
+#   1. CC_PROBELINE_CONFIG=/absolute/path/config.toml  (env override)
+#   2. .cc-probeline.toml in current repo               (project-local)
+#   3. ~/.config/cc-probeline/config.toml               (global, this template)
+#
+# To customize, copy this file to ~/.config/cc-probeline/config.toml and edit.
+# All fields are optional — missing fields use the built-in defaults.
+# Run `cc-probeline check-config` to validate.
+
+version = 1
+
+[general]
+# Rotating tutorial hints in the status line (`cc-probeline hints on|off` toggles this).
+# Default: true
+tutorial_hints = true
+
+# Force NO_COLOR semantics even when NO_COLOR env is unset.
+# ENV NO_COLOR=1 takes precedence over this.
+# Default: false
+no_color = false
+
+# Enable Nerd Font icons. Default: false (auto-detection lands in Phase 7).
+nerd_font = false
+
+# Documentation hint for next `cc-probeline install` (does NOT re-run installer).
+# Default: 5 (seconds)
+refresh_interval_hint = 5
+
+[theme]
+# Built-in palette: "default", "high-contrast", or "minimal".
+name = "default"
+
+[theme.colors]
+# Override individual semantic roles. Hex format "#RRGGBB". Empty == palette default.
+# cyan    = ""
+# yellow  = ""
+# red     = ""
+# green   = ""
+# orange  = ""
+# magenta = ""
+# dim     = ""
+
+[widgets]
+# Per-widget on/off toggles. All true by default.
+model    = true
+effort   = true
+cost     = true
+project  = true
+email    = true
+time     = true
+ctx      = true
+cache    = true
+quota    = true
+git      = true
+subagent = true
+
+[thresholds]
+# Session cost warning threshold ($). 0 disables.
+cost_budget_usd     = 0
+
+# Context window usage ratio for warn/critical color flips.
+ctx_warn_ratio      = 0.70
+ctx_critical_ratio  = 0.90
+
+# Cache alert thresholds.
+orch_ttl_minutes      = 60
+subagent_gap_minutes  = 5
+
+[probes.email]
+# Override email address detection (default: auto-detect from CC OAuth).
+address = ""

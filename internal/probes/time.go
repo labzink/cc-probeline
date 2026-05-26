@@ -13,8 +13,13 @@ func (p *TimeProbe) Name() string  { return "time" }
 func (p *TimeProbe) Priority() int { return 0 }
 func (p *TimeProbe) MinWidth() int { return 0 } // dropped at Minimal
 
-// Visible always returns true: probe is present but renders empty at Minimal.
-func (p *TimeProbe) Visible(d Data, c Config) bool { return true }
+// Visible returns false when TimeEnabled is false; otherwise always true.
+func (p *TimeProbe) Visible(d Data, c Config) bool {
+	if !c.TimeEnabled {
+		return false
+	}
+	return true
+}
 
 // Render formats the elapsed time:
 //

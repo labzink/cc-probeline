@@ -13,8 +13,11 @@ func (p *ModelProbe) Name() string  { return "model" }
 func (p *ModelProbe) Priority() int { return 0 }
 func (p *ModelProbe) MinWidth() int { return 8 } // len("opus-4-7")
 
-// Visible returns true when Stdin.Model.ID is non-empty.
+// Visible returns true when ModelEnabled is set and Stdin.Model.ID is non-empty.
 func (p *ModelProbe) Visible(d Data, c Config) bool {
+	if !c.ModelEnabled {
+		return false
+	}
 	return d.Stdin.Model.ID != ""
 }
 

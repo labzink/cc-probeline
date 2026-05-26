@@ -15,7 +15,7 @@ import (
 // effort level is "off" (or empty), and true for any active effort level.
 func TestEffort_Visible_Off(t *testing.T) {
 	p := &probes.EffortProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 	th := renderer.Theme{}
 
 	tests := []struct {

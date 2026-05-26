@@ -15,7 +15,7 @@ import (
 // Stdin.Model.ID is non-empty and false when it is empty.
 func TestModel_Visible(t *testing.T) {
 	p := &probes.ModelProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 
 	tests := []struct {
 		name string

@@ -15,8 +15,13 @@ func (p *ProjectProbe) Name() string  { return "project" }
 func (p *ProjectProbe) Priority() int { return 2 }
 func (p *ProjectProbe) MinWidth() int { return len("?") }
 
-// Visible always returns true: the probe falls back to "?" for empty Cwd.
-func (p *ProjectProbe) Visible(d Data, c Config) bool { return true }
+// Visible returns false when ProjectEnabled is false; otherwise always true (falls back to "?").
+func (p *ProjectProbe) Visible(d Data, c Config) bool {
+	if !c.ProjectEnabled {
+		return false
+	}
+	return true
+}
 
 // Render returns the project name derived from basename(Cwd):
 //

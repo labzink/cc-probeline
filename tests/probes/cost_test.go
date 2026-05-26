@@ -15,7 +15,7 @@ import (
 // (cost block is always shown, even at $0.00).
 func TestCost_Visible(t *testing.T) {
 	p := &probes.CostProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 
 	tests := []struct {
 		name string

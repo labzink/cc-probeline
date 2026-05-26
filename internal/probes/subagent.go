@@ -29,8 +29,11 @@ func (p *SubagentProbe) Name() string  { return "subagent" }
 func (p *SubagentProbe) Priority() int { return 4 }
 func (p *SubagentProbe) MinWidth() int { return 40 } // <name>·<model>·<ctx> minimum
 
-// Visible returns false when Stdin.Tasks is empty or nil.
+// Visible returns false when SubagentEnabled is false or Stdin.Tasks is empty or nil.
 func (p *SubagentProbe) Visible(d Data, c Config) bool {
+	if !c.SubagentEnabled {
+		return false
+	}
 	return len(d.Stdin.Tasks) > 0
 }
 
