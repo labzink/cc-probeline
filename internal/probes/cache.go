@@ -32,6 +32,7 @@ func (p *CacheProbe) Visible(d Data, c Config) bool {
 }
 
 // Render formats the cache aggregate row at the given level.
+// When c.CostEnabled is false, the cost segment is omitted from all levels.
 func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	readK := formatK(d.Session.Totals.CacheRead)
 	createK := formatK(d.Session.Totals.CacheCreate)
@@ -41,12 +42,24 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 
 	switch level {
 	case LevelFull:
+		if !c.CostEnabled {
+			return fmt.Sprintf("cache %s/%s | out %s | time: %s",
+				readK, createK, outK, mmss)
+		}
 		return fmt.Sprintf("cache %s/%s | out %s | cost: %s | time: %s",
 			readK, createK, outK, cost, mmss)
 	case LevelCompact:
+		if !c.CostEnabled {
+			return fmt.Sprintf("%s/%s | %s | %s",
+				readK, createK, outK, mmss)
+		}
 		return fmt.Sprintf("%s/%s | %s | %s | %s",
 			readK, createK, outK, cost, mmss)
 	default: // LevelMinimal
+		if !c.CostEnabled {
+			return fmt.Sprintf("%s/%s | %s",
+				readK, createK, outK)
+		}
 		return fmt.Sprintf("%s/%s | %s | %s",
 			readK, createK, outK, cost)
 	}

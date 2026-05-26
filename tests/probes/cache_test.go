@@ -74,7 +74,7 @@ func TestCache_Visible_NoTurns(t *testing.T) {
 // Expected: "cache 108K/24K | out 13K | cost: $0.57 | time: 03:48"
 func TestCache_Render_Full(t *testing.T) {
 	p := &probes.CacheProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 	th := renderer.Theme{}
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
@@ -91,7 +91,7 @@ func TestCache_Render_Full(t *testing.T) {
 // Expected: "108K/24K | 13K | $0.57 | 03:48"
 func TestCache_Render_Compact(t *testing.T) {
 	p := &probes.CacheProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 	th := renderer.Theme{}
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
@@ -108,7 +108,7 @@ func TestCache_Render_Compact(t *testing.T) {
 // Expected: "108K/24K | 13K | $0.57"
 func TestCache_Render_Minimal(t *testing.T) {
 	p := &probes.CacheProbe{}
-	cfg := probes.Config{}
+	cfg := cfgAllOn()
 	th := renderer.Theme{}
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
