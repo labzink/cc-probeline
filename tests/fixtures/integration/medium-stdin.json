@@ -1,0 +1,8 @@
+{
+  "transcript_path": "/tmp/nonexistent-medium.jsonl",
+  "session_id": "11111111-1111-1111-1111-111111111111",
+  "model": {"id": "claude-opus-4-5", "display_name": "Opus 4.5"},
+  "workspace": {"current_dir": "/tmp"},
+  "cwd": "/tmp",
+  "version": "1.2.3"
+}
