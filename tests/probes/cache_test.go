@@ -23,6 +23,7 @@ package probes_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -136,5 +137,131 @@ func TestCache_NoTTL(t *testing.T) {
 			t.Errorf("Render(%v): TTL block ⏱ must not appear in Phase 4.1 output, got %q",
 				level, got)
 		}
+	}
+}
+
+// newCacheTTLData builds a probes.Data with token counts, cost, and timing
+// information needed for TTL tests (Phase 6.5.b2).
+// durationMS=60000 → 60 s → "01:00".
+func newCacheTTLData(cacheRead, cacheCreate, out int, costUSD float64, durationMS int64, now time.Time, lastTS time.Time, turnCount int) probes.Data {
+	return probes.Data{
+		Session: &parser.SessionStats{
+			Totals: parser.TokenCounts{
+				CacheRead:   cacheRead,
+				CacheCreate: cacheCreate,
+				Output:      out,
+			},
+			LastTimestamp: lastTS,
+			TurnCount:     turnCount,
+		},
+		Stdin: stdin.Payload{
+			Cost: stdin.Cost{
+				TotalCostUSD:       costUSD,
+				TotalAPIDurationMS: durationMS,
+			},
+		},
+		Now: now,
+	}
+}
+
+// T-6: TestCacheProbe_TTL_Full verifies that a non-expired TTL renders ⏱Nm
+// in Full and Compact output, and is absent in Minimal.
+//
+// Setup: OrchTTLMinutes=60, d.Now=10:08:00, LastTimestamp=10:00:00 (8 min ago),
+// TurnCount=3. remaining = 60 - floor(8) = 52 → ⏱52m.
+func TestCacheProbe_TTL_Full(t *testing.T) {
+	p := &probes.CacheProbe{}
+	cfg := cfgAllOn()
+	cfg.OrchTTLMinutes = 60
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 8, 0, 0, time.UTC)
+	lastTS := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
+
+	fullOut := p.Render(d, cfg, th, probes.LevelFull)
+	if !strings.Contains(fullOut, "⏱52m") {
+		t.Errorf("Render(Full): want ⏱52m in output, got %q", fullOut)
+	}
+
+	compactOut := p.Render(d, cfg, th, probes.LevelCompact)
+	if !strings.Contains(compactOut, "⏱52m") {
+		t.Errorf("Render(Compact): want ⏱52m in output, got %q", compactOut)
+	}
+
+	minimalOut := p.Render(d, cfg, th, probes.LevelMinimal)
+	if strings.Contains(minimalOut, "⏱") {
+		t.Errorf("Render(Minimal): ⏱ must not appear in Minimal output, got %q", minimalOut)
+	}
+}
+
+// T-7: TestCacheProbe_TTL_Expired verifies that an expired TTL (remaining ≤ 0)
+// produces no ⏱ block in any output level.
+//
+// Setup: OrchTTLMinutes=60, LastTimestamp=70 min ago (remaining = 60-70 = -10).
+func TestCacheProbe_TTL_Expired(t *testing.T) {
+	p := &probes.CacheProbe{}
+	cfg := cfgAllOn()
+	cfg.OrchTTLMinutes = 60
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	lastTS := now.Add(-70 * time.Minute)
+	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
+
+	fullOut := p.Render(d, cfg, th, probes.LevelFull)
+	if strings.Contains(fullOut, "⏱") {
+		t.Errorf("Render(Full): ⏱ must not appear when TTL expired, got %q", fullOut)
+	}
+
+	compactOut := p.Render(d, cfg, th, probes.LevelCompact)
+	if strings.Contains(compactOut, "⏱") {
+		t.Errorf("Render(Compact): ⏱ must not appear when TTL expired, got %q", compactOut)
+	}
+}
+
+// T-8: TestCacheProbe_TTL_EmptySession verifies that ⏱ is omitted when
+// LastTimestamp is zero or TurnCount is zero, regardless of OrchTTLMinutes.
+func TestCacheProbe_TTL_EmptySession(t *testing.T) {
+	p := &probes.CacheProbe{}
+	cfg := cfgAllOn()
+	cfg.OrchTTLMinutes = 60
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	// Case A: zero LastTimestamp, zero TurnCount.
+	dZeroTS := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, time.Time{}, 0)
+	gotA := p.Render(dZeroTS, cfg, th, probes.LevelFull)
+	if strings.Contains(gotA, "⏱") {
+		t.Errorf("Render(Full, zeroTS): ⏱ must not appear when LastTimestamp is zero, got %q", gotA)
+	}
+
+	// Case B: valid LastTimestamp but TurnCount=0.
+	lastTS := now.Add(-5 * time.Minute)
+	dZeroTurns := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 0)
+	gotB := p.Render(dZeroTurns, cfg, th, probes.LevelFull)
+	if strings.Contains(gotB, "⏱") {
+		t.Errorf("Render(Full, zeroTurns): ⏱ must not appear when TurnCount=0, got %q", gotB)
+	}
+}
+
+// T-9: TestCacheProbe_TTL_Minimal verifies that ⏱ never appears in Minimal
+// output, even when the TTL is valid and would show at Full/Compact levels.
+//
+// Uses the same setup as T-6 (52m remaining).
+func TestCacheProbe_TTL_Minimal(t *testing.T) {
+	p := &probes.CacheProbe{}
+	cfg := cfgAllOn()
+	cfg.OrchTTLMinutes = 60
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 8, 0, 0, time.UTC)
+	lastTS := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
+
+	got := p.Render(d, cfg, th, probes.LevelMinimal)
+	if strings.Contains(got, "⏱") {
+		t.Errorf("Render(Minimal): ⏱ must never appear in Minimal output, got %q", got)
 	}
 }

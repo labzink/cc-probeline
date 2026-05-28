@@ -9,7 +9,10 @@
 package probes_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -91,4 +94,141 @@ func TestQuota_Render_Minimal(t *testing.T) {
 	if got != want {
 		t.Errorf("Render(Minimal): want %q, got %q", want, got)
 	}
+}
+
+// TestQuotaProbe_HiddenWhenNil (T-17) verifies that QuotaProbe.Visible returns
+// false when RateLimits is nil, even if QuotaEnabled=true.
+//
+// RED: fails until Visible checks d.Stdin.RateLimits != nil in addition to
+// c.QuotaEnabled.
+func TestQuotaProbe_HiddenWhenNil(t *testing.T) {
+	p := &probes.QuotaProbe{}
+	d := probes.Data{Stdin: stdin.Payload{}} // RateLimits not set → nil
+	c := probes.Config{QuotaEnabled: true}
+
+	got := p.Visible(d, c)
+	if got != false {
+		t.Errorf("Visible(QuotaEnabled=true, RateLimits=nil): want false, got true")
+	}
+}
+
+// TestQuotaProbe_RealRender (T-18) verifies QuotaProbe.Render with real
+// RateLimits data decoded from Unix timestamps.
+//
+// Setup (verified manually):
+//
+//	now = 2024-01-01T10:00:00Z
+//	5h: UsedPercentage=40%, resets_at = now+133min → 2h13m  → bar "██░░░"
+//	    40% floor→40; 40/20=2 full segs → "██░░░"
+//	7d: UsedPercentage=60%, resets_at = now+84h   → 3d12h  → bar "███░░"
+//	    60% floor→60; 60/20=3 full segs → "███░░"
+//
+// RED: fails until QuotaProbe.Render reads real RateLimits from d.Stdin.
+func TestQuotaProbe_RealRender(t *testing.T) {
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	fiveHourResetsAt := now.Add(133 * time.Minute) // 2h13m from now
+	sevenDayResetsAt := now.Add(84 * time.Hour)    // 3d12h from now
+
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{
+			UsedPercentage: 40.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", fiveHourResetsAt.Unix())),
+		},
+		SevenDay: stdin.RateWindow{
+			UsedPercentage: 60.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", sevenDayResetsAt.Unix())),
+		},
+	}
+
+	d := probes.Data{
+		Now:   now,
+		Stdin: stdin.Payload{RateLimits: rl},
+	}
+
+	wantFull := "5h: ██░░░ ↻2h13m · 7d: ███░░ ↻3d12h"
+	if got := p.Render(d, cfg, th, probes.LevelFull); got != wantFull {
+		t.Errorf("Render(Full): want %q, got %q", wantFull, got)
+	}
+
+	wantCompact := "██░░░ ↻2h13m · ███░░ ↻3d12h"
+	if got := p.Render(d, cfg, th, probes.LevelCompact); got != wantCompact {
+		t.Errorf("Render(Compact): want %q, got %q", wantCompact, got)
+	}
+
+	wantMinimal := "40% · 60%"
+	if got := p.Render(d, cfg, th, probes.LevelMinimal); got != wantMinimal {
+		t.Errorf("Render(Minimal): want %q, got %q", wantMinimal, got)
+	}
+}
+
+// TestQuotaProbe_Boundary (T-19) verifies QuotaProbe.Render at the 0% and 100%
+// boundary values.
+//
+// Case A (0%):  bar "░░░░░", Minimal contains "0%"
+// Case B (100%): bar "█████", Minimal contains "100%"
+//
+// RED: fails until QuotaProbe.Render reads real RateLimits.
+func TestQuotaProbe_Boundary(t *testing.T) {
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	th := renderer.Theme{}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	futureUnix := json.RawMessage(fmt.Sprintf("%d", now.Add(24*time.Hour).Unix()))
+
+	cases := []struct {
+		name        string
+		pct         float64
+		wantBarFull string
+		wantMinimal string
+	}{
+		{"0%", 0.0, "5h: ░░░░░", "0%"},
+		{"100%", 100.0, "5h: █████", "100%"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rl := &stdin.RateLimits{
+				FiveHour: stdin.RateWindow{
+					UsedPercentage: tc.pct,
+					ResetsAt:       futureUnix,
+				},
+				SevenDay: stdin.RateWindow{
+					UsedPercentage: tc.pct,
+					ResetsAt:       futureUnix,
+				},
+			}
+			d := probes.Data{
+				Now:   now,
+				Stdin: stdin.Payload{RateLimits: rl},
+			}
+
+			full := p.Render(d, cfg, th, probes.LevelFull)
+			if len(full) < len(tc.wantBarFull) || full[:len(tc.wantBarFull)] != tc.wantBarFull {
+				t.Errorf("Render(Full) case %s: want prefix %q, got %q", tc.name, tc.wantBarFull, full)
+			}
+
+			minimal := p.Render(d, cfg, th, probes.LevelMinimal)
+			if !containsStr(minimal, tc.wantMinimal) {
+				t.Errorf("Render(Minimal) case %s: want %q in %q", tc.name, tc.wantMinimal, minimal)
+			}
+		})
+	}
+}
+
+// containsStr is a local helper to avoid importing strings in this package.
+func containsStr(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		}())
 }

@@ -570,3 +570,201 @@ func TestTable_CellAlign(t *testing.T) {
 	// Col 6 (tool/arg): left-aligned
 	assertLeftAligned("tool/arg (col6)", cells[6])
 }
+
+// -------------------------------------------------------------------
+// T-21: TestRender_FooterFirst — §6.5.b6 footer appears as line[1],
+// topBorder-merge has ┬ only at cols 2-5 (not 0/1), separator-split has
+// ┬ at cols 0/1 and ┼ at cols 2-5.
+// -------------------------------------------------------------------
+func TestRender_FooterFirst(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	b.Add(makeTurn(2, "orch", "opus-4-7", "Edit", 2000, 100, time.Minute))
+
+	out := b.Render()
+	if out == "" {
+		t.Fatal("Render() returned empty string; want non-empty table")
+	}
+
+	lines := splitLines(out)
+
+	// New layout for 2 data rows:
+	// line[0] topBorder-merge, line[1] footer, line[2] separator-split,
+	// line[3] row2 (newest), line[4] row1 (oldest), line[5] bottomBorder.
+	const wantLines = 6
+	if len(lines) != wantLines {
+		t.Errorf("Render() with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
+			len(lines), wantLines, out)
+	}
+
+	if len(lines) < 3 {
+		t.Fatal("not enough lines to continue assertions")
+	}
+
+	// line[0]: topBorder-merge — '─' at col boundaries 0/1, '┬' at 2/3/4/5 → 4 ┬ total.
+	topLine := lines[0]
+	if !strings.HasPrefix(topLine, "┌") {
+		t.Errorf("line[0] must start with '┌'; got %q", topLine)
+	}
+	if !strings.HasSuffix(topLine, "┐") {
+		t.Errorf("line[0] must end with '┐'; got %q", topLine)
+	}
+	if got := strings.Count(topLine, "┬"); got != 4 {
+		t.Errorf("line[0] (topBorder-merge) must have exactly 4 '┬' (cols 2-5); got %d\nline: %s", got, topLine)
+	}
+
+	// line[1]: footer row must contain "Total for request".
+	if !strings.Contains(lines[1], "Total for request") {
+		t.Errorf("line[1] must be the footer row containing \"Total for request\"; got %q", lines[1])
+	}
+
+	// line[2]: separator-split — '┬' at cols 0/1 (exactly 2), '┼' at cols 2-5 (≥3).
+	sepLine := lines[2]
+	if !strings.HasPrefix(sepLine, "├") {
+		t.Errorf("line[2] (separator-split) must start with '├'; got %q", sepLine)
+	}
+	if !strings.HasSuffix(sepLine, "┤") {
+		t.Errorf("line[2] (separator-split) must end with '┤'; got %q", sepLine)
+	}
+	if got := strings.Count(sepLine, "┬"); got != 2 {
+		t.Errorf("line[2] (separator-split) must have exactly 2 '┬' (cols 0/1); got %d\nline: %s", got, sepLine)
+	}
+	if got := strings.Count(sepLine, "┼"); got < 3 {
+		t.Errorf("line[2] (separator-split) must have ≥3 '┼' (cols 2-5); got %d\nline: %s", got, sepLine)
+	}
+
+	// last line: bottomBorder — starts '└', ends '┘', contains '┴' but not '┬'.
+	lastLine := lines[len(lines)-1]
+	if !strings.HasPrefix(lastLine, "└") {
+		t.Errorf("last line must start with '└'; got %q", lastLine)
+	}
+	if !strings.HasSuffix(lastLine, "┘") {
+		t.Errorf("last line must end with '┘'; got %q", lastLine)
+	}
+	if !strings.Contains(lastLine, "┴") {
+		t.Errorf("bottomBorder must contain '┴'; got %q", lastLine)
+	}
+	if strings.Contains(lastLine, "┬") {
+		t.Errorf("bottomBorder must NOT contain '┬'; got %q", lastLine)
+	}
+}
+
+// -------------------------------------------------------------------
+// T-22: TestRender_ReverseNoSep — §6.5.b6 data rows appear newest-first;
+// no inter-row separators (┼) between data rows.
+// -------------------------------------------------------------------
+func TestRender_ReverseNoSep(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(10, "orch", "sonnet-4", "Read", 500, 50, 0))
+	b.Add(makeTurn(20, "orch", "sonnet-4", "Write", 600, 60, 0))
+	b.Add(makeTurn(30, "orch", "opus-4-7", "Edit", 700, 70, 0))
+
+	out := b.Render()
+	if out == "" {
+		t.Fatal("Render() returned empty string; want non-empty table")
+	}
+
+	lines := splitLines(out)
+
+	// New layout for 3 data rows:
+	// line[0] top, line[1] footer, line[2] sep, line[3] row30, line[4] row20, line[5] row10, line[6] bottom = 7.
+	const wantLines = 7
+	if len(lines) != wantLines {
+		t.Errorf("Render() with 3 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
+			len(lines), wantLines, out)
+	}
+
+	// Find line indices for each data row.
+	// The index cell is 3 runes wide; for 2-digit values like 10/20/30 the cell
+	// is right-aligned producing "│10 │", "│20 │", "│30 │" — no leading space.
+	findLine := func(marker string) int {
+		for i, l := range lines {
+			if strings.Contains(l, marker) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	line30 := findLine("│30 ")
+	line20 := findLine("│20 ")
+	line10 := findLine("│10 ")
+
+	if line30 == -1 || line20 == -1 || line10 == -1 {
+		t.Fatalf("could not find all data rows: line30=%d line20=%d line10=%d\noutput:\n%s",
+			line30, line20, line10, out)
+	}
+
+	// Newest first: row 30 must appear before row 20 before row 10.
+	if !(line30 < line20 && line20 < line10) {
+		t.Errorf("rows must appear newest-first (30 before 20 before 10); got line30=%d line20=%d line10=%d\noutput:\n%s",
+			line30, line20, line10, out)
+	}
+
+	// No ┼ in data section (lines[3:] = data rows + bottom border).
+	if len(lines) > 3 {
+		for _, l := range lines[3:] {
+			if strings.Contains(l, "┼") {
+				t.Errorf("unexpected '┼' in data section (no inter-row separators expected): %q", l)
+			}
+		}
+	}
+}
+
+// -------------------------------------------------------------------
+// T-23: TestRender6Cols_NewOrder — §6.5.b6 6-col layout (RenderForCols(50))
+// also uses footer-first / reverse / no-sep grammar.
+// -------------------------------------------------------------------
+func TestRender6Cols_NewOrder(t *testing.T) {
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(5, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	b.Add(makeTurn(6, "orch", "opus-4-7", "Edit", 2000, 100, time.Minute))
+
+	// 50 cols → 6-col layout: flex6 = (50-7) - 38 = 5 > 1, fits.
+	out := b.RenderForCols(50)
+	if out == "" {
+		t.Fatal("RenderForCols(50) returned empty string; want non-empty table")
+	}
+
+	lines := splitLines(out)
+
+	// Same line count as 7-col with 2 rows: 6 lines.
+	const wantLines = 6
+	if len(lines) != wantLines {
+		t.Errorf("RenderForCols(50) with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
+			len(lines), wantLines, out)
+	}
+
+	if len(lines) < 4 {
+		t.Fatal("not enough lines to continue assertions")
+	}
+
+	// line[1] must be footer row.
+	if !strings.Contains(lines[1], "Total for request") {
+		t.Errorf("line[1] must be footer row containing \"Total for request\"; got %q", lines[1])
+	}
+
+	// line[2] (separator-split) must have exactly 2 '┬' (cols 0/1).
+	if got := strings.Count(lines[2], "┬"); got != 2 {
+		t.Errorf("line[2] (separator-split) must have exactly 2 '┬'; got %d\nline: %s", got, lines[2])
+	}
+
+	// lines[3:] (data rows + bottom) must have no '┼'.
+	for _, l := range lines[3:] {
+		if strings.Contains(l, "┼") {
+			t.Errorf("unexpected '┼' in data section: %q", l)
+		}
+	}
+
+	// line[0] (topBorder-merge) must start with '┌' and have fewer '┬'
+	// than a 7-col full-width topBorder (which has 4 '┬'); 6-col has 3 (cols 2-4, not 5).
+	topLine := lines[0]
+	if !strings.HasPrefix(topLine, "┌") {
+		t.Errorf("line[0] must start with '┌'; got %q", topLine)
+	}
+	topJoins := strings.Count(topLine, "┬")
+	if topJoins >= 4 {
+		t.Errorf("line[0] (topBorder-merge) in 6-col layout must have fewer than 4 '┬'; got %d\nline: %s",
+			topJoins, topLine)
+	}
+}
