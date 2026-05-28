@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
-	"runtime"
 
 	"github.com/labzink/cc-probeline/internal/config"
 	"golang.org/x/term"
@@ -361,69 +359,12 @@ func configPathFromErrors(errs []config.Error) string {
 }
 
 // checkGlobalConfigPath returns the platform-appropriate global config location.
-// Mirrors config/path.go globalConfigPath (unexported there).
-func checkGlobalConfigPath() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "cc-probeline", "config.toml")
-	}
-	if runtime.GOOS == "windows" {
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, "cc-probeline", "config.toml")
-		}
-		return ""
-	}
-	if home := os.Getenv("HOME"); home != "" {
-		return filepath.Join(home, ".config", "cc-probeline", "config.toml")
-	}
-	return ""
-}
+// Delegates to config.GlobalConfigPath to avoid duplication with path.go.
+func checkGlobalConfigPath() string { return config.GlobalConfigPath() }
 
 // checkFindProjectConfig walks up from cwd looking for .cc-probeline.toml.
-// Mirrors config/path.go findProjectConfig (unexported there).
-func checkFindProjectConfig(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		return ""
-	}
-	if _, err := os.Stat(abs); err != nil {
-		return ""
-	}
-
-	cur := abs
-	for depth := 0; depth < 20; depth++ {
-		cfgPath := filepath.Join(cur, ".cc-probeline.toml")
-		gitPath := filepath.Join(cur, ".git")
-
-		if checkFileExists(cfgPath) {
-			return cfgPath
-		}
-		if checkDirExists(gitPath) {
-			return ""
-		}
-
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return ""
-		}
-		cur = parent
-	}
-	return ""
-}
-
-// checkFileExists reports whether path refers to a regular file (or symlink to one).
-func checkFileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
-// checkDirExists reports whether path refers to a directory.
-func checkDirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
+// Delegates to config.FindProjectConfig to avoid duplication with path.go.
+func checkFindProjectConfig(cwd string) string { return config.FindProjectConfig(cwd) }
 
 // ─── JSON formatter ──────────────────────────────────────────────────────────
 

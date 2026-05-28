@@ -261,6 +261,30 @@ func TestGlobalConfigPath_NeitherSet(t *testing.T) {
 	}
 }
 
+// T-P-EX1: FindProjectConfig (exported wrapper) returns the same result as LoadCascade
+// when a project file is placed in cwd. Exercises the exported wrapper directly.
+func TestFindProjectConfig_ExportedWrapper(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".cc-probeline.toml"),
+		[]byte("version = 1\n"), 0o644); err != nil {
+		t.Fatalf("T-P-EX1: WriteFile: %v", err)
+	}
+
+	got := config.FindProjectConfig(dir)
+	want := filepath.Join(dir, ".cc-probeline.toml")
+	if got != want {
+		t.Errorf("T-P-EX1: FindProjectConfig(%q) = %q, want %q", dir, got, want)
+	}
+}
+
+// T-P-EX2: FindProjectConfig exported returns "" when cwd is empty.
+func TestFindProjectConfig_ExportedWrapper_EmptyCwd(t *testing.T) {
+	got := config.FindProjectConfig("")
+	if got != "" {
+		t.Errorf("T-P-EX2: FindProjectConfig(\"\") = %q, want \"\"", got)
+	}
+}
+
 // T-P12: globalConfigPath returns %APPDATA%\cc-probeline\config.toml on Windows.
 // Skipped on non-Windows platforms.
 func TestGlobalConfigPath_Windows(t *testing.T) {

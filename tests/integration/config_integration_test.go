@@ -279,8 +279,8 @@ func TestConfig_BrokenToml_LenientWithAlert_StrictExitsTwo(t *testing.T) {
 // ─── Test 4: T-4 — Project config overrides global ───────────────────────────
 
 // TestConfig_ProjectOverridesGlobal verifies that a project-local
-// .cc-probeline.toml is picked up in preference to the global config, and that
-// check-config reports Source: project. §T-4.
+// .cc-probeline.toml is picked up in preference to the global config via the
+// cwd walk-up algorithm, and that check-config reports source="project". §T-4.
 func TestConfig_ProjectOverridesGlobal(t *testing.T) {
 	bin := cfg6BinPath(t)
 	home := t.TempDir()
@@ -291,50 +291,56 @@ func TestConfig_ProjectOverridesGlobal(t *testing.T) {
 [general]
 no_color = false
 `)
-	// Project config sets no_color=true (override).
+	// Project config sets no_color=true (override); placed directly in projDir.
 	projDir := t.TempDir()
 	writeProjectConfig(t, projDir, `version = 1
 
 [general]
 no_color = true
 `)
-	// Use CC_PROBELINE_CONFIG pointing to the project file so the binary
-	// deterministically picks up the project-level config regardless of cwd.
-	// Source will be "env" (not "project") — still proves the override value
-	// (no_color=true) is applied. Source=project requires same-cwd, not
-	// achievable reliably via os/exec without chdir support.
-	projCfgPath := filepath.Join(projDir, ".cc-probeline.toml")
-	envWithProjCfg := isolatedEnv(home, "", projCfgPath)
 
-	resCC := runCLI(t, bin, "", envWithProjCfg, "check-config", "--json")
-	if resCC.ExitCode != 0 {
+	// Launch check-config with cmd.Dir=projDir so the cwd walk-up finds
+	// the project config. CC_PROBELINE_CONFIG must be unset so the path
+	// resolution uses the real cascade (not the env shortcut).
+	env := isolatedEnv(home, "", "")
+
+	cmd := exec.Command(bin, "check-config", "--json")
+	cmd.Dir = projDir
+	cmd.Env = env
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	_ = cmd.Run()
+
+	if cmd.ProcessState.ExitCode() != 0 {
 		t.Fatalf("T-4: check-config exit %d\nstdout: %s\nstderr: %s",
-			resCC.ExitCode, resCC.Stdout, resCC.Stderr)
+			cmd.ProcessState.ExitCode(), outBuf.String(), errBuf.String())
 	}
 
 	var out map[string]interface{}
-	if err := json.Unmarshal([]byte(resCC.Stdout), &out); err != nil {
-		t.Fatalf("T-4: check-config JSON unmarshal: %v\nstdout: %s", err, resCC.Stdout)
+	if err := json.Unmarshal(outBuf.Bytes(), &out); err != nil {
+		t.Fatalf("T-4: check-config JSON unmarshal: %v\nstdout: %s", err, outBuf.String())
 	}
-	// Source must be non-empty (we used CC_PROBELINE_CONFIG so source="env").
+
+	// Source must be "project" — the cascade picked up .cc-probeline.toml via cwd.
 	src, _ := out["source"].(string)
-	if src == "" {
-		t.Errorf("T-4: JSON output missing 'source' field\nout: %v", out)
+	if src != "project" {
+		t.Errorf("T-4: expected source=%q, got %q\nout: %v", "project", src, out)
 	}
+
 	// Verify no_color override from project-level config is reflected.
-	// The config struct is marshalled with Go exported names (PascalCase): General, NoColor, etc.
+	// After I3 fix, config.Config uses snake_case json tags.
 	cfgMap, _ := out["config"].(map[string]interface{})
 	if cfgMap == nil {
 		t.Fatalf("T-4: JSON output missing 'config' field\nout: %v", out)
 	}
-	// config.Config uses exported field names without json tags → "General" key.
-	generalMap, _ := cfgMap["General"].(map[string]interface{})
+	generalMap, _ := cfgMap["general"].(map[string]interface{})
 	if generalMap == nil {
-		t.Fatalf("T-4: JSON config missing 'General' section (exported Go names)\ncfg: %v", cfgMap)
+		t.Fatalf("T-4: JSON config missing 'general' section\ncfg: %v", cfgMap)
 	}
-	noColor, _ := generalMap["NoColor"].(bool)
+	noColor, _ := generalMap["no_color"].(bool)
 	if !noColor {
-		t.Errorf("T-4: expected General.NoColor=true from project config override, got false\ngeneral: %v", generalMap)
+		t.Errorf("T-4: expected general.no_color=true from project config override, got false\ngeneral: %v", generalMap)
 	}
 }
 
@@ -527,6 +533,41 @@ cost = false
 	}
 	if strings.Contains(res.Stdout, "$") {
 		t.Errorf("T-15: render output contains '$' (cost widget) despite widgets.cost=false\nstdout: %s", res.Stdout)
+	}
+}
+
+// ─── Test I2: T-11 — Unknown key in config → warning, exit 0 ─────────────────
+
+// TestCheckConfig_UnknownKey_WarningExitZero verifies that a config with an
+// unknown key causes check-config to exit 0 (not 2) and mention both "warning"
+// and the unknown key name in its output. §T-11 integration coverage.
+func TestCheckConfig_UnknownKey_WarningExitZero(t *testing.T) {
+	bin := cfg6BinPath(t)
+	home := t.TempDir()
+	writeGlobalConfig(t, home, `version = 1
+
+[general]
+tutorial_hints = true
+ctx_silly_ratio = 0.5
+`)
+	env := isolatedEnv(home, "", "")
+
+	res := runCLI(t, bin, "", env, "check-config")
+	if res.ExitCode != 0 {
+		t.Fatalf("T-11: check-config must exit 0 (warnings only), got %d\nstdout: %s\nstderr: %s",
+			res.ExitCode, res.Stdout, res.Stderr)
+	}
+
+	combined := strings.ToLower(res.Stdout + res.Stderr)
+
+	// Output must mention "warning" (not "error").
+	if !strings.Contains(combined, "warning") {
+		t.Errorf("T-11: check-config output missing 'warning'\ncombined: %s", combined)
+	}
+
+	// Output must mention the unknown key name.
+	if !strings.Contains(combined, "ctx_silly_ratio") {
+		t.Errorf("T-11: check-config output missing unknown key 'ctx_silly_ratio'\ncombined: %s", combined)
 	}
 }
 

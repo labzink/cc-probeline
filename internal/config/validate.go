@@ -3,14 +3,10 @@ package config
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 // hexColorRe matches a valid #RRGGBB hex colour string.
 var hexColorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-
-// hexNoHashRe matches exactly 6 hex digits with no '#' prefix.
-var hexNoHashRe = regexp.MustCompile(`^[0-9A-Fa-f]{6}$`)
 
 // emailRe is a simple sanity check: at least one non-@ on each side of '@'.
 var emailRe = regexp.MustCompile(`^[^@]+@[^@]+$`)
@@ -241,27 +237,4 @@ func ApplyRangeFix(cfg *Config) []string {
 	}
 
 	return fixed
-}
-
-// validateHexColor is an internal helper used by Validate. Returns an Error
-// (zero value) and a bool indicating whether the color is valid. Exported only
-// to the package; color is invalid when non-empty and not matching #RRGGBB.
-// This function is intentionally unexported (package-level helper).
-func validateHexColor(field, color string) (Error, bool) {
-	if color == "" {
-		return Error{}, true
-	}
-	if hexColorRe.MatchString(color) {
-		return Error{}, true
-	}
-	hint := ""
-	if hexNoHashRe.MatchString(color) {
-		hint = fmt.Sprintf(`did you forget the '#' prefix? Try '#%s'`, strings.ToLower(color))
-	}
-	return Error{
-		Severity: SeverityError,
-		Field:    field,
-		Message:  fmt.Sprintf("invalid hex color: %q (expected #RRGGBB)", color),
-		Hint:     hint,
-	}, false
 }

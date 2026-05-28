@@ -13,7 +13,7 @@ type Source string
 
 const (
 	// SourceDefaults means no config file was found; built-in defaults are used.
-	SourceDefaults Source = "default"
+	SourceDefaults Source = "defaults"
 	// SourceGlobal means the global user config file was loaded.
 	SourceGlobal Source = "global"
 	// SourceProject means a project-local .cc-probeline.toml was loaded.
@@ -33,12 +33,22 @@ const (
 	SeverityWarning
 )
 
+// String implements fmt.Stringer so that Severity prints as "error" or "warning"
+// in slog output and error messages instead of the raw integer.
+func (s Severity) String() string {
+	switch s {
+	case SeverityError:
+		return "error"
+	case SeverityWarning:
+		return "warning"
+	default:
+		return fmt.Sprintf("severity(%d)", int(s))
+	}
+}
+
 // Error represents a config loading or validation problem.
 // It formats as "file:line:col: field: message" with absent segments omitted.
 type Error struct {
-	// Source is the cascade level that produced this error.
-	Source Source
-
 	// Severity classifies the error (SeverityError or SeverityWarning).
 	Severity Severity
 

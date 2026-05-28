@@ -329,3 +329,204 @@ func TestApplyRangeFix_LeavesValidFields(t *testing.T) {
 		t.Errorf("ApplyRangeFix must not change valid CtxCriticalRatio, got %.2f", cfg.Thresholds.CtxCriticalRatio)
 	}
 }
+
+// T-VX: suggestRatio coverage — Validate calls suggestRatio for out-of-range ratios.
+// CtxWarnRatio=70 looks like a percentage → hint must mention "percent".
+func TestValidate_CtxCriticalRatio_AsPercent_Hint(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.CtxCriticalRatio = 90.0
+	cfg.Thresholds.CtxWarnRatio = 70.0 // also out-of-range to avoid critical<warn
+	errs := config.Validate(cfg)
+	severityErrs := errsBySeverity(errs, config.SeverityError)
+	found := false
+	for _, e := range severityErrs {
+		if strings.Contains(strings.ToLower(e.Hint), "percent") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected suggestRatio hint (percent) for CtxCriticalRatio=90.0, got errs: %v", severityErrs)
+	}
+}
+
+// T-V-APF0: ApplyRangeFix resets unsupported Version to default (1).
+func TestApplyRangeFix_Version_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Version = 99 // unsupported
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "version" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'version' in fixed fields %v", fixed)
+	}
+	if cfg.Version != 1 {
+		t.Errorf("expected Version reset to 1, got %d", cfg.Version)
+	}
+}
+
+// T-V-APF1: ApplyRangeFix resets CtxWarnRatio when > 1.0.
+func TestApplyRangeFix_CtxWarnRatio_TooHigh(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.CtxWarnRatio = 1.5 // > 1.0
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.ctx_warn_ratio" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.ctx_warn_ratio' in fixed fields %v", fixed)
+	}
+}
+
+// T-V-APF2: ApplyRangeFix resets CtxCriticalRatio when > 1.0.
+func TestApplyRangeFix_CtxCriticalRatio_TooHigh(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.CtxCriticalRatio = 1.5 // > 1.0
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.ctx_critical_ratio" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.ctx_critical_ratio' in fixed fields %v", fixed)
+	}
+}
+
+// T-V-APF3: ApplyRangeFix resets OrchTTLMinutes when negative.
+func TestApplyRangeFix_OrchTTL_Negative_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.OrchTTLMinutes = -1
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.orch_ttl_minutes" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.orch_ttl_minutes' in fixed fields %v", fixed)
+	}
+	def := config.Default()
+	if cfg.Thresholds.OrchTTLMinutes != def.Thresholds.OrchTTLMinutes {
+		t.Errorf("expected reset to default %d, got %d", def.Thresholds.OrchTTLMinutes, cfg.Thresholds.OrchTTLMinutes)
+	}
+}
+
+// T-V22: ApplyRangeFix resets invalid hex color to empty string (palette default).
+func TestApplyRangeFix_InvalidColor_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Theme.Colors.Red = "purple" // invalid — not #RRGGBB
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "theme.colors.red" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'theme.colors.red' in fixed fields %v", fixed)
+	}
+	// After fix, the value must be the default (empty string == use palette default).
+	def := config.Default()
+	if cfg.Theme.Colors.Red != def.Theme.Colors.Red {
+		t.Errorf("ApplyRangeFix did not reset Theme.Colors.Red; got %q, want %q",
+			cfg.Theme.Colors.Red, def.Theme.Colors.Red)
+	}
+}
+
+// T-V23: ApplyRangeFix resets CtxCriticalRatio to default when critical < warn.
+func TestApplyRangeFix_CriticalLowerThanWarn_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.CtxWarnRatio = 0.8
+	cfg.Thresholds.CtxCriticalRatio = 0.5 // invalid: < warn
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.ctx_critical_ratio" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.ctx_critical_ratio' in fixed fields %v", fixed)
+	}
+	def := config.Default()
+	if cfg.Thresholds.CtxCriticalRatio != def.Thresholds.CtxCriticalRatio {
+		t.Errorf("ApplyRangeFix did not reset CtxCriticalRatio; got %.2f, want %.2f",
+			cfg.Thresholds.CtxCriticalRatio, def.Thresholds.CtxCriticalRatio)
+	}
+}
+
+// T-V24: ApplyRangeFix resets CostBudgetUSD to default (0.0) when negative.
+func TestApplyRangeFix_CostBudgetNegative_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.CostBudgetUSD = -5.0 // invalid
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.cost_budget_usd" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.cost_budget_usd' in fixed fields %v", fixed)
+	}
+	def := config.Default()
+	if cfg.Thresholds.CostBudgetUSD != def.Thresholds.CostBudgetUSD {
+		t.Errorf("ApplyRangeFix did not reset CostBudgetUSD; got %.2f, want %.2f",
+			cfg.Thresholds.CostBudgetUSD, def.Thresholds.CostBudgetUSD)
+	}
+}
+
+// T-V25: ApplyRangeFix resets SubagentGapMinutes to default when negative.
+func TestApplyRangeFix_SubagentGapNegative_Reset(t *testing.T) {
+	cfg := config.Default()
+	cfg.Thresholds.SubagentGapMinutes = -1 // invalid
+
+	fixed := config.ApplyRangeFix(cfg)
+
+	found := false
+	for _, f := range fixed {
+		if f == "thresholds.subagent_gap_minutes" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'thresholds.subagent_gap_minutes' in fixed fields %v", fixed)
+	}
+	def := config.Default()
+	if cfg.Thresholds.SubagentGapMinutes != def.Thresholds.SubagentGapMinutes {
+		t.Errorf("ApplyRangeFix did not reset SubagentGapMinutes; got %d, want %d",
+			cfg.Thresholds.SubagentGapMinutes, def.Thresholds.SubagentGapMinutes)
+	}
+}

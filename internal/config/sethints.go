@@ -42,7 +42,7 @@ func SetTutorialHints(path string, value bool) error {
 	// 2. Parse the existing TOML — must be valid, do not clobber on error.
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("existing config is invalid; fix or remove %s first: %w", path, err)
+		return fmt.Errorf("existing config is invalid; run 'cc-probeline check-config' for details, then fix or remove %s: %w", path, err)
 	}
 
 	// 3. Mutate the single target field.
@@ -76,11 +76,17 @@ func createMinimalHintsFile(path string, value bool) error {
 
 // atomicWrite writes content to path via a .tmp sibling, then renames.
 // os.Rename is atomic on POSIX (same-FS) and uses MoveFileEx on Windows.
-// If WriteFile fails, path is not touched. KISS: no flock (TOML editing is rare).
+// If WriteFile fails, path is not touched. If Rename fails, the .tmp file is
+// removed (best-effort) to avoid leaving orphaned temporaries on disk.
+// KISS: no flock (TOML editing is rare).
 func atomicWrite(path string, content []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, content, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp) // best-effort cleanup; ignore error
+		return err
+	}
+	return nil
 }

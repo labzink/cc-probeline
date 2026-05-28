@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/format"
 	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
@@ -64,22 +65,37 @@ const (
 
 // ─── Top-level golden-file render tests ──────────────────────────────────────
 
+// defaultProbesCfg returns the probes.Config that matches config.Default()
+// (all widgets enabled). Used by golden tests to render the full pipeline as
+// users see it with no config file present.
+func defaultProbesCfg() probes.Config {
+	return config.ToProbesConfig(*config.Default())
+}
+
 // TestRenderShort tests the full pipeline on the short fixture (21 turns,
 // opus-only) in SuperCompact mode. §4.4.e AC-1.
 func TestRenderShort(t *testing.T) {
-	runRenderGolden(t, goldenFixtureShort, "", mode.SuperCompact, "render-short.golden")
+	runRenderGolden(t, goldenFixtureShort, "", mode.SuperCompact, defaultProbesCfg(), "render-short.golden")
 }
 
 // TestRenderMedium tests the full pipeline on the medium fixture (25 turns,
 // opus-only) in Standard mode. §4.4.e AC-1.
 func TestRenderMedium(t *testing.T) {
-	runRenderGolden(t, goldenFixtureMedium, "", mode.Standard, "render-medium.golden")
+	runRenderGolden(t, goldenFixtureMedium, "", mode.Standard, defaultProbesCfg(), "render-medium.golden")
 }
 
 // TestRenderSubagents tests the full pipeline on the subagents fixture
 // (orchestrator + 5 subagents) in Standard mode. §4.4.e AC-1.
 func TestRenderSubagents(t *testing.T) {
-	runRenderGolden(t, goldenFixtureSubagents, goldenFixtureSubDir, mode.Standard, "render-subagents.golden")
+	runRenderGolden(t, goldenFixtureSubagents, goldenFixtureSubDir, mode.Standard, defaultProbesCfg(), "render-subagents.golden")
+}
+
+// TestRenderMedium_AllProbesOff verifies Phase 6 widget gating end-to-end:
+// with zero probes.Config (all XEnabled = false) the pipeline renders only
+// hint widget + subagents table. Probes (model, time, cost, cache, ...) MUST
+// be suppressed. Phase 6 §3 T-WT13 / spec-common §3 gating contract.
+func TestRenderMedium_AllProbesOff(t *testing.T) {
+	runRenderGolden(t, goldenFixtureMedium, "", mode.Standard, probes.Config{}, "render-medium-allprobes-off.golden")
 }
 
 // ─── Width-invariant check ────────────────────────────────────────────────────
@@ -180,7 +196,9 @@ func BenchmarkColdStart(b *testing.B) {
 // runRenderGolden runs the full pipeline for one fixture and either updates or
 // validates the corresponding golden file. subagentsDir is optional; when
 // non-empty, CollectSubagents is called to populate probes.Data.Subagents.
-func runRenderGolden(t *testing.T, fixtureRel, subagentsDirRel string, m mode.Mode, goldenName string) {
+// cfg controls Phase 6 widget gating — pass defaultProbesCfg() for the
+// all-widgets-on path or probes.Config{} for the all-off gating test.
+func runRenderGolden(t *testing.T, fixtureRel, subagentsDirRel string, m mode.Mode, cfg probes.Config, goldenName string) {
 	t.Helper()
 	root := projectRoot(t)
 
@@ -214,11 +232,13 @@ func runRenderGolden(t *testing.T, fixtureRel, subagentsDirRel string, m mode.Mo
 		SessionID: "golden-" + goldenName, // deterministic but non-empty
 	}
 
-	// 4. Render via Assembler with pinned Cols and zero Theme (plain text).
+	// 4. Render via Assembler with pinned Cols, zero Theme (plain text), and
+	//    Phase 6 widget gating config (passed by caller — see Test* funcs).
 	a := &statusline.Assembler{
-		Mode:  m,
-		Theme: renderer.Theme{},
-		Cols:  goldenCols,
+		Mode:   m,
+		Theme:  renderer.Theme{},
+		Cols:   goldenCols,
+		Config: cfg,
 	}
 	got := a.Render(d)
 

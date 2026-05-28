@@ -44,8 +44,8 @@ func makeHintData(t *testing.T, sessionID string, events []parser.CacheEvent) pr
 	t.Setenv("XDG_CACHE_HOME", cacheHome)
 
 	session := &parser.SessionStats{
-		TurnCount: 1,
-		Turns:     []parser.Turn{{Index: 1, Role: "orch"}},
+		TurnCount:   1,
+		Turns:       []parser.Turn{{Index: 1, Role: "orch"}},
 		CacheEvents: events,
 	}
 	return probes.Data{

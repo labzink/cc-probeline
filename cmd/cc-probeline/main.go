@@ -67,7 +67,7 @@ func run(args []string) int {
 	case modeCheckConfig:
 		return runCheckConfig(args[2:])
 	case modeHints:
-		return runHints(args)
+		return runHints(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender

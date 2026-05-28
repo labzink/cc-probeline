@@ -92,6 +92,12 @@ func globalConfigPath() string {
 	return ""
 }
 
+// FindProjectConfig walks up from cwd looking for a project-local
+// .cc-probeline.toml. Returns the absolute path of the first match, or ""
+// when no file is found before the repo root (.git) or maxSearchDepth.
+// This is an exported wrapper around the unexported findProjectConfig.
+func FindProjectConfig(cwd string) string { return findProjectConfig(cwd) }
+
 // fileExists reports whether path refers to a regular file (or symlink to one).
 func fileExists(path string) bool {
 	info, err := os.Stat(path)

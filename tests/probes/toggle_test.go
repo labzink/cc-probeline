@@ -9,12 +9,16 @@ package probes_test
 // Test IDs: T-WT1..T-WT15 per plan §4.1.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/labzink/cc-probeline/internal/config"
+	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
+	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/statusline"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
@@ -275,14 +279,73 @@ func TestToggle_TableDriven_ToggleOff(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// T-WT16: CacheProbe dual-toggle: CacheEnabled=true, CostEnabled=false
+// ----------------------------------------------------------------------------
+
+// TestToggle_CacheDualToggle_CostHidden verifies that when CacheEnabled=true and
+// CostEnabled=false, CacheProbe.Render output does NOT contain '$' (the cost
+// segment is omitted). Documents the dual-toggle interaction.
+func TestToggle_CacheDualToggle_CostHidden(t *testing.T) {
+	p := &probes.CacheProbe{}
+	d := dataWithCache()
+	c := cfgAllOn()
+	c.CostEnabled = false // Cache on, Cost off
+
+	// Probe must be visible (CacheEnabled=true).
+	if !p.Visible(d, c) {
+		t.Fatalf("T-WT16: CacheProbe.Visible() = false, want true when CacheEnabled=true")
+	}
+
+	// Render at each level — cost segment ('$') must not appear.
+	for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
+		out := p.Render(d, c, renderer.Theme{}, level)
+		if strings.Contains(out, "$") {
+			t.Errorf("T-WT16: level %v: render output %q contains '$' (cost), want suppressed when CostEnabled=false",
+				level, out)
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
 // T-WT13: assembler integration smoke (skipped — requires 6.d render integration)
 // ----------------------------------------------------------------------------
 
 // TestToggle_AllOff_NoVisibleProbes is a smoke test that verifies assembler.Render
 // produces no visible probe output when all widget toggles are false.
-// This test is skipped until the assembler API from Phase 6.d has landed.
 func TestToggle_AllOff_NoVisibleProbes(t *testing.T) {
-	t.Skip("requires 6.d render integration")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// Config with all XEnabled fields false (zero-value probes.Config).
+	cfg := probes.Config{} // all toggles false by default
+
+	a := &statusline.Assembler{
+		Mode:   mode.SuperCompact,
+		Theme:  renderer.Theme{},
+		Cols:   80,
+		Config: cfg,
+	}
+
+	d := probes.Data{
+		Stdin: stdin.Payload{
+			Model: stdin.Model{ID: "claude-sonnet-4-6"},
+		},
+		Session:      &parser.SessionStats{Turns: []parser.Turn{{Index: 1, Role: "orch"}}},
+		TerminalCols: 80,
+		Now:          time.Now(),
+	}
+
+	out := a.Render(d)
+
+	// When all probes are off, no probe-specific content should appear.
+	// We check for content that only comes from active probes, not from the
+	// hint.Widget (which can surface cache/effort strings in alert texts).
+	// Specifically: model ID, cost '$', and known probe prefixes (not hint text).
+	probeStrings := []string{"claude-sonnet", "$0.", "ctx 1", "quota", "git:"}
+	for _, s := range probeStrings {
+		if strings.Contains(out, s) {
+			t.Errorf("T-WT13: probe content %q present in output despite all toggles off: %q", s, out)
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -398,9 +461,12 @@ func TestToggle_DefaultsAllOn_RegressionBaseline(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 // TestExampleFile_TomlParses verifies that scripts/config.toml.example parses
-// successfully via config.Load without errors.
-// Skipped until the real Load() implementation from Phase 6.b has landed.
-// Orchestrator: un-skip this test once 6.b Load is merged.
+// successfully via config.Load without SeverityError entries.
 func TestExampleFile_TomlParses(t *testing.T) {
-	t.Skip("requires 6.b Load")
+	_, errs := config.Load("../../scripts/config.toml.example")
+	for _, e := range errs {
+		if e.Severity == config.SeverityError {
+			t.Errorf("T-WT15: config.toml.example has SeverityError: %v", e)
+		}
+	}
 }

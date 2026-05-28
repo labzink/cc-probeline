@@ -51,6 +51,7 @@ var oneTurn = parser.Turn{
 // turn-zero is noise (the cache hasn't been touched yet).
 func TestAssembler_HintSkipsAlertsOnEmptySession(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	a := configAssembler()
 	d := probes.Data{
@@ -85,6 +86,7 @@ func TestAssembler_HintSkipsAlertsOnEmptySession(t *testing.T) {
 // OrchTTL alert must appear in hint output.
 func TestAssembler_HintShowsCacheAlertOnNonEmptySession(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	a := configAssembler()
 	d := probes.Data{
@@ -116,6 +118,7 @@ func TestAssembler_HintShowsCacheAlertOnNonEmptySession(t *testing.T) {
 // originate from the config loader and must not be gated by D1.
 func TestAssembler_HintShowsConfigErrorOnEmptySession(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	a := configAssembler()
 	d := probes.Data{
@@ -156,6 +159,7 @@ func TestAssembler_HintShowsConfigErrorOnEmptySession(t *testing.T) {
 // priority event (OrchTTL > ConfigError in criticalTypes order).
 func TestAssembler_HintMergesAllSources(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
@@ -200,6 +204,7 @@ func TestAssembler_HintMergesAllSources(t *testing.T) {
 // be processed and the ConfigError alert must appear. Prevents nil-dereference.
 func TestAssembler_HintNilSession_StillShowsExtraEvents(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	a := configAssembler()
 	d := probes.Data{
@@ -234,6 +239,7 @@ func TestAssembler_HintNilSession_StillShowsExtraEvents(t *testing.T) {
 // Guards against accidental injection of empty events producing garbage output.
 func TestAssembler_HintEmptyExtraCacheEvents_NoFalseAlert(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	a := configAssembler()
 	d := probes.Data{
