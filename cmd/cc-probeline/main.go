@@ -198,6 +198,7 @@ func runRender(strict bool) int {
 	// Sanitise invalid numeric ranges; ignore changed-field list (lenient render).
 	_ = config.ApplyRangeFix(ccfg)
 	pcfg := config.ToProbesConfig(*ccfg)
+	pcfg.Email = config.ResolveEmail(ccfg, payload.Cwd)
 	theme := config.ToTheme(*ccfg, baseTheme)
 	configAlerts := config.ToCacheEvents(configErrs)
 	slog.Debug("config loaded", "source", source, "errors", len(configErrs))

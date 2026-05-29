@@ -69,5 +69,5 @@ orch_ttl_minutes      = 60
 subagent_gap_minutes  = 5
 
 [probes.email]
-# Override email address detection (default: auto-detect from CC OAuth).
+# Override email address (default: auto-detected from ~/.claude.json, then git config user.email).
 address = ""
