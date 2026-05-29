@@ -18,7 +18,7 @@ func TestRegistry_Complete(t *testing.T) {
 		len(probes.Line2Registry) +
 		len(probes.SubagentRegistry)
 
-	const want = 11
+	const want = 10
 	if total != want {
 		t.Errorf("registry total: want %d probes registered, got %d "+
 			"(Line0=%d Line1=%d Line2=%d Subagent=%d)",
@@ -45,7 +45,6 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 
 	wantPriority := map[string]int{
 		"model":    0,
-		"effort":   0,
 		"ctx":      0,
 		"time":     0,
 		"quota":    3,
@@ -95,7 +94,6 @@ func TestRegistry_PriorityValues(t *testing.T) {
 		want int
 	}{
 		{"model", 0},
-		{"effort", 0},
 		{"time", 0},
 		{"ctx", 0},
 		{"quota", 3},

@@ -20,10 +20,9 @@ var (
 	}
 
 	// Line1Registry holds probes rendered on the second status line (row 1).
-	// Order: model, effort, git, ctx, cost, time.
+	// Order: model (includes effort icon inline), git, ctx, cost, time.
 	Line1Registry = []Probe{
 		&ModelProbe{},
-		&EffortProbe{},
 		&GitProbe{},
 		&CtxProbe{},
 		&CostProbe{},

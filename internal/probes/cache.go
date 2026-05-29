@@ -13,9 +13,9 @@ import (
 //
 // Display:
 //
-//	Full:    "cache <readK>/<createK> | out <outK> | cost: $<cost> | time: MM:SS ⏱Nm"
-//	Compact: "<readK>/<createK> | <outK> | $<cost> | MM:SS ⏱Nm"
-//	Minimal: "<readK>/<createK> | <outK> | $<cost>"   (no TTL, no time)
+//	Full:    "cache <readK>/<createK> ⏱ Nm • out <outK> • cost: $<cost> • time: MM:SS"
+//	Compact: "<readK>/<createK> ⏱ Nm • <outK> • $<cost> • MM:SS"
+//	Minimal: "<readK>/<createK> • <outK> • $<cost>"   (no TTL, no time)
 //
 // TTL block (⏱Nm) is omitted when:
 //   - d.Session is nil
@@ -72,8 +72,9 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	// TTL is computed for Full/Compact; always empty for Minimal.
 	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes)
 
-	// ttlSuffix returns " ⏱Nm" when ttl is non-empty, "" otherwise.
-	ttlSuffix := func() string {
+	// ttlInfix returns " ⏱ Nm" when ttl is non-empty, "" otherwise.
+	// Placed right after cache numbers, before the first separator.
+	ttlInfix := func() string {
 		if ttl == "" {
 			return ""
 		}
@@ -83,24 +84,24 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	switch level {
 	case LevelFull:
 		if !c.CostEnabled {
-			return fmt.Sprintf("cache %s/%s | out %s | time: %s%s",
-				readK, createK, outK, mmss, ttlSuffix())
+			return fmt.Sprintf("cache %s/%s%s • out %s • time: %s",
+				readK, createK, ttlInfix(), outK, mmss)
 		}
-		return fmt.Sprintf("cache %s/%s | out %s | cost: %s | time: %s%s",
-			readK, createK, outK, cost, mmss, ttlSuffix())
+		return fmt.Sprintf("cache %s/%s%s • out %s • cost: %s • time: %s",
+			readK, createK, ttlInfix(), outK, cost, mmss)
 	case LevelCompact:
 		if !c.CostEnabled {
-			return fmt.Sprintf("%s/%s | %s | %s%s",
-				readK, createK, outK, mmss, ttlSuffix())
+			return fmt.Sprintf("%s/%s%s • %s • %s",
+				readK, createK, ttlInfix(), outK, mmss)
 		}
-		return fmt.Sprintf("%s/%s | %s | %s | %s%s",
-			readK, createK, outK, cost, mmss, ttlSuffix())
+		return fmt.Sprintf("%s/%s%s • %s • %s • %s",
+			readK, createK, ttlInfix(), outK, cost, mmss)
 	default: // LevelMinimal — no TTL, no time block
 		if !c.CostEnabled {
-			return fmt.Sprintf("%s/%s | %s",
+			return fmt.Sprintf("%s/%s • %s",
 				readK, createK, outK)
 		}
-		return fmt.Sprintf("%s/%s | %s | %s",
+		return fmt.Sprintf("%s/%s • %s • %s",
 			readK, createK, outK, cost)
 	}
 }

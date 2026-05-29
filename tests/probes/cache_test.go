@@ -80,7 +80,7 @@ func TestCache_Render_Full(t *testing.T) {
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
 	got := p.Render(d, cfg, th, probes.LevelFull)
-	want := "cache 108K/24K | out 13K | cost: $0.57 | time: 03:48"
+	want := "cache 108K/24K • out 13K • cost: $0.57 • time: 03:48"
 	if got != want {
 		t.Errorf("Render(Full): want %q, got %q", want, got)
 	}
@@ -97,7 +97,7 @@ func TestCache_Render_Compact(t *testing.T) {
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
 	got := p.Render(d, cfg, th, probes.LevelCompact)
-	want := "108K/24K | 13K | $0.57 | 03:48"
+	want := "108K/24K • 13K • $0.57 • 03:48"
 	if got != want {
 		t.Errorf("Render(Compact): want %q, got %q", want, got)
 	}
@@ -114,7 +114,7 @@ func TestCache_Render_Minimal(t *testing.T) {
 	d := newCacheData(108000, 24000, 13000, 0.57, 228000)
 
 	got := p.Render(d, cfg, th, probes.LevelMinimal)
-	want := "108K/24K | 13K | $0.57"
+	want := "108K/24K • 13K • $0.57"
 	if got != want {
 		t.Errorf("Render(Minimal): want %q, got %q", want, got)
 	}
