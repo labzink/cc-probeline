@@ -19,17 +19,11 @@ import (
 )
 
 // footerLine extracts the footer content row from a rendered table.
-// The footer is the second-to-last non-empty line (the last is the bottom border).
+// §6.5 B6 new order: footer is line[1] (immediately after the top border).
+// Identified by containing "Total for request" label.
 func footerLine(rendered string) string {
-	lines := splitLines(rendered)
-	if len(lines) < 2 {
-		return ""
-	}
-	// Walk backwards: skip the bottom border (starts with └), return first
-	// content line (starts with │ and contains no ─).
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := lines[i]
-		if strings.HasPrefix(l, "│") && !strings.Contains(l, "─") {
+	for _, l := range splitLines(rendered) {
+		if strings.Contains(l, "Total for request") {
 			return l
 		}
 	}

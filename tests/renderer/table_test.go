@@ -142,20 +142,16 @@ func TestTable_R1Borders_MultiRow(t *testing.T) {
 	}
 
 	lines := splitLines(out)
-	// top + 5*(row+sep) - last_sep + footer-sep + footer + bottom
-	// = 1 + 5 + 4 + 1 + 1 + 1 = 13 ... but rows and separators interleave:
-	// top, r1, sep, r2, sep, r3, sep, r4, sep, r5, footer-sep, footer, bottom = 13
-	const wantLines = 13
+	// §6.5 B6 new order: top + footer + separator-split + 5 data rows + bottom = 9.
+	// (No inter-row separators between data rows; rowSep removed.)
+	const wantLines = 9
 	if len(lines) != wantLines {
 		t.Errorf("Render() with 5 turns: got %d lines; want %d\noutput:\n%s", len(lines), wantLines, out)
 	}
 
 	// Count lines that contain pipe-bordered row content (not border-only lines).
-	// Row content lines start with '│' and contain non-'─' content.
-	// The footer row also matches this pattern (merged label + aggregates, no
-	// '─' inside), so we subtract 1 at the end — identical accounting to
-	// TestTable_Cap20_NotEnforcedHere. Concept §4.2: footer is a regular row,
-	// distinguished only by the merged-separator line above it.
+	// Row content lines start with '│' and contain no '─'.
+	// Footer row also matches, so subtract 1.
 	rowContentCount := 0
 	for _, l := range lines {
 		if strings.HasPrefix(l, "│") && !strings.ContainsAny(l, "─") {
@@ -167,24 +163,26 @@ func TestTable_R1Borders_MultiRow(t *testing.T) {
 		t.Errorf("expected 5 row-content lines (after footer subtraction); got %d\noutput:\n%s", rowContentCount, out)
 	}
 
-	// Count separator lines (contain ┼ or ├…┤ patterns within rows section).
+	// §6.5 B6: only one separator line (separator-split between footer and data rows).
+	// It contains ┼ at col boundaries 2-5. No inter-row separators in data section.
 	sepCount := 0
 	for _, l := range lines {
 		if strings.Contains(l, "┼") {
 			sepCount++
 		}
 	}
-	if sepCount < 4 {
-		t.Errorf("expected at least 4 inter-row separators (┼); got %d\noutput:\n%s", sepCount, out)
+	if sepCount < 1 {
+		t.Errorf("expected at least 1 separator line (┼) (separator-split); got %d\noutput:\n%s", sepCount, out)
 	}
 }
 
 // -------------------------------------------------------------------
-// TestTable_MergedFooter — §4.2 Merged footer-row — 3 left columns merged
+// TestTable_MergedFooter — §6.5 B6 Merged footer-row — 3 left columns merged
 //
-// The footer line must contain label "Total for request" and the footer
-// separator must show the merge pattern: ├ + columns + ┴┴ (2 merge points
-// where columns 1-2-3 are merged).
+// The footer line (line[1]) must contain label "Total for request".
+// The separator-split (line[2]) separates footer from data rows:
+// pattern ├───┬──────┬──────────┼... — ┬ at col boundaries 0/1 (sprout downward),
+// ┼ at boundaries 2-5. At least 2 ┬ glyphs at the merge split points.
 // -------------------------------------------------------------------
 func TestTable_MergedFooter(t *testing.T) {
 	b := renderer.NewBuilder(80)
@@ -196,32 +194,30 @@ func TestTable_MergedFooter(t *testing.T) {
 		t.Fatal("Render() returned empty string (RED: stub returns \"\")")
 	}
 
-	// §4.2 Merged footer: label must be present
+	// §6.5 B6: footer label must be present.
 	if !strings.Contains(out, "Total for request") {
 		t.Errorf("Render() footer missing label \"Total for request\"\noutput:\n%s", out)
 	}
 
-	// Footer separator must contain ┴ (merge points where cols 1-3 merge).
-	// Pattern from concept: ├────┴───────┴────────┼...
-	// At least 2 ┴ glyphs at the merge boundary.
+	// Separator-split (between footer and data rows) must start with ├, end with ┤,
+	// contain ┬ at col boundaries 0/1 (≥2 ┬) and ┼ at boundaries 2-5 (≥3 ┼).
 	lines := splitLines(out)
-	footerSepFound := false
+	sepFound := false
 	for _, l := range lines {
-		if strings.Contains(l, "┴") && strings.Contains(l, "├") {
-			// This is the footer-separator line; verify it has ≥2 ┴ for the merge.
-			count := strings.Count(l, "┴")
+		if strings.HasPrefix(l, "├") && strings.Contains(l, "┬") {
+			count := strings.Count(l, "┬")
 			if count < 2 {
-				t.Errorf("footer-separator has %d ┴ glyph(s); want ≥2 for merged cols 1-3\nline: %s", count, l)
+				t.Errorf("separator-split has %d ┬ glyph(s); want ≥2 for split cols 0/1\nline: %s", count, l)
 			}
-			footerSepFound = true
+			sepFound = true
 			break
 		}
 	}
-	if !footerSepFound {
-		t.Errorf("no footer-separator line found (must contain both ┴ and ├)\noutput:\n%s", out)
+	if !sepFound {
+		t.Errorf("no separator-split line found (must start with ├ and contain ┬)\noutput:\n%s", out)
 	}
 
-	// The bottom border must not contain ┼ (only └─┴─┘).
+	// The bottom border must start with └ and end with ┘.
 	lastLine := lines[len(lines)-1]
 	if !strings.HasPrefix(lastLine, "└") || !strings.HasSuffix(lastLine, "┘") {
 		t.Errorf("last line must start with └ and end with ┘; got: %s", lastLine)

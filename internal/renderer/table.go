@@ -227,6 +227,7 @@ func maxLineVisualLen(s string) int {
 }
 
 // render6Cols renders the table with 6 columns (cost column dropped).
+// New order (§6.5 B6): topBorder-merge → footerRow → separator-split → data rows (newest first, no rowSep) → bottomBorder.
 // termCols is the target terminal width (used to compute the flex column).
 // toolMaxInner, when > 0, limits the tool/arg cell content via MiddleTruncate.
 // When toolMaxInner == 0, the cell content is not truncated beyond normal padCell rules.
@@ -238,28 +239,29 @@ func (b *Builder) render6Cols(termCols, flexWidth, toolMaxInner int) string {
 	// 6-column widths: #, role, model, cache, out, tool/arg(flex).
 	cols := [6]int{3, 6, 10, 13, 6, flexWidth}
 
-	topBorder := hline6(cols, '┌', '┬', '┐', '─', nil)
-	rowSep := hline6(cols, '├', '┼', '┤', '─', nil)
-	// Footer separator: cols 0-2 merged.
-	footerSep := hline6(cols, '├', '┼', '┤', '─', map[int]rune{0: '┴', 1: '┴'})
-	// Bottom border: cols 0-2 merged.
-	bottomBorder := hline6(cols, '└', '┴', '┘', '─', map[int]rune{0: '─', 1: '─'})
+	// topBorder-merge: cols 0/1 boundaries use '─' (merged span), others use '┬'.
+	topBorder := hline6(cols, '┌', '┬', '┐', '─', map[int]rune{0: '─', 1: '─'})
+	// separator-split: cols 0/1 boundaries use '┬' (split down), others use '┼'.
+	separator := hline6(cols, '├', '┼', '┤', '─', map[int]rune{0: '┬', 1: '┬'})
+	// bottomBorder: standard, no merge overrides.
+	bottomBorder := hline6(cols, '└', '┴', '┘', '─', nil)
 
 	var sb strings.Builder
+	// 1. Top border (merged span over cols 0-2).
 	sb.WriteString(topBorder)
 	sb.WriteByte('\n')
-	for i, row := range b.rows {
-		sb.WriteString(renderRow6(row, cols, toolMaxInner))
-		sb.WriteByte('\n')
-		if i < len(b.rows)-1 {
-			sb.WriteString(rowSep)
-			sb.WriteByte('\n')
-		}
-	}
-	sb.WriteString(footerSep)
-	sb.WriteByte('\n')
+	// 2. Footer row ("Total for request" + aggregates).
 	sb.WriteString(b.buildFooterRow6(cols))
 	sb.WriteByte('\n')
+	// 3. Separator (splits footer from data rows; cols 0/1 sprout downward).
+	sb.WriteString(separator)
+	sb.WriteByte('\n')
+	// 4. Data rows newest-first, no inter-row separators.
+	for i := len(b.rows) - 1; i >= 0; i-- {
+		sb.WriteString(renderRow6(b.rows[i], cols, toolMaxInner))
+		sb.WriteByte('\n')
+	}
+	// 5. Bottom border.
 	sb.WriteString(bottomBorder)
 	sb.WriteByte('\n')
 	return sb.String()
@@ -316,36 +318,38 @@ func (b *Builder) buildFooterRow6(cols [6]int) string {
 		padCell("", cols[5], AlignLeft) + "│"
 }
 
-// Render returns the full table string (top border, rows, footer-separator,
-// footer, bottom border). Returns "" when no rows have been added.
+// Render returns the full table string in the new §6.5 B6 order:
+// topBorder-merge → footerRow → separator-split → data rows (newest first, no rowSep) → bottomBorder.
+// Returns "" when no rows have been added.
 func (b *Builder) Render() string {
 	if len(b.rows) == 0 {
 		return ""
 	}
 	cols := b.effectiveCols()
 
-	topBorder := hline(cols, '┌', '┬', '┐', '─', nil)
-	rowSep := hline(cols, '├', '┼', '┤', '─', nil)
-	// Footer separator: cols 0-2 merged (┴ at boundaries 0 and 1).
-	footerSep := hline(cols, '├', '┼', '┤', '─', map[int]rune{0: '┴', 1: '┴'})
-	// Bottom border: cols 0-2 merged (─ at boundaries 0 and 1, ┴ elsewhere).
-	bottomBorder := hline(cols, '└', '┴', '┘', '─', map[int]rune{0: '─', 1: '─'})
+	// topBorder-merge: col boundaries 0/1 use '─' (merged span), 2-5 use '┬'.
+	topBorder := hline(cols, '┌', '┬', '┐', '─', map[int]rune{0: '─', 1: '─'})
+	// separator-split: col boundaries 0/1 use '┬' (sprout downward into data cols), 2-5 use '┼'.
+	separator := hline(cols, '├', '┼', '┤', '─', map[int]rune{0: '┬', 1: '┬'})
+	// bottomBorder: standard, no merge overrides.
+	bottomBorder := hline(cols, '└', '┴', '┘', '─', nil)
 
 	var sb strings.Builder
+	// 1. Top border (merged span over cols 0-2).
 	sb.WriteString(topBorder)
 	sb.WriteByte('\n')
-	for i, row := range b.rows {
-		sb.WriteString(renderRow(row, cols))
-		sb.WriteByte('\n')
-		if i < len(b.rows)-1 {
-			sb.WriteString(rowSep)
-			sb.WriteByte('\n')
-		}
-	}
-	sb.WriteString(footerSep)
-	sb.WriteByte('\n')
+	// 2. Footer row ("Total for request" + aggregates).
 	sb.WriteString(b.buildFooterRow(cols))
 	sb.WriteByte('\n')
+	// 3. Separator (splits footer from data rows; cols 0/1 sprout downward).
+	sb.WriteString(separator)
+	sb.WriteByte('\n')
+	// 4. Data rows newest-first, no inter-row separators.
+	for i := len(b.rows) - 1; i >= 0; i-- {
+		sb.WriteString(renderRow(b.rows[i], cols))
+		sb.WriteByte('\n')
+	}
+	// 5. Bottom border.
 	sb.WriteString(bottomBorder)
 	sb.WriteByte('\n')
 	return sb.String()
