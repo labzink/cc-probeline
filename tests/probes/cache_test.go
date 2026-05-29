@@ -189,9 +189,10 @@ func TestCacheProbe_TTL_Full(t *testing.T) {
 		t.Errorf("Render(Compact): want ⏱ 52m in output, got %q", compactOut)
 	}
 
+	// Phase 6.6: TTL is preserved in Minimal output when remaining > 0.
 	minimalOut := p.Render(d, cfg, th, probes.LevelMinimal)
-	if strings.Contains(minimalOut, "⏱") {
-		t.Errorf("Render(Minimal): ⏱ must not appear in Minimal output, got %q", minimalOut)
+	if !strings.Contains(minimalOut, "⏱ 52m") {
+		t.Errorf("Render(Minimal): want '⏱ 52m' in output (Phase 6.6 contract), got %q", minimalOut)
 	}
 }
 
@@ -246,10 +247,11 @@ func TestCacheProbe_TTL_EmptySession(t *testing.T) {
 	}
 }
 
-// T-9: TestCacheProbe_TTL_Minimal verifies that ⏱ never appears in Minimal
-// output, even when the TTL is valid and would show at Full/Compact levels.
+// T-9: TestCacheProbe_TTL_Minimal verifies that ⏱ IS present in Minimal
+// output when the TTL is valid (Phase 6.6 contract: TTL preserved at all levels).
 //
 // Uses the same setup as T-6 (52m remaining).
+// Updated from Phase 4.1 contract (absent) → Phase 6.6 contract (present).
 func TestCacheProbe_TTL_Minimal(t *testing.T) {
 	p := &probes.CacheProbe{}
 	cfg := cfgAllOn()
@@ -261,7 +263,8 @@ func TestCacheProbe_TTL_Minimal(t *testing.T) {
 	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
 
 	got := p.Render(d, cfg, th, probes.LevelMinimal)
-	if strings.Contains(got, "⏱") {
-		t.Errorf("Render(Minimal): ⏱ must never appear in Minimal output, got %q", got)
+	// Phase 6.6: TTL must appear in Minimal output when remaining > 0.
+	if !strings.Contains(got, "⏱ 52m") {
+		t.Errorf("Render(Minimal): want '⏱ 52m' in output, got %q", got)
 	}
 }

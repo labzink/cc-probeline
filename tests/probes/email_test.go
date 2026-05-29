@@ -57,8 +57,7 @@ func TestEmail_Visible_EmptyEmail(t *testing.T) {
 // TestEmail_Render_Levels verifies rendering across all three display Levels.
 //
 // Short email (≤ 12 chars): no truncation at any level.
-// Long email: Full/Compact return the full value; Minimal applies
-// middle-truncation to min 12 chars (result = 12 visible chars including "…").
+// Phase 6.6: Compact applies middle-truncation to 16 runes; Minimal to 12 runes.
 func TestEmail_Render_Levels(t *testing.T) {
 	th := renderer.Theme{}
 	d := probes.Data{Stdin: stdin.Payload{}}
@@ -70,14 +69,17 @@ func TestEmail_Render_Levels(t *testing.T) {
 		level probes.Level
 		want  string
 	}{
-		// Short email — no truncation at any level.
+		// Short email — no truncation at any level (≤ 12 runes).
 		{"short full", "x@y.io", probes.LevelFull, "x@y.io"},
 		{"short compact", "x@y.io", probes.LevelCompact, "x@y.io"},
 		{"short minimal", "x@y.io", probes.LevelMinimal, "x@y.io"},
 
-		// Typical email (18 chars) — Full/Compact unchanged.
+		// Typical email (18 chars) — Full unchanged.
 		{"typical full", "labzin.k@gmail.com", probes.LevelFull, "labzin.k@gmail.com"},
-		{"typical compact", "labzin.k@gmail.com", probes.LevelCompact, "labzin.k@gmail.com"},
+
+		// Typical email at Compact (Phase 6.6) — middle-truncate to 16.
+		// "labzin.k@gmail.com" (18) → regime 1: half=9 < 15; head=9, tail=7 → "labzin.k@…ail.com" (17 runes)
+		{"typical compact", "labzin.k@gmail.com", probes.LevelCompact, "labzin.k@…ail.com"},
 
 		// Typical email at Minimal — middle-truncate to min 12 visible chars.
 		// "labzin.k@gmail.com" (18) → regime 1: head=9, tail=3 → "labzin.k@…com" (13 chars)

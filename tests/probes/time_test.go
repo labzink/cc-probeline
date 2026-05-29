@@ -79,9 +79,8 @@ func TestTime_Render_Compact(t *testing.T) {
 	}
 }
 
-// TestTime_Render_Minimal verifies that LevelMinimal returns an empty string
-// (the entire time block is dropped; renderer will remove the separator).
-// Visible() remains true — the probe is present but renders nothing at Minimal.
+// TestTime_Render_Minimal verifies that LevelMinimal returns "MM:SS" (non-empty).
+// Phase 6.6: Minimal is no longer dropped; time is rendered as "MM:SS" at all levels.
 func TestTime_Render_Minimal(t *testing.T) {
 	p := &probes.TimeProbe{}
 	th := renderer.Theme{}
@@ -90,22 +89,22 @@ func TestTime_Render_Minimal(t *testing.T) {
 	tests := []struct {
 		name               string
 		totalAPIDurationMS int64
+		want               string
 	}{
-		{"typical", 2998000},
-		{"one minute", 60000},
-		{"large", 3600000},
+		{"typical", 2998000, "49:58"},
+		{"one minute", 60000, "01:00"},
+		{"large", 3600000, "60:00"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			d := makeTimeData(tc.totalAPIDurationMS)
 			got := p.Render(d, cfg, th, probes.LevelMinimal)
-			if got != "" {
-				t.Errorf("Render(Minimal, %dms): want %q (empty), got %q",
-					tc.totalAPIDurationMS, "", got)
+			// Phase 6.6: Minimal returns MM:SS, not empty string.
+			if got != tc.want {
+				t.Errorf("Render(Minimal, %dms): want %q, got %q",
+					tc.totalAPIDurationMS, tc.want, got)
 			}
-			// Visible must still be true so the renderer knows the probe exists
-			// (it just chooses to hide the block at Minimal).
 			if vis := p.Visible(d, cfg); !vis {
 				t.Errorf("Visible(Minimal, %dms): want true, got false",
 					tc.totalAPIDurationMS)
@@ -115,8 +114,7 @@ func TestTime_Render_Minimal(t *testing.T) {
 }
 
 // TestTime_Render_Zero verifies rendering when TotalAPIDurationMS is 0.
-// Per §4.1.a concept: zero duration → Full/Compact render "time: 00:00"/"00:00";
-// Minimal always returns "".
+// Phase 6.6: zero duration → Full "time: 00:00", Compact "00:00", Minimal "00:00".
 // Visible() is true even at zero (cost block is always shown).
 func TestTime_Render_Zero(t *testing.T) {
 	p := &probes.TimeProbe{}
@@ -131,8 +129,9 @@ func TestTime_Render_Zero(t *testing.T) {
 	if got := p.Render(d, zeroCfg, th, probes.LevelCompact); got != "00:00" {
 		t.Errorf("Render(Compact, 0ms): want %q, got %q", "00:00", got)
 	}
-	if got := p.Render(d, zeroCfg, th, probes.LevelMinimal); got != "" {
-		t.Errorf("Render(Minimal, 0ms): want %q (empty), got %q", "", got)
+	// Phase 6.6: Minimal returns MM:SS, not empty.
+	if got := p.Render(d, zeroCfg, th, probes.LevelMinimal); got != "00:00" {
+		t.Errorf("Render(Minimal, 0ms): want %q, got %q", "00:00", got)
 	}
 	if vis := p.Visible(d, cfg); !vis {
 		t.Errorf("Visible(0ms): want true, got false")

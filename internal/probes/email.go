@@ -11,12 +11,13 @@ import (
 //
 // Display:
 //
-//	Full/Compact: full email unchanged.
-//	Minimal:      middle-truncate to at least 12 visible runes.
+//	Full:    full email unchanged.
+//	Compact: middle-truncate to 16 runes.
+//	Minimal: middle-truncate to 12 runes.
 type EmailProbe struct{}
 
 func (p *EmailProbe) Name() string  { return "email" }
-func (p *EmailProbe) Priority() int { return 1 }
+func (p *EmailProbe) Priority() int { return 2 }
 func (p *EmailProbe) MinWidth() int { return 12 }
 
 // Visible returns true only when EmailEnabled=true and Email is non-empty.
@@ -26,12 +27,17 @@ func (p *EmailProbe) Visible(d Data, c Config) bool {
 
 // Render formats the email address:
 //
-//	Full/Compact: full email unchanged.
-//	Minimal:      middle-truncate to at least 12 visible runes.
+//	Full:    full email unchanged.
+//	Compact: middle-truncate to 16 runes.
+//	Minimal: middle-truncate to 12 runes.
 func (p *EmailProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	email := c.Email
-	if level == LevelMinimal {
+	switch level {
+	case LevelCompact:
+		return middleTruncate(email, 16)
+	case LevelMinimal:
 		return middleTruncate(email, 12)
+	default:
+		return email
 	}
-	return email
 }

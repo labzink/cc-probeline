@@ -35,6 +35,9 @@ func TestRegistry_Complete(t *testing.T) {
 // uniformly. Uses a per-probe expected-priority map to catch wrong Priority()
 // values (tighter than range-only check — see spec §A4 and code-review T3).
 //
+// Priority values updated in Phase 6.6.b per spec-common.md §2.2:
+//   ctx: 0→1, time: 0→1, quota: 3→1, cost: 2→1, email: 1→2.
+//
 // This brings package coverage above the PLAN ≥85% threshold by visiting
 // all 33 trivial methods (11 probes × 3 getters) in one pass.
 func TestRegistry_TrivialGetters(t *testing.T) {
@@ -45,14 +48,14 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 
 	wantPriority := map[string]int{
 		"model":    0,
-		"ctx":      0,
-		"time":     0,
-		"quota":    3,
+		"ctx":      1,
+		"time":     1,
+		"quota":    1,
 		"project":  2,
 		"cache":    2,
 		"git":      2,
-		"cost":     2,
-		"email":    1,
+		"cost":     1,
+		"email":    2,
 		"subagent": 4,
 	}
 
@@ -78,15 +81,13 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 
 // TestRegistry_PriorityValues pins the exact Priority() value for each of the
 // 11 registered probes. Fails immediately if any probe's Priority() drifts from
-// the values specified in the Phase 4.3 PLAN (Pre-step #4) and the architecture
-// concept §4.3 line 869.
+// the values specified in spec-common.md §2.2 (Phase 6.6.b update).
 //
-// Priority table (pinned):
+// Priority table (Phase 6.6.b, pinned):
 //
-//	model=0  effort=0  ctx=0  time=0
-//	quota=3
-//	project=2  cache=2  git=2  cost=2
-//	email=1
+//	model=0
+//	ctx=1  time=1  quota=1  cost=1
+//	project=2  cache=2  git=2  email=2
 //	subagent=4
 func TestRegistry_PriorityValues(t *testing.T) {
 	tt := []struct {
@@ -94,14 +95,14 @@ func TestRegistry_PriorityValues(t *testing.T) {
 		want int
 	}{
 		{"model", 0},
-		{"time", 0},
-		{"ctx", 0},
-		{"quota", 3},
+		{"time", 1},
+		{"ctx", 1},
+		{"quota", 1},
 		{"project", 2},
 		{"cache", 2},
 		{"git", 2},
-		{"cost", 2},
-		{"email", 1},
+		{"cost", 1},
+		{"email", 2},
 		{"subagent", 4},
 	}
 

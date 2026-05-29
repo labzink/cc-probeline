@@ -25,16 +25,21 @@ func (p *ProjectProbe) Visible(d Data, c Config) bool {
 
 // Render returns the project name derived from basename(Cwd):
 //
-//	Full/Compact: full basename (no truncation).
-//	Minimal:      middle-truncate to ≥ 8 chars if longer (using "…" as separator).
+//	Full:    full basename (no truncation).
+//	Compact: middle-truncate to 12 runes.
+//	Minimal: middle-truncate to 8 runes.
 func (p *ProjectProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	name := filepath.Base(d.Stdin.Cwd)
 	if name == "" || name == "." || name == "/" {
 		return "?"
 	}
 
-	if level == LevelMinimal {
+	switch level {
+	case LevelCompact:
+		return middleTruncate(name, 12)
+	case LevelMinimal:
 		return middleTruncate(name, 8)
+	default:
+		return name
 	}
-	return name
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/renderer"
 )
 
-// CtxProbe renders the context window usage as a 5-segment progress bar.
+// CtxProbe renders the context window usage as a progress bar.
 //
 // Used tokens = sum of three input-side keys from CurrentUsage:
 // cache_read_input_tokens + cache_creation_input_tokens + input_tokens.
@@ -14,13 +14,13 @@ import (
 //
 // Display:
 //
-//	Full:    "ctx <bar> <usedK>/<sizeK> (<pct>%)"
-//	Compact: "<bar> <usedK>/<sizeK>"
-//	Minimal: "<usedK>/<sizeK>"
+//	Full:    "ctx <bar10> <usedK>/<sizeK> (<pct>%)"
+//	Compact: "<bar5> <usedK>/<sizeK>"   (no %)
+//	Minimal: "<usedK>/<sizeK>"           (no bar, no %)
 type CtxProbe struct{}
 
 func (p *CtxProbe) Name() string  { return "ctx" }
-func (p *CtxProbe) Priority() int { return 0 }
+func (p *CtxProbe) Priority() int { return 1 }
 func (p *CtxProbe) MinWidth() int { return len("128K/200K") }
 
 // Visible returns false when CtxEnabled is false or ContextWindow.Size is zero.
@@ -58,24 +58,21 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		return label
 	}
 
-	// Round pct to nearest 10 before passing to ProgressBar, so that the bar
-	// reflects the semantic step (§4.1.b concept). ProgressBar itself floors
-	// to the nearest 10 (for granularity stability), so we pre-round here to
-	// avoid the floor-only bias at percentages like 15% or 95%.
-	pctRounded := roundNearest10(pct)
-	bar := renderer.ProgressBar(pctRounded)
-
 	if level == LevelCompact {
+		// 5-segment bar; no percentage display.
+		// Round to nearest 10 before passing to ProgressBar for visual stability.
+		bar := renderer.ProgressBar(roundNearest10(pct))
 		return bar + " " + label
 	}
 
-	// LevelFull: show bar + label + percentage (raw pct, not rounded).
+	// LevelFull: 10-segment bar + label + percentage (raw pct, not rounded).
+	bar := renderer.ProgressBar10(pct)
 	pctInt := int(pct)
 	return fmt.Sprintf("ctx %s %s (%d%%)", bar, label, pctInt)
 }
 
 // roundNearest10 rounds v to the nearest multiple of 10 using standard rounding
-// (0.5 rounds up). Used by CtxProbe before passing to renderer.ProgressBar.
+// (0.5 rounds up). Kept for any callers outside this probe.
 func roundNearest10(v float64) float64 {
 	r := int((v/10.0)+0.5) * 10
 	if r < 0 {

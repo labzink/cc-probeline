@@ -15,14 +15,13 @@ import (
 //
 //	Full:    "cache <readK>/<createK> ⏱ Nm • out <outK> • cost: $<cost> • time: MM:SS"
 //	Compact: "<readK>/<createK> ⏱ Nm • <outK> • $<cost> • MM:SS"
-//	Minimal: "<readK>/<createK> • <outK> • $<cost>"   (no TTL, no time)
+//	Minimal: "<readK>/<createK> ⏱ Nm • <outK> • $<cost>"   (TTL preserved, no time)
 //
 // TTL block (⏱Nm) is omitted when:
 //   - d.Session is nil
 //   - d.Session.LastTimestamp is zero
 //   - d.Session.TurnCount == 0
 //   - remaining minutes <= 0 (cache window expired)
-//   - level == LevelMinimal
 type CacheProbe struct{}
 
 func (p *CacheProbe) Name() string  { return "cache" }
@@ -32,6 +31,7 @@ func (p *CacheProbe) MinWidth() int { return len("0K/0K | 0K | $0.00") }
 // cacheTTL computes the ⏱Nm suffix for the cache row.
 // Returns "" when TTL should be hidden (expired, zero timestamp, zero turns, or zero window).
 // remaining = window − floor((now − lastTimestamp).Minutes()), floor applied.
+// Used at all levels (Full, Compact, Minimal) when remaining > 0.
 func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int) string {
 	if orchTTLMinutes <= 0 {
 		return ""
@@ -61,7 +61,7 @@ func (p *CacheProbe) Visible(d Data, c Config) bool {
 
 // Render formats the cache aggregate row at the given level.
 // When c.CostEnabled is false, the cost segment is omitted from all levels.
-// TTL block (⏱Nm) is appended to Full and Compact when conditions are met (see cacheTTL).
+// TTL block (⏱Nm) is appended to all levels (Full, Compact, Minimal) when conditions are met (see cacheTTL).
 func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	readK := formatK(d.Session.Totals.CacheRead)
 	createK := formatK(d.Session.Totals.CacheCreate)
@@ -69,7 +69,7 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	cost := fmt.Sprintf("$%.2f", d.Stdin.Cost.TotalCostUSD)
 	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 
-	// TTL is computed for Full/Compact; always empty for Minimal.
+	// TTL is computed at all levels; omitted only when conditions not met (see cacheTTL).
 	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes)
 
 	// ttlInfix returns " ⏱ Nm" when ttl is non-empty, "" otherwise.
@@ -96,12 +96,12 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		}
 		return fmt.Sprintf("%s/%s%s • %s • %s • %s",
 			readK, createK, ttlInfix(), outK, cost, mmss)
-	default: // LevelMinimal — no TTL, no time block
+	default: // LevelMinimal — TTL preserved, no time block
 		if !c.CostEnabled {
-			return fmt.Sprintf("%s/%s • %s",
-				readK, createK, outK)
+			return fmt.Sprintf("%s/%s%s • %s",
+				readK, createK, ttlInfix(), outK)
 		}
-		return fmt.Sprintf("%s/%s • %s • %s",
-			readK, createK, outK, cost)
+		return fmt.Sprintf("%s/%s%s • %s • %s",
+			readK, createK, ttlInfix(), outK, cost)
 	}
 }

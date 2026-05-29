@@ -36,12 +36,11 @@ func TestCtx_Visible_Empty(t *testing.T) {
 //	used = cache_read_input_tokens (128000) + input_tokens (0) + cache_creation_input_tokens (0)
 //	     = 128000
 //	percent = 128000 / 200000 * 100 = 64%
-//	bar at 64% → round(64/10)*10 = round(6.4)*10 = 60 → "███░░"   (§4.1.b granularity)
 //
-// Expected per level (§4.1.b concept):
+// Phase 6.6 expected per level (§2.2):
 //
-//	Full:    "ctx ███░░ 128K/200K (64%)"
-//	Compact: "███░░ 128K/200K"
+//	Full:    "ctx ██████░░░░ 128K/200K (64%)"  (ProgressBar10: floor(64/5)*5=60% → 6 full + 4 empty)
+//	Compact: "███░░ 128K/200K"                 (ProgressBar: roundNearest10(64%)=60% → ███░░)
 //	Minimal: "128K/200K"
 func TestCtx_Render_AllLevels(t *testing.T) {
 	p := &probes.CtxProbe{}
@@ -65,7 +64,8 @@ func TestCtx_Render_AllLevels(t *testing.T) {
 		level probes.Level
 		want  string
 	}{
-		{"full", probes.LevelFull, "ctx ███░░ 128K/200K (64%)"},
+		// Phase 6.6: Full uses ProgressBar10 (10 runes); Compact uses ProgressBar (5 runes).
+		{"full", probes.LevelFull, "ctx ██████░░░░ 128K/200K (64%)"},
 		{"compact", probes.LevelCompact, "███░░ 128K/200K"},
 		{"minimal", probes.LevelMinimal, "128K/200K"},
 	}
@@ -84,15 +84,19 @@ func TestCtx_Render_AllLevels(t *testing.T) {
 // two additional percentage values (15% and 95%) to ensure the bar segment
 // selection and label are consistent.
 //
-// Case 1: 15% usage
+// Phase 6.6 Full uses ProgressBar10 (10 runes, 5% precision):
 //
-//	Size=200000, used=30000 → 15% → round to 20 → "█░░░░"
-//	Full: "ctx █░░░░ 30K/200K (15%)"
+//	Case 1: 15% usage
+//	  Size=200000, used=30000 → 15% → floor(15/5)*5=15% → "█▒░░░░░░░░" (10 runes)
+//	  Full: "ctx █▒░░░░░░░░ 30K/200K (15%)"
 //
-// Case 2: 95% usage
+//	Case 2: 95% usage
+//	  Size=200000, used=190000 → 95% → floor(95/5)*5=95% → "█████████▒" (10 runes)
+//	  Full: "ctx █████████▒ 190K/200K (95%)"
 //
-//	Size=200000, used=190000 → 95% → round to 100 → "█████"
-//	Full: "ctx █████ 190K/200K (95%)"
+// Compact still uses ProgressBar (5 runes) with roundNearest10:
+//
+//	15% → roundNearest10=20% → "█░░░░"
 func TestCtx_Render_Percent(t *testing.T) {
 	p := &probes.CtxProbe{}
 	cfg := probes.Config{}
@@ -106,13 +110,15 @@ func TestCtx_Render_Percent(t *testing.T) {
 		want  string
 	}{
 		{
+			// Phase 6.6: Full uses ProgressBar10; 15% floors to 15% → █▒░░░░░░░░
 			name:  "15pct full",
 			size:  200000,
 			used:  30000,
 			level: probes.LevelFull,
-			want:  "ctx █░░░░ 30K/200K (15%)",
+			want:  "ctx █▒░░░░░░░░ 30K/200K (15%)",
 		},
 		{
+			// Compact uses ProgressBar with roundNearest10: 15% → 20% → █░░░░
 			name:  "15pct compact",
 			size:  200000,
 			used:  30000,
@@ -120,11 +126,12 @@ func TestCtx_Render_Percent(t *testing.T) {
 			want:  "█░░░░ 30K/200K",
 		},
 		{
+			// Phase 6.6: Full uses ProgressBar10; 95% floors to 95% → █████████▒
 			name:  "95pct full",
 			size:  200000,
 			used:  190000,
 			level: probes.LevelFull,
-			want:  "ctx █████ 190K/200K (95%)",
+			want:  "ctx █████████▒ 190K/200K (95%)",
 		},
 		{
 			name:  "95pct minimal",

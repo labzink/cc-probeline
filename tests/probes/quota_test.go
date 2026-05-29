@@ -52,10 +52,10 @@ func TestQuota_Visible_Enabled(t *testing.T) {
 }
 
 // TestQuota_Render_Full verifies QuotaProbe.Render at LevelFull.
-// Updated in Phase 6.5.b4: uses real RateLimits data (stubs removed).
-// 5h=23% → ProgressBar floors to 20% → bar "█░░░░"
-// 7d=41% → ProgressBar floors to 40% → bar "██░░░"
-// reset shown from resets_at Unix timestamps.
+// Phase 6.6: Full uses ProgressBar10 (10 runes); reset format "↻ Xh:Ym" / "↻ Xd.Yh".
+// 5h=23% → ProgressBar10 floors to 20% → bar "██░░░░░░░░"
+// 7d=41% → ProgressBar10 floors to 40% → bar "████░░░░░░"
+// 133min → 2h13m → "↻ 2h:13m"; 84h → 3d12h → "↻ 3d.12h"
 func TestQuota_Render_Full(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
@@ -75,7 +75,7 @@ func TestQuota_Render_Full(t *testing.T) {
 	d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelFull)
-	want := "5h: █░░░░ ↻2h13m · 7d: ██░░░ ↻3d12h"
+	want := "5h: ██░░░░░░░░ ↻ 2h:13m · 7d: ████░░░░░░ ↻ 3d.12h"
 	if got != want {
 		t.Errorf("Render(Full): want %q, got %q", want, got)
 	}
@@ -83,7 +83,9 @@ func TestQuota_Render_Full(t *testing.T) {
 
 // TestQuota_Render_Compact verifies QuotaProbe.Render at LevelCompact.
 // Labels "5h: " and "7d: " are dropped per §A4 P1.
-// Updated in Phase 6.5.b4: uses real RateLimits data.
+// Phase 6.6: Compact uses ProgressBar (5 runes); reset format "↻ Xh:Ym" / "↻ Xd.Yh".
+// 23% → ProgressBar floors to 20% → bar "█░░░░"
+// 41% → ProgressBar floors to 40% → bar "██░░░"
 func TestQuota_Render_Compact(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
@@ -103,7 +105,7 @@ func TestQuota_Render_Compact(t *testing.T) {
 	d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelCompact)
-	want := "█░░░░ ↻2h13m · ██░░░ ↻3d12h"
+	want := "█░░░░ ↻ 2h:13m · ██░░░ ↻ 3d.12h"
 	if got != want {
 		t.Errorf("Render(Compact): want %q, got %q", want, got)
 	}
@@ -152,12 +154,11 @@ func TestQuotaProbe_HiddenWhenNil(t *testing.T) {
 // Setup (verified manually):
 //
 //	now = 2024-01-01T10:00:00Z
-//	5h: UsedPercentage=40%, resets_at = now+133min → 2h13m  → bar "██░░░"
-//	    40% floor→40; 40/20=2 full segs → "██░░░"
-//	7d: UsedPercentage=60%, resets_at = now+84h   → 3d12h  → bar "███░░"
-//	    60% floor→60; 60/20=3 full segs → "███░░"
-//
-// RED: fails until QuotaProbe.Render reads real RateLimits from d.Stdin.
+//	5h: UsedPercentage=40%, resets_at = now+133min → 2h13m
+//	    Phase 6.6: Full bar ProgressBar10: 40% → "████░░░░░░"; Compact ProgressBar: 40% → "██░░░"
+//	7d: UsedPercentage=60%, resets_at = now+84h   → 3d12h
+//	    Phase 6.6: Full bar ProgressBar10: 60% → "██████░░░░"; Compact ProgressBar: 60% → "███░░"
+//	reset format: "↻ 2h:13m" and "↻ 3d.12h"
 func TestQuotaProbe_RealRender(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
@@ -183,12 +184,14 @@ func TestQuotaProbe_RealRender(t *testing.T) {
 		Stdin: stdin.Payload{RateLimits: rl},
 	}
 
-	wantFull := "5h: ██░░░ ↻2h13m · 7d: ███░░ ↻3d12h"
+	// Phase 6.6: Full uses ProgressBar10 (10 runes) + new reset format.
+	wantFull := "5h: ████░░░░░░ ↻ 2h:13m · 7d: ██████░░░░ ↻ 3d.12h"
 	if got := p.Render(d, cfg, th, probes.LevelFull); got != wantFull {
 		t.Errorf("Render(Full): want %q, got %q", wantFull, got)
 	}
 
-	wantCompact := "██░░░ ↻2h13m · ███░░ ↻3d12h"
+	// Phase 6.6: Compact uses ProgressBar (5 runes) + new reset format.
+	wantCompact := "██░░░ ↻ 2h:13m · ███░░ ↻ 3d.12h"
 	if got := p.Render(d, cfg, th, probes.LevelCompact); got != wantCompact {
 		t.Errorf("Render(Compact): want %q, got %q", wantCompact, got)
 	}

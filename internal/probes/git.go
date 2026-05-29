@@ -28,6 +28,10 @@ func (p *GitProbe) Visible(d Data, c Config) bool {
 }
 
 // Render formats the git branch status.
+//
+//	Full:    "⎇ <branch>" (+ " ⚠N" if N>0), no truncation.
+//	Compact: "⎇ <branch12>" (+ " ⚠N" if N>0), branch middle-truncated to 12.
+//	Minimal: "⎇ <branch8>", no ⚠N.
 func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	if d.Git == nil {
 		return ""
@@ -38,15 +42,20 @@ func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		branch = "-:" + branch
 	}
 
-	if level == LevelMinimal {
-		branch = middleTruncate(branch, 8)
-		return "⎇ " + branch
+	switch level {
+	case LevelMinimal:
+		return "⎇ " + middleTruncate(branch, 8)
+	case LevelCompact:
+		result := "⎇ " + middleTruncate(branch, 12)
+		if d.Git.ModifiedCount > 0 {
+			result += " ⚠" + strconv.Itoa(d.Git.ModifiedCount)
+		}
+		return result
+	default: // LevelFull
+		result := "⎇ " + branch
+		if d.Git.ModifiedCount > 0 {
+			result += " ⚠" + strconv.Itoa(d.Git.ModifiedCount)
+		}
+		return result
 	}
-
-	// Full or Compact: same format.
-	result := "⎇ " + branch
-	if d.Git.ModifiedCount > 0 {
-		result += " ⚠" + strconv.Itoa(d.Git.ModifiedCount)
-	}
-	return result
 }

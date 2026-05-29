@@ -17,7 +17,7 @@ import (
 type QuotaProbe struct{}
 
 func (p *QuotaProbe) Name() string  { return "quota" }
-func (p *QuotaProbe) Priority() int { return 3 }
+func (p *QuotaProbe) Priority() int { return 1 }
 func (p *QuotaProbe) MinWidth() int { return len("0% · 0%") }
 
 // Visible returns true only when QuotaEnabled is true and RateLimits data is
@@ -27,13 +27,11 @@ func (p *QuotaProbe) Visible(d Data, c Config) bool {
 }
 
 // Render formats the quota blocks using real RateLimits data from d.Stdin.
-// Progress bar uses the 5-segment renderer.ProgressBar helper.
-// Reset countdown = ResetsAt − d.Now, formatted as ↻Nh Nm or ↻Nd Nh.
 //
 // Display levels:
 //
-//	Full:    "5h: <bar5h> ↻<reset5h> · 7d: <bar7d> ↻<reset7d>"
-//	Compact: "<bar5h> ↻<reset5h> · <bar7d> ↻<reset7d>"
+//	Full:    "5h: <bar10_5h> <reset5h> · 7d: <bar10_7d> <reset7d>"
+//	Compact: "<bar5_5h> <reset5h> · <bar5_7d> <reset7d>"
 //	Minimal: "<pct5h>% · <pct7d>%"
 func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	rl := d.Stdin.RateLimits
@@ -42,8 +40,6 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		return ""
 	}
 
-	bar5h := renderer.ProgressBar(rl.FiveHour.UsedPercentage)
-	bar7d := renderer.ProgressBar(rl.SevenDay.UsedPercentage)
 	reset5h := formatReset(rl.FiveHour.ResetsAt, d.Now)
 	reset7d := formatReset(rl.SevenDay.ResetsAt, d.Now)
 
@@ -52,8 +48,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 
 	switch level {
 	case LevelFull:
+		bar5h := renderer.ProgressBar10(rl.FiveHour.UsedPercentage)
+		bar7d := renderer.ProgressBar10(rl.SevenDay.UsedPercentage)
 		return fmt.Sprintf("5h: %s %s · 7d: %s %s", bar5h, reset5h, bar7d, reset7d)
 	case LevelCompact:
+		bar5h := renderer.ProgressBar(rl.FiveHour.UsedPercentage)
+		bar7d := renderer.ProgressBar(rl.SevenDay.UsedPercentage)
 		return fmt.Sprintf("%s %s · %s %s", bar5h, reset5h, bar7d, reset7d)
 	default: // LevelMinimal
 		return fmt.Sprintf("%d%% · %d%%", pct5h, pct7d)
@@ -61,22 +61,23 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 }
 
 // formatReset converts a raw resets_at JSON value and the current time into
-// a reset-countdown string of the form "↻NhNm" (hours) or "↻NdNh" (days).
-// If parsing fails or the reset time is in the past, returns "↻0m".
+// a reset-countdown string "↻ <h>h:<m>m" (<24h) or "↻ <d>d.<h>h" (≥24h).
+// If parsing fails or the reset time is in the past, returns "↻ 0m".
 func formatReset(raw []byte, now time.Time) string {
 	t, ok := stdin.ParseResetsAt(raw)
 	if !ok {
 		slog.Debug("quota.formatReset: could not parse resets_at; omitting reset label")
-		return "↻0m"
+		return "↻ 0m"
 	}
 	dur := t.Sub(now)
 	if dur <= 0 {
-		return "↻0m"
+		return "↻ 0m"
 	}
 	return formatDuration(dur)
 }
 
-// formatDuration renders a duration as "↻NdNh" when ≥24h, else "↻NhNm".
+// formatDuration renders a duration as "↻ <d>d.<h>h" when ≥24h,
+// else "↻ <h>h:<m>m". Space after ↻, colon between h/m, dot between d/h.
 func formatDuration(dur time.Duration) string {
 	totalMin := int(dur.Minutes())
 	totalHours := totalMin / 60
@@ -85,7 +86,7 @@ func formatDuration(dur time.Duration) string {
 	if totalHours >= 24 {
 		days := totalHours / 24
 		hours := totalHours % 24
-		return fmt.Sprintf("↻%dd%dh", days, hours)
+		return fmt.Sprintf("↻ %dd.%dh", days, hours)
 	}
-	return fmt.Sprintf("↻%dh%dm", totalHours, mins)
+	return fmt.Sprintf("↻ %dh:%dm", totalHours, mins)
 }
