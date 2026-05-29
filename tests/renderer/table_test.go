@@ -302,19 +302,13 @@ func TestTable_LongToolArg_MiddleTruncate(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// TestTable_ColumnWidths_80Cols — §4.2 Layout: 7 fixed columns + borders = 80
+// TestTable_ColumnWidths_Fixed — table renders at fixed content width, not stretched to terminal.
 //
-// The first line of the rendered table (top border) must be exactly 80
-// Unicode code points wide. Default cols: [3,6,10,13,6,6,16].
-//
-// Border chars between 7 cols: │ on left edge + 6 inner │ + │ on right edge
-// = 8 border runes. Totals: 3+6+10+13+6+6+16 = 60 content + (16 flex) ...
-// Actually: col widths + (ncols+1) border chars.
-// With cols [3,6,10,13,6,6,16]: sum=60, borders=8 → 68 < 80.
-// The last column (flex) expands to fill: flex = 80 - 60 - 8 + 16 = 28? No:
-// flex = 80 - (3+6+10+13+6+6) - 8 = 80 - 44 - 8 = 28 (last col becomes 28).
+// Default cols: [3,6,10,13,6,7,16]. Sum = 61. Borders = 8 (left + 6 inner + right).
+// Total fixed width = 61 + 8 = 69. The builder cols argument no longer affects width.
 // -------------------------------------------------------------------
 func TestTable_ColumnWidths_80Cols(t *testing.T) {
+	const wantWidth = 69 // 3+6+10+13+6+7+16 content + 8 border runes
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
@@ -329,18 +323,18 @@ func TestTable_ColumnWidths_80Cols(t *testing.T) {
 	}
 
 	// The first line is the top border: ┌──…──┐.
-	// Its rune-width must equal 80.
+	// Its rune-width must equal the fixed content width.
 	firstLine := stripANSI(lines[0])
 	w := runeWidth(firstLine)
-	if w != 80 {
-		t.Errorf("top border rune-width = %d; want 80\nline: %s", w, firstLine)
+	if w != wantWidth {
+		t.Errorf("top border rune-width = %d; want %d\nline: %s", w, wantWidth, firstLine)
 	}
 
-	// Every other line must also be exactly 80 runes wide.
+	// Every other line must also be exactly wantWidth runes wide.
 	for i, l := range lines {
 		lw := runeWidth(stripANSI(l))
-		if lw != 80 {
-			t.Errorf("line[%d] rune-width = %d; want 80\nline: %s", i, lw, l)
+		if lw != wantWidth {
+			t.Errorf("line[%d] rune-width = %d; want %d\nline: %s", i, lw, wantWidth, l)
 		}
 	}
 }

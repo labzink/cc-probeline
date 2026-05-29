@@ -53,22 +53,11 @@ func NewBuilder(cols int) *Builder {
 	}
 }
 
-// effectiveCols expands the last (flex) column so total rune-width equals
-// the configured terminal width.
-// Formula: terminalCols = sum(cols) + 8 borders  →  flex = (terminalCols-8) - sum(cols[0..5]).
+// effectiveCols returns the column widths as-is.
+// The last column is a fixed minimum width (not stretched to fill the terminal);
+// the right border lands right after the content, not at the terminal edge.
 func (b *Builder) effectiveCols() [7]int {
-	c := b.cols
-	fixed := 0
-	for i := 0; i < 6; i++ {
-		fixed += c[i]
-	}
-	// 8 border runes: left edge + 6 inner + right edge.
-	flex := (b.terminalCols - 8) - fixed
-	if flex < c[6] {
-		flex = c[6]
-	}
-	c[6] = flex
-	return c
+	return b.cols
 }
 
 // padCell pads s to exactly w runes with a 1-space margin:

@@ -106,21 +106,13 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 		turns = turns[len(turns)-20:]
 	}
 
-	// Claude Code status line renderer adds a 2-column left margin before
-	// the hook output, so reserve that space to keep the right border visible.
-	const ccMargin = 2
-	tableCols := cols - ccMargin
-	if tableCols < 1 {
-		tableCols = 1
-	}
-
-	b := renderer.NewBuilder(tableCols)
+	b := renderer.NewBuilder(cols)
 	for _, t := range turns {
 		b.Add(t)
 	}
 
 	// Use RenderForCols for column-drop truncation (§4.3 T-9).
-	raw := b.RenderForCols(tableCols)
+	raw := b.RenderForCols(cols)
 	if raw == "" {
 		return nil
 	}
