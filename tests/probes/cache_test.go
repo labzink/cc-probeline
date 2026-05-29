@@ -180,13 +180,13 @@ func TestCacheProbe_TTL_Full(t *testing.T) {
 	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
 
 	fullOut := p.Render(d, cfg, th, probes.LevelFull)
-	if !strings.Contains(fullOut, "⏱52m") {
-		t.Errorf("Render(Full): want ⏱52m in output, got %q", fullOut)
+	if !strings.Contains(fullOut, "⏱ 52m") {
+		t.Errorf("Render(Full): want ⏱ 52m in output, got %q", fullOut)
 	}
 
 	compactOut := p.Render(d, cfg, th, probes.LevelCompact)
-	if !strings.Contains(compactOut, "⏱52m") {
-		t.Errorf("Render(Compact): want ⏱52m in output, got %q", compactOut)
+	if !strings.Contains(compactOut, "⏱ 52m") {
+		t.Errorf("Render(Compact): want ⏱ 52m in output, got %q", compactOut)
 	}
 
 	minimalOut := p.Render(d, cfg, th, probes.LevelMinimal)

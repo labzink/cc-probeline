@@ -48,7 +48,7 @@ func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinu
 	if remaining <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("⏱%dm", remaining)
+	return fmt.Sprintf("⏱ %dm", remaining)
 }
 
 // Visible returns false when CacheEnabled is false or Session is nil (no JSONL data parsed yet).
