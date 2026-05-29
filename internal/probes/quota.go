@@ -1,33 +1,34 @@
 package probes
 
 import (
+	"fmt"
+	"log/slog"
+	"time"
+
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
-// QuotaProbe renders quota usage for the 5-hour and 7-day windows.
-// In Phase 4.1 the values are hardcoded stubs (5h=23%, 7d=41%).
-// Real API values will be plumbed through Config in Phase 6.
+// QuotaProbe renders quota usage for the 5-hour and 7-day rate-limit windows.
+// Data is sourced from d.Stdin.RateLimits which is populated by the Claude Code
+// statusLine hook payload. When rate_limits is absent the probe is hidden.
 //
-// Visible only when Config.QuotaEnabled=true.
+// Visible only when Config.QuotaEnabled=true AND d.Stdin.RateLimits != nil.
 type QuotaProbe struct{}
 
 func (p *QuotaProbe) Name() string  { return "quota" }
 func (p *QuotaProbe) Priority() int { return 1 }
-func (p *QuotaProbe) MinWidth() int { return len("23% · 41%") }
+func (p *QuotaProbe) MinWidth() int { return len("0% · 0%") }
 
-// Visible returns true only when QuotaEnabled is true.
+// Visible returns true only when QuotaEnabled is true and RateLimits data is
+// available in the payload. Missing rate_limits → graceful hide (not a fake value).
 func (p *QuotaProbe) Visible(d Data, c Config) bool {
-	return c.QuotaEnabled
+	return c.QuotaEnabled && d.Stdin.RateLimits != nil
 }
 
-// Render formats the quota blocks using Phase-4.1 hardcoded stub values.
-// The bar strings are pre-computed for the stub percentages:
-//
-//	5h: 23% → bar "█▒░░░", reset in 2h13m
-//	7d: 41% → bar "██░░░", reset in 3d12h
-//
-// The bar strings are hardcoded to match the exact Phase 4.1 test expectations.
-// Phase 6 will replace these with real quota values via Config.
+// Render formats the quota blocks using real RateLimits data from d.Stdin.
+// Progress bar uses the 5-segment renderer.ProgressBar helper.
+// Reset countdown = ResetsAt − d.Now, formatted as ↻Nh Nm or ↻Nd Nh.
 //
 // Display levels:
 //
@@ -35,12 +36,56 @@ func (p *QuotaProbe) Visible(d Data, c Config) bool {
 //	Compact: "<bar5h> ↻<reset5h> · <bar7d> ↻<reset7d>"
 //	Minimal: "<pct5h>% · <pct7d>%"
 func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
+	rl := d.Stdin.RateLimits
+	if rl == nil {
+		slog.Warn("quota.Render: called with nil RateLimits; returning empty")
+		return ""
+	}
+
+	bar5h := renderer.ProgressBar(rl.FiveHour.UsedPercentage)
+	bar7d := renderer.ProgressBar(rl.SevenDay.UsedPercentage)
+	reset5h := formatReset(rl.FiveHour.ResetsAt, d.Now)
+	reset7d := formatReset(rl.SevenDay.ResetsAt, d.Now)
+
+	pct5h := int(rl.FiveHour.UsedPercentage)
+	pct7d := int(rl.SevenDay.UsedPercentage)
+
 	switch level {
 	case LevelFull:
-		return "5h: █▒░░░ ↻2h13m · 7d: ██░░░ ↻3d12h"
+		return fmt.Sprintf("5h: %s %s · 7d: %s %s", bar5h, reset5h, bar7d, reset7d)
 	case LevelCompact:
-		return "█▒░░░ ↻2h13m · ██░░░ ↻3d12h"
+		return fmt.Sprintf("%s %s · %s %s", bar5h, reset5h, bar7d, reset7d)
 	default: // LevelMinimal
-		return "23% · 41%"
+		return fmt.Sprintf("%d%% · %d%%", pct5h, pct7d)
 	}
+}
+
+// formatReset converts a raw resets_at JSON value and the current time into
+// a reset-countdown string of the form "↻Nh Nm" (hours) or "↻Nd Nh" (days).
+// If parsing fails or the reset time is in the past, returns "↻0m".
+func formatReset(raw []byte, now time.Time) string {
+	t, ok := stdin.ParseResetsAt(raw)
+	if !ok {
+		slog.Debug("quota.formatReset: could not parse resets_at; omitting reset label")
+		return "↻0m"
+	}
+	dur := t.Sub(now)
+	if dur <= 0 {
+		return "↻0m"
+	}
+	return formatDuration(dur)
+}
+
+// formatDuration renders a duration as "↻Nd Nh" when ≥24h, else "↻Nh Nm".
+func formatDuration(dur time.Duration) string {
+	totalMin := int(dur.Minutes())
+	totalHours := totalMin / 60
+	mins := totalMin % 60
+
+	if totalHours >= 24 {
+		days := totalHours / 24
+		hours := totalHours % 24
+		return fmt.Sprintf("↻%dd%dh", days, hours)
+	}
+	return fmt.Sprintf("↻%dh%dm", totalHours, mins)
 }

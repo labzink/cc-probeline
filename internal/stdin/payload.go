@@ -11,6 +11,45 @@ import (
 	"time"
 )
 
+// RateLimits holds per-window quota usage as reported by Claude Code in
+// the "rate_limits" top-level field of the statusLine hook payload.
+type RateLimits struct {
+	FiveHour RateWindow `json:"five_hour"`
+	SevenDay RateWindow `json:"seven_day"`
+}
+
+// RateWindow describes quota usage for a single rate-limit window.
+// ResetsAt is kept as json.RawMessage for defensive parsing: the field may
+// carry a Unix int64 timestamp (current CC) or an RFC3339 string (legacy).
+// Callers use ParseResetsAt to convert to time.Time.
+type RateWindow struct {
+	UsedPercentage float64         `json:"used_percentage"`
+	ResetsAt       json.RawMessage `json:"resets_at"`
+}
+
+// ParseResetsAt converts a raw JSON resets_at value to time.Time.
+// It tries int64 (Unix seconds) first; if that fails it tries RFC3339.
+// Any other form returns the zero time.Time so callers can treat it as
+// "reset time unknown" without crashing.
+func ParseResetsAt(raw json.RawMessage) (time.Time, bool) {
+	if len(raw) == 0 {
+		return time.Time{}, false
+	}
+	// Attempt 1: bare integer → Unix timestamp.
+	var unixSec int64
+	if err := json.Unmarshal(raw, &unixSec); err == nil {
+		return time.Unix(unixSec, 0).UTC(), true
+	}
+	// Attempt 2: quoted RFC3339 string.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
 // Payload is the typed representation of the JSON object Claude Code sends
 // to cc-probeline via stdin on each statusLine hook invocation.
 // Parsing is done once in main; all probes read from the resulting struct.
@@ -23,6 +62,7 @@ type Payload struct {
 	ContextWindow  ContextWindow `json:"context_window"`
 	Cost           Cost          `json:"cost"`
 	Tasks          []Task        `json:"tasks,omitempty"`
+	RateLimits     *RateLimits   `json:"rate_limits,omitempty"`
 	StrictMode     bool          `json:"-"` // set from env CC_PROBELINE_STRICT_STDIN, not from JSON
 }
 
@@ -76,6 +116,7 @@ var knownTopLevelKeys = map[string]struct{}{
 	"context_window":  {},
 	"cost":            {},
 	"tasks":           {},
+	"rate_limits":     {},
 }
 
 // Decode reads a single JSON object from r and decodes it into a Payload.

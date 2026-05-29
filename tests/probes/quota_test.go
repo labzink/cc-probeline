@@ -33,30 +33,48 @@ func TestQuota_Visible_Disabled(t *testing.T) {
 }
 
 // TestQuota_Visible_Enabled verifies that QuotaProbe.Visible returns true
-// when Config.QuotaEnabled is true.
+// when Config.QuotaEnabled is true AND RateLimits data is present.
+// Updated in Phase 6.5.b4: real data required; nil RateLimits → false (T-17).
 func TestQuota_Visible_Enabled(t *testing.T) {
 	p := &probes.QuotaProbe{}
-	d := probes.Data{Stdin: stdin.Payload{}}
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{UsedPercentage: 50},
+		SevenDay: stdin.RateWindow{UsedPercentage: 50},
+	}
+	d := probes.Data{Stdin: stdin.Payload{RateLimits: rl}}
 	cfg := probes.Config{QuotaEnabled: true}
 
 	got := p.Visible(d, cfg)
 	if got != true {
-		t.Errorf("Visible(QuotaEnabled=true): want true, got false")
+		t.Errorf("Visible(QuotaEnabled=true, RateLimits!=nil): want true, got false")
 	}
 }
 
 // TestQuota_Render_Full verifies QuotaProbe.Render at LevelFull.
-//
-// Phase-4.1 stub values: 5h=23%, 7d=41%.
-// Expected: "5h: █▒░░░ ↻2h13m · 7d: ██░░░ ↻3d12h"
+// Updated in Phase 6.5.b4: uses real RateLimits data (stubs removed).
+// 5h=23% → ProgressBar floors to 20% → bar "█░░░░"
+// 7d=41% → ProgressBar floors to 40% → bar "██░░░"
+// reset shown from resets_at Unix timestamps.
 func TestQuota_Render_Full(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
-	d := probes.Data{Stdin: stdin.Payload{}}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{
+			UsedPercentage: 23.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", now.Add(133*time.Minute).Unix())),
+		},
+		SevenDay: stdin.RateWindow{
+			UsedPercentage: 41.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", now.Add(84*time.Hour).Unix())),
+		},
+	}
+	d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelFull)
-	want := "5h: █▒░░░ ↻2h13m · 7d: ██░░░ ↻3d12h"
+	want := "5h: █░░░░ ↻2h13m · 7d: ██░░░ ↻3d12h"
 	if got != want {
 		t.Errorf("Render(Full): want %q, got %q", want, got)
 	}
@@ -64,16 +82,27 @@ func TestQuota_Render_Full(t *testing.T) {
 
 // TestQuota_Render_Compact verifies QuotaProbe.Render at LevelCompact.
 // Labels "5h: " and "7d: " are dropped per §A4 P1.
-//
-// Expected: "█▒░░░ ↻2h13m · ██░░░ ↻3d12h"
+// Updated in Phase 6.5.b4: uses real RateLimits data.
 func TestQuota_Render_Compact(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
-	d := probes.Data{Stdin: stdin.Payload{}}
+
+	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{
+			UsedPercentage: 23.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", now.Add(133*time.Minute).Unix())),
+		},
+		SevenDay: stdin.RateWindow{
+			UsedPercentage: 41.0,
+			ResetsAt:       json.RawMessage(fmt.Sprintf("%d", now.Add(84*time.Hour).Unix())),
+		},
+	}
+	d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelCompact)
-	want := "█▒░░░ ↻2h13m · ██░░░ ↻3d12h"
+	want := "█░░░░ ↻2h13m · ██░░░ ↻3d12h"
 	if got != want {
 		t.Errorf("Render(Compact): want %q, got %q", want, got)
 	}
@@ -81,13 +110,17 @@ func TestQuota_Render_Compact(t *testing.T) {
 
 // TestQuota_Render_Minimal verifies QuotaProbe.Render at LevelMinimal.
 // Progress bars and time-to-reset are dropped; only percent values remain.
-//
-// Expected: "23% · 41%"
+// Updated in Phase 6.5.b4: uses real RateLimits data; format is integer %.
 func TestQuota_Render_Minimal(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
-	d := probes.Data{Stdin: stdin.Payload{}}
+
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{UsedPercentage: 23.0},
+		SevenDay: stdin.RateWindow{UsedPercentage: 41.0},
+	}
+	d := probes.Data{Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelMinimal)
 	want := "23% · 41%"

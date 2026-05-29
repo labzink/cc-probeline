@@ -93,10 +93,15 @@ func dataWithCache() probes.Data {
 	}
 }
 
-// dataWithQuota returns a Data fixture. QuotaProbe.Visible depends only on
-// Config.QuotaEnabled, so Data can be zero.
+// dataWithQuota returns a Data fixture that satisfies QuotaProbe.Visible:
+// QuotaEnabled=true (set via Config) AND RateLimits != nil.
+// Updated in Phase 6.5.b4: real rate_limits required for visibility.
 func dataWithQuota() probes.Data {
-	return probes.Data{}
+	rl := &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{UsedPercentage: 50},
+		SevenDay: stdin.RateWindow{UsedPercentage: 50},
+	}
+	return probes.Data{Stdin: stdin.Payload{RateLimits: rl}}
 }
 
 // dataWithGit returns a Data fixture that satisfies GitProbe.Visible baseline:
