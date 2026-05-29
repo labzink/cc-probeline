@@ -214,6 +214,16 @@ func runRender(strict bool) int {
 		ExtraCacheEvents: configAlerts,
 	}
 
+	// Detect git info for the current working directory.
+	const gitTimeout = 150 * time.Millisecond
+	if payload.Cwd != "" {
+		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer gitCancel()
+		if gs, gitErr := parser.DetectGit(gitCtx, payload.Cwd); gitErr == nil {
+			d.Git = gs
+		}
+	}
+
 	cols := renderer.DetectCols()
 	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
