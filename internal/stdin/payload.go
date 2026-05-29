@@ -29,10 +29,14 @@ type RateWindow struct {
 
 // ParseResetsAt converts a raw JSON resets_at value to time.Time.
 // It tries int64 (Unix seconds) first; if that fails it tries RFC3339.
-// Any other form returns the zero time.Time so callers can treat it as
-// "reset time unknown" without crashing.
+// JSON null and any other non-integer, non-string form returns (zero, false)
+// so callers treat it as "reset time unknown" without crashing (Insurance #2).
 func ParseResetsAt(raw json.RawMessage) (time.Time, bool) {
 	if len(raw) == 0 {
+		return time.Time{}, false
+	}
+	// Reject JSON null explicitly — null unmarshals into int64 as 0 without error.
+	if string(raw) == "null" {
 		return time.Time{}, false
 	}
 	// Attempt 1: bare integer → Unix timestamp.

@@ -11,6 +11,7 @@ package probes_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,22 +247,9 @@ func TestQuotaProbe_Boundary(t *testing.T) {
 			}
 
 			minimal := p.Render(d, cfg, th, probes.LevelMinimal)
-			if !containsStr(minimal, tc.wantMinimal) {
+			if !strings.Contains(minimal, tc.wantMinimal) {
 				t.Errorf("Render(Minimal) case %s: want %q in %q", tc.name, tc.wantMinimal, minimal)
 			}
 		})
 	}
-}
-
-// containsStr is a local helper to avoid importing strings in this package.
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
 }

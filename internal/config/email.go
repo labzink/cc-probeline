@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // ResolveEmail returns the email address to display in the Email probe.
@@ -81,8 +83,12 @@ func claudeJSONEmail() string {
 // gitConfigEmail runs "git config user.email" in cwd and returns the trimmed
 // result. Returns "" on any exec error, non-zero exit, or empty output.
 // GIT_OPTIONAL_LOCKS=0 is set to avoid lock-file creation during the query.
+// A 150ms hard timeout prevents unbounded blocking on slow git operations.
 func gitConfigEmail(cwd string) string {
-	cmd := exec.Command("git", "config", "user.email")
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "config", "user.email")
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 

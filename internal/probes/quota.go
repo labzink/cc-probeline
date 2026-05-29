@@ -61,7 +61,7 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 }
 
 // formatReset converts a raw resets_at JSON value and the current time into
-// a reset-countdown string of the form "↻Nh Nm" (hours) or "↻Nd Nh" (days).
+// a reset-countdown string of the form "↻NhNm" (hours) or "↻NdNh" (days).
 // If parsing fails or the reset time is in the past, returns "↻0m".
 func formatReset(raw []byte, now time.Time) string {
 	t, ok := stdin.ParseResetsAt(raw)
@@ -76,7 +76,7 @@ func formatReset(raw []byte, now time.Time) string {
 	return formatDuration(dur)
 }
 
-// formatDuration renders a duration as "↻Nd Nh" when ≥24h, else "↻Nh Nm".
+// formatDuration renders a duration as "↻NdNh" when ≥24h, else "↻NhNm".
 func formatDuration(dur time.Duration) string {
 	totalMin := int(dur.Minutes())
 	totalHours := totalMin / 60

@@ -218,8 +218,9 @@ func runRender(strict bool) int {
 	const gitTimeout = 150 * time.Millisecond
 	if payload.Cwd != "" {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer gitCancel()
-		if gs, gitErr := parser.DetectGit(gitCtx, payload.Cwd); gitErr == nil {
+		gs, gitErr := parser.DetectGit(gitCtx, payload.Cwd)
+		gitCancel()
+		if gitErr == nil {
 			d.Git = gs
 		}
 	}

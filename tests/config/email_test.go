@@ -111,3 +111,27 @@ func TestResolveEmail_AllEmpty(t *testing.T) {
 		t.Errorf("T-13: got %q, want %q", got, "")
 	}
 }
+
+// TestResolveEmail_ClaudeJSON_TypeMismatch (I5) verifies that when ~/.claude.json
+// contains {"emailAddress": 42} (integer instead of string), ResolveEmail returns
+// "" without panicking. This exercises the claudeJSONEmail type-mismatch path.
+func TestResolveEmail_ClaudeJSON_TypeMismatch(t *testing.T) {
+	homeDir := t.TempDir()
+	// Write .claude.json with emailAddress as integer (invalid type).
+	content := []byte(`{"emailAddress": 42}`)
+	if err := os.WriteFile(filepath.Join(homeDir, ".claude.json"), content, 0o644); err != nil {
+		t.Fatalf("writeClaudeJSON type-mismatch: write: %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+
+	cwdDir := t.TempDir()
+	// cwdDir is not a git repo so git config also yields "".
+
+	cfg := &config.Config{}
+
+	// Must not panic; must return "".
+	got := config.ResolveEmail(cfg, cwdDir)
+	if got != "" {
+		t.Errorf("TypeMismatch: got %q, want \"\"", got)
+	}
+}

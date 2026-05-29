@@ -119,15 +119,10 @@ func TestTable_R1Borders_SingleRow(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// TestTable_R1Borders_MultiRow — §4.2 Box-drawing R1 — separators between rows
+// TestTable_R1Borders_MultiRow — §6.5 B6 new order
 //
-// 5 turns must produce 5 row-content lines and 4 inter-row separators within
-// the rows section (before the footer-separator).
-//
-// Expected total line count:
-//
-//	top(1) + row(1) + sep(1) + row(1) + sep(1) + row(1) + sep(1) + row(1) + sep(1) + row(1)
-//	+ footer-sep(1) + footer(1) + bottom(1) = 14 lines
+// §6.5 B6 new order — top + footer + separator-split + 5 data rows + bottom = 9 lines.
+// No inter-row separators.
 //
 // -------------------------------------------------------------------
 func TestTable_R1Borders_MultiRow(t *testing.T) {

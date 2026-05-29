@@ -120,11 +120,11 @@ func TestCache_Render_Minimal(t *testing.T) {
 	}
 }
 
-// TestCache_NoTTL verifies that the TTL block (⏱…) never appears in any Level
-// output during Phase 4.1, because the cache-events detector is not yet
-// implemented (it arrives in Phase 4.4).
-//
-// This test acts as a regression guard: if ⏱ appears, something is wrong.
+// TestCache_NoTTL verifies that the TTL block (⏱…) never appears when the
+// session has no TTL context: Config.OrchTTLMinutes=0 and d.Session.LastTimestamp
+// is zero and TurnCount is zero (newCacheData does not set these fields).
+// TTL is hidden by CacheProbe when OrchTTLMinutes=0 or LastTimestamp/TurnCount
+// are zero — this test acts as a regression guard for that suppression logic.
 func TestCache_NoTTL(t *testing.T) {
 	p := &probes.CacheProbe{}
 	cfg := probes.Config{}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
@@ -84,3 +85,51 @@ func TestDecode_RateLimits_KnownField(t *testing.T) {
 // Compile-time guard: ensure json.RawMessage is used in the test file so the
 // import is recognised before the field exists.
 var _ = json.RawMessage(nil)
+
+// TestParseResetsAt_RFC3339 (T-15 direct) verifies that ParseResetsAt correctly
+// parses a quoted RFC3339 string and returns ok=true with the expected time.Time.
+func TestParseResetsAt_RFC3339(t *testing.T) {
+	raw := json.RawMessage(`"2026-04-26T23:00:00Z"`)
+	got, ok := stdin.ParseResetsAt(raw)
+	if !ok {
+		t.Fatal("ParseResetsAt(RFC3339): want ok=true, got false")
+	}
+	want := time.Date(2026, 4, 26, 23, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("ParseResetsAt(RFC3339): want %v, got %v", want, got)
+	}
+}
+
+// TestParseResetsAt_EmptySlice verifies that ParseResetsAt returns ok=false for
+// an empty (nil / zero-length) raw message — no panic, no spurious time returned.
+func TestParseResetsAt_EmptySlice(t *testing.T) {
+	_, ok := stdin.ParseResetsAt(json.RawMessage(nil))
+	if ok {
+		t.Error("ParseResetsAt(nil): want ok=false, got true")
+	}
+	_, ok = stdin.ParseResetsAt(json.RawMessage{})
+	if ok {
+		t.Error("ParseResetsAt(empty slice): want ok=false, got true")
+	}
+}
+
+// TestParseResetsAt_FloatAndNull verifies that ParseResetsAt returns ok=false for
+// a JSON float value and for JSON null — neither form is a valid resets_at value
+// (Insurance #2: third-form protection).
+func TestParseResetsAt_FloatAndNull(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"float", json.RawMessage(`1745700000.5`)},
+		{"null", json.RawMessage(`null`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := stdin.ParseResetsAt(tc.raw)
+			if ok {
+				t.Errorf("ParseResetsAt(%s): want ok=false, got true", tc.name)
+			}
+		})
+	}
+}
