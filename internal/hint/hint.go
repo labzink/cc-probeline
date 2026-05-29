@@ -18,7 +18,7 @@ type Hint struct {
 
 // DefaultHints holds the 8 fixed brainstorm Batch 3 hint strings.
 var DefaultHints = []Hint{
-	{0, "⚠ cache miss/alert · [high] reasoning effort"},
+	{0, "legend: [high]=effort · ⚠=cache miss/modified · ⎇=git branch"},
 	{1, "⎇ git branch (worktree) · ⚠N modified files in working tree"},
 	{2, "ctx N/M — context window load (cached / max context)"},
 	{3, "⏱ N — cache lives N after last request (orch ~60m, agent ~5m)"},

@@ -26,7 +26,7 @@ var baseTime = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 func TestWidget_Pick_FirstCall_RotatesToFirst(t *testing.T) {
 	w := hint.Widget{}
 	got := w.Pick(baseTime)
-	want := "⚠ cache miss/alert · [high] reasoning effort"
+	want := "legend: [high]=effort · ⚠=cache miss/modified · ⎇=git branch"
 	if got != want {
 		t.Errorf("Pick(firstCall) = %q; want %q", got, want)
 	}
@@ -122,7 +122,7 @@ func TestWidget_Pick_CriticalBeforeRotation(t *testing.T) {
 func TestWidget_Pick_NoCustomHints_UsesDefaults(t *testing.T) {
 	w := hint.Widget{Hints: nil}
 	got := w.Pick(baseTime)
-	want := "⚠ cache miss/alert · [high] reasoning effort"
+	want := "legend: [high]=effort · ⚠=cache miss/modified · ⎇=git branch"
 	if got != want {
 		t.Errorf("Pick(nil hints) = %q; want %q", got, want)
 	}
