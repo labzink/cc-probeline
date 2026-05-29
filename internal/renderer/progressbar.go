@@ -62,6 +62,72 @@ func floorToNearest10(v float64) float64 {
 	return float64(r)
 }
 
+// ProgressBar10 returns a 10-segment UTF-8 progress bar with 5% precision.
+// Input is clamped to [0, 100] and rounded down to the nearest multiple of 5.
+// Each of the 10 segments covers 10 percentage points.
+// Within segment i: val = clamp(rounded − i*10, 0, 10).
+//
+//	val >= 10 → '█' (full)
+//	val == 5  → '▒' (half)
+//	otherwise → '░' (empty)
+//
+// Canonical examples:
+//
+//	0%   → "░░░░░░░░░░"
+//	5%   → "▒░░░░░░░░░"
+//	10%  → "█░░░░░░░░░"
+//	15%  → "█▒░░░░░░░░"
+//	50%  → "█████░░░░░"
+//	100% → "██████████"
+func ProgressBar10(percent float64) string {
+	// Clamp to [0, 100].
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	// Round down to nearest multiple of 5.
+	rounded := floorToNearest5(percent)
+
+	const segWidth = 10.0
+	const numSeg = 10
+
+	bar := make([]rune, numSeg)
+	for i := 0; i < numSeg; i++ {
+		val := rounded - float64(i)*segWidth
+		if val < 0 {
+			val = 0
+		}
+		if val > segWidth {
+			val = segWidth
+		}
+		switch {
+		case val >= segWidth:
+			bar[i] = '█'
+		case val == 5:
+			bar[i] = '▒'
+		default:
+			bar[i] = '░'
+		}
+	}
+	return string(bar)
+}
+
+// floorToNearest5 truncates v down to the nearest multiple of 5.
+// Examples: 14 → 10, 15 → 15, 16 → 15, 99 → 95, 100 → 100.
+func floorToNearest5(v float64) float64 {
+	r := int(v/5.0) * 5
+	if r < 0 {
+		r = 0
+	}
+	if r > 100 {
+		r = 100
+	}
+	return float64(r)
+}
+
 // ProgressBarColor returns the ANSI colour code for a progress-bar value at
 // the given percentage, selected by threshold:
 //
