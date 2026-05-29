@@ -304,11 +304,11 @@ func TestTable_LongToolArg_MiddleTruncate(t *testing.T) {
 // -------------------------------------------------------------------
 // TestTable_ColumnWidths_Fixed — table renders at fixed content width, not stretched to terminal.
 //
-// Default cols: [3,6,10,13,6,7,16]. Sum = 61. Borders = 8 (left + 6 inner + right).
-// Total fixed width = 61 + 8 = 69. The builder cols argument no longer affects width.
+// Phase 6.6.c new cols: [4,7,12,13,7,9,16]. Sum = 68. Borders = 8 (left + 6 inner + right).
+// Total fixed width = 68 + 8 = 76. The builder cols argument no longer affects width.
 // -------------------------------------------------------------------
 func TestTable_ColumnWidths_80Cols(t *testing.T) {
-	const wantWidth = 69 // 3+6+10+13+6+7+16 content + 8 border runes
+	const wantWidth = 76 // 4+7+12+13+7+9+16 content + 8 border runes
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
@@ -660,8 +660,9 @@ func TestRender_ReverseNoSep(t *testing.T) {
 	}
 
 	// Find line indices for each data row.
-	// The index cell is 3 runes wide; for 2-digit values like 10/20/30 the cell
-	// is right-aligned producing "│10 │", "│20 │", "│30 │" — no leading space.
+	// Phase 6.6.c: "#" col is 4-wide, right-aligned. For 2-digit values (10/20/30):
+	// padCell("30", 4, AlignRight) → inner=3, pad=1 → " 30 " (leading space + content + margin).
+	// Row starts with "│ 30 │" — leading space before index, trailing space margin.
 	findLine := func(marker string) int {
 		for i, l := range lines {
 			if strings.Contains(l, marker) {
@@ -671,9 +672,9 @@ func TestRender_ReverseNoSep(t *testing.T) {
 		return -1
 	}
 
-	line30 := findLine("│30 ")
-	line20 := findLine("│20 ")
-	line10 := findLine("│10 ")
+	line30 := findLine("│ 30 ")
+	line20 := findLine("│ 20 ")
+	line10 := findLine("│ 10 ")
 
 	if line30 == -1 || line20 == -1 || line10 == -1 {
 		t.Fatalf("could not find all data rows: line30=%d line20=%d line10=%d\noutput:\n%s",
@@ -697,18 +698,21 @@ func TestRender_ReverseNoSep(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T-23: TestRender6Cols_NewOrder — §6.5.b6 6-col layout (RenderForCols(50))
-// also uses footer-first / reverse / no-sep grammar.
+// T-23: TestRender6Cols_NewOrder — §6.5.b6 / §6.6.c 6-col layout uses
+// footer-first / reverse / no-sep grammar.
+//
+// Phase 6.6.c thresholds: full=76, 6-col=71, 5-col=61.
+// cols=72 → "#" dropped, cost retained → 6-col table (width 71 ≤ 72).
 // -------------------------------------------------------------------
 func TestRender6Cols_NewOrder(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(5, "orch", "sonnet-4", "Read", 1000, 200, 0))
 	b.Add(makeTurn(6, "orch", "opus-4-7", "Edit", 2000, 100, time.Minute))
 
-	// 50 cols → 6-col layout: flex6 = (50-7) - 38 = 5 > 1, fits.
-	out := b.RenderForCols(50)
+	// 72 cols → 6-col layout: below 76 (full) but above 71 (6-col fits).
+	out := b.RenderForCols(72)
 	if out == "" {
-		t.Fatal("RenderForCols(50) returned empty string; want non-empty table")
+		t.Fatal("RenderForCols(72) returned empty string; want non-empty table")
 	}
 
 	lines := splitLines(out)
@@ -716,7 +720,7 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 	// Same line count as 7-col with 2 rows: 6 lines.
 	const wantLines = 6
 	if len(lines) != wantLines {
-		t.Errorf("RenderForCols(50) with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
+		t.Errorf("RenderForCols(72) with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
 			len(lines), wantLines, out)
 	}
 
@@ -729,7 +733,7 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 		t.Errorf("line[1] must be footer row containing \"Total for request\"; got %q", lines[1])
 	}
 
-	// line[2] (separator-split) must have exactly 2 '┬' (cols 0/1).
+	// line[2] (separator-split) must have exactly 2 '┬' (cols 0/1 of 6-col = merged footer span).
 	if got := strings.Count(lines[2], "┬"); got != 2 {
 		t.Errorf("line[2] (separator-split) must have exactly 2 '┬'; got %d\nline: %s", got, lines[2])
 	}
@@ -741,15 +745,18 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 		}
 	}
 
-	// line[0] (topBorder-merge) must start with '┌' and have fewer '┬'
-	// than a 7-col full-width topBorder (which has 4 '┬'); 6-col has 3 (cols 2-4, not 5).
+	// line[0] (topBorder) must start with '┌'.
+	// Phase 6.6.c: 6-col has 5 join points all '┬' (no merge override at nCols<7).
+	// 7-col has 6 join points with 2 overridden to '─' → 4 '┬'.
+	// So 6-col topBorder has more '┬' (5) than 7-col (4): verify ≥ 4.
 	topLine := lines[0]
 	if !strings.HasPrefix(topLine, "┌") {
 		t.Errorf("line[0] must start with '┌'; got %q", topLine)
 	}
+	// 6-col top border: 5 column boundaries, none overridden → 5 '┬'.
 	topJoins := strings.Count(topLine, "┬")
-	if topJoins >= 4 {
-		t.Errorf("line[0] (topBorder-merge) in 6-col layout must have fewer than 4 '┬'; got %d\nline: %s",
+	if topJoins != 5 {
+		t.Errorf("line[0] (topBorder) in 6-col layout must have 5 '┬'; got %d\nline: %s",
 			topJoins, topLine)
 	}
 }

@@ -110,6 +110,10 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	for _, t := range turns {
 		b.Add(t)
 	}
+	// Pass subagent rows (§6.6.c): orchestrator tokens stay in aggregates only.
+	if len(d.Subagents) > 0 {
+		b.AddSubagents(d.Subagents)
+	}
 
 	// Use RenderForCols for column-drop truncation (§4.3 T-9).
 	raw := b.RenderForCols(cols)

@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -34,28 +35,46 @@ type Builder struct {
 	cols         [7]int
 	terminalCols int // target terminal width (default 80)
 	rows         []Row
+	agentRows    []Row         // subagent rows — appended after orchestrator rows
 	turns        []parser.Turn // raw turns for cost aggregation
 	aggCache     [2]int        // [0]=total CacheRead, [1]=total CacheCreate
 	aggOut       int           // total output tokens
 	aggDur       time.Duration // sum of all turn Durations
 }
 
+// Column index constants for drop-order logic.
+const (
+	colHash = 0 // "#" column — first to drop
+	colCost = 5 // "cost" column — second to drop
+)
+
+// widths for each number of visible columns:
+//
+//	7-col (full):  content=68 borders=8 → total 76
+//	6-col (#drop): content=64 borders=7 → total 71
+//	5-col (+cost): content=55 borders=6 → total 61
+const (
+	fullTableWidth  = 76
+	sixColWidth     = 71
+	fiveColWidth    = 61
+	fiveColMinTotal = 46 // cols below this → overflow accepted (tool min=1)
+)
+
 // NewBuilder returns a Builder with default layout using the given terminal
 // width (cols). If cols <= 0, defaults to 80.
-// Column defaults: [#=3, role=6, model=10, cache=13, out=6, cost=6, tool/arg=16+flex].
+// Column widths (Phase 6.6.c): [#=4, role=7, model=12, cache=13, out=7, cost=9, tool/arg=16].
+// Full table width: 4+7+12+13+7+9+16=68 content + 8 borders = 76.
 func NewBuilder(cols int) *Builder {
 	if cols <= 0 {
 		cols = 80
 	}
 	return &Builder{
-		cols:         [7]int{3, 6, 10, 13, 6, 7, 16},
+		cols:         [7]int{4, 7, 12, 13, 7, 9, 16},
 		terminalCols: cols,
 	}
 }
 
 // effectiveCols returns the column widths as-is.
-// The last column is a fixed minimum width (not stretched to fill the terminal);
-// the right border lands right after the content, not at the terminal edge.
 func (b *Builder) effectiveCols() [7]int {
 	return b.cols
 }
@@ -85,36 +104,6 @@ func padCell(s string, w int, a Align) string {
 	return " " + string(runes) + strings.Repeat(" ", pad)
 }
 
-// hline builds a horizontal border line. mergeAt overrides join rune at
-// specific column-boundary indices (keyed by col index i, applied after col i).
-func hline(cols [7]int, left, join, right, fill rune, mergeAt map[int]rune) string {
-	var sb strings.Builder
-	sb.WriteRune(left)
-	for i, w := range cols {
-		sb.WriteString(strings.Repeat(string(fill), w))
-		if i < len(cols)-1 {
-			if r, ok := mergeAt[i]; ok {
-				sb.WriteRune(r)
-			} else {
-				sb.WriteRune(join)
-			}
-		}
-	}
-	sb.WriteRune(right)
-	return sb.String()
-}
-
-// renderRow returns one content line: │cell0│cell1│...│cell6│
-func renderRow(row Row, cols [7]int) string {
-	var sb strings.Builder
-	sb.WriteRune('│')
-	for i, cell := range row {
-		sb.WriteString(padCell(cell.Content, cols[i], cell.Align))
-		sb.WriteRune('│')
-	}
-	return sb.String()
-}
-
 // costFor returns the formatted cost string for a single turn.
 func (b *Builder) costFor(t parser.Turn) string { return cost.Format(cost.Compute(t)) }
 
@@ -125,6 +114,7 @@ func (b *Builder) costForAgg() string { return cost.Format(cost.ComputeAggregate
 func (b *Builder) durationAggregate() time.Duration { return b.aggDur }
 
 // Add appends one per-turn row built from a parser.Turn.
+// Orchestrator turns only — aggCache/aggOut/aggDur track only these rows.
 func (b *Builder) Add(t parser.Turn) {
 	model := t.Model
 	if strings.HasPrefix(model, "claude-") {
@@ -152,17 +142,71 @@ func (b *Builder) Add(t parser.Turn) {
 	b.aggDur += t.Duration
 }
 
+// AddSubagents appends subagent rows (layout A) after orchestrator rows.
+// Subagent tokens are NOT included in aggCache/aggOut (footer Total is orchestrator-only).
+// Column mapping: #=↳, role=AgentType, model=Model, cache=CacheRead/CacheCreate,
+// out=Output, cost=— (no source, BL-7), tool/arg=LastTool (empty → —).
+func (b *Builder) AddSubagents(subs []parser.SubagentStats) {
+	slog.Debug("renderer.table: AddSubagents", "count", len(subs))
+	for _, s := range subs {
+		model := s.Model
+		if strings.HasPrefix(model, "claude-") {
+			model = model[len("claude-"):]
+		}
+		cache := fmt.Sprintf("%s/%s",
+			format.FormatK(s.Tokens.CacheRead),
+			format.FormatK(s.Tokens.CacheCreate),
+		)
+		tool := s.LastTool
+		if tool == "" {
+			tool = "—"
+		}
+		row := Row{
+			{Content: "↳", Align: AlignLeft},
+			{Content: s.AgentType, Align: AlignLeft},
+			{Content: model, Align: AlignLeft},
+			{Content: cache, Align: AlignLeft},
+			{Content: format.FormatK(s.Tokens.Output), Align: AlignRight},
+			{Content: "—", Align: AlignRight}, // cost: no source (BL-7)
+			{Content: tool, Align: AlignLeft},
+		}
+		b.agentRows = append(b.agentRows, row)
+	}
+}
+
+// allRows returns orchestrator rows followed by agent rows (for rendering).
+// Orchestrator rows are newest-first; agent rows appear after them in their
+// natural (insertion) order.
+func (b *Builder) allRows() []Row {
+	total := make([]Row, 0, len(b.rows)+len(b.agentRows))
+	// Orchestrator rows: newest-first.
+	for i := len(b.rows) - 1; i >= 0; i-- {
+		total = append(total, b.rows[i])
+	}
+	// Agent rows: appended after (in insertion order, newest subagent first from CollectSubagents).
+	total = append(total, b.agentRows...)
+	return total
+}
+
+// Render returns the full table string in the §6.5 B6 order:
+// topBorder-merge → footerRow → separator-split → data rows → bottomBorder.
+// Returns "" when no rows have been added.
+func (b *Builder) Render() string {
+	if len(b.rows) == 0 {
+		return ""
+	}
+	cols := b.effectiveCols()
+	return b.renderNCols(cols[:], nil)
+}
+
 // RenderForCols renders the table targeting cols terminal width, applying a
-// two-step column-drop strategy (§4.3 T-9):
+// three-step column-drop strategy (§6.6.c §2.3):
 //
-//  1. If the full table already fits within cols, return Render() unchanged.
-//  2. Drop the lowest-priority numeric column (cost, col index 5) and render
-//     a 6-column table at the requested cols. If that fits, return it.
-//  3. If the 6-column table still overflows, middle-truncate the tool/arg
-//     cell content so that each line fits within cols.
-//  4. If cols is too narrow even for the minimal layout (cols < 46), accept
-//     overflow and return Render() unchanged.
-//     Threshold derivation: flex6 = (cols-7)-38 < 1  →  cols < 46.
+//  1. cols >= 76 → full 7-col table.
+//  2. cols < 76, >= 71 → drop col "#" (index 0) → 6-col table.
+//  3. cols < 71, >= 61 → drop "#" + "cost" (index 5) → 5-col table.
+//  4. cols < 61, >= 46 → 5-col + middle-truncate tool/arg.
+//  5. cols < 46 → accept overflow (return Render()).
 //
 // When cols == 0 the result is identical to Render() (no truncation).
 func (b *Builder) RenderForCols(cols int) string {
@@ -173,91 +217,146 @@ func (b *Builder) RenderForCols(cols int) string {
 	if full == "" {
 		return full
 	}
-	if maxLineVisualLen(full) <= cols {
+	if cols >= fullTableWidth {
 		return full
 	}
 
-	// Step 1: try dropping the cost column (P3, col index 5).
-	// A 6-column layout uses borders: left + 5 inner + right = 7 runes.
-	const borders6 = 7
-	// Fixed cols: #(3) + role(6) + model(10) + cache(13) + out(6) = 38.
-	const fixed6 = 38
-	flexMin := 1 // tool/arg column minimum visible width
-	flex6 := (cols - borders6) - fixed6
-	if flex6 < flexMin {
-		// cols too narrow for any 6-col layout; accept overflow.
-		return full
-	}
-	narrowed := b.render6Cols(cols, flex6, 0)
-	if maxLineVisualLen(narrowed) <= cols {
-		return narrowed
+	// Step 2: drop "#" col (index 0) → 6-col, width 71.
+	c6 := b.colsAfterDrop([]int{colHash})
+	if cols >= sixColWidth {
+		return b.renderNCols(c6, nil)
 	}
 
-	// Step 2: middle-truncate tool/arg cell content.
-	// inner width of tool/arg cell = flex6 - 1 (1-space margin each side minus one).
-	toolInner := flex6 - 1
+	// Step 3: drop "#" + "cost" → 5-col, width 61.
+	c5 := b.colsAfterDrop([]int{colHash, colCost})
+	if cols >= fiveColWidth {
+		return b.renderNCols(c5, nil)
+	}
+
+	// Step 4: 5-col + middle-truncate tool/arg.
+	// tool/arg is the last column in c5; flex = cols - borders(6) - fixed.
+	// Fixed widths in 5-col: role(7)+model(12)+cache(13)+out(7) = 39.
+	const borders5 = 6
+	const fixed5 = 39
+	flex := cols - borders5 - fixed5
+	if flex < 1 {
+		// cols too narrow even for 5-col with tool min=1 → overflow.
+		return full
+	}
+	// Rebuild c5 with tool/arg column set to flex width.
+	c5flex := make([]int, len(c5))
+	copy(c5flex, c5)
+	c5flex[len(c5flex)-1] = flex
+	toolInner := flex - 1
 	if toolInner < 1 {
 		return full
 	}
-	return b.render6Cols(cols, flex6, toolInner)
+	return b.renderNColsTrunc(c5flex, toolInner)
 }
 
-// maxLineVisualLen returns the maximum terminal width (via format.VisualLen)
-// among all newline-delimited lines in s. This correctly accounts for
-// double-wide CJK characters and zero-width control sequences.
-func maxLineVisualLen(s string) int {
-	max := 0
-	for _, line := range strings.Split(s, "\n") {
-		if w := format.VisualLen(line); w > max {
-			max = w
+// colsAfterDrop returns a slice of column widths with the given indices removed.
+// dropIdx must be a sorted list of col indices to drop.
+func (b *Builder) colsAfterDrop(dropIdx []int) []int {
+	dropped := make(map[int]bool, len(dropIdx))
+	for _, i := range dropIdx {
+		dropped[i] = true
+	}
+	result := make([]int, 0, 7-len(dropIdx))
+	for i, w := range b.cols {
+		if !dropped[i] {
+			result = append(result, w)
 		}
 	}
-	return max
+	return result
 }
 
-// render6Cols renders the table with 6 columns (cost column dropped).
-// New order (§6.5 B6): topBorder-merge → footerRow → separator-split → data rows (newest first, no rowSep) → bottomBorder.
-// termCols is the target terminal width (used to compute the flex column).
-// toolMaxInner, when > 0, limits the tool/arg cell content via MiddleTruncate.
-// When toolMaxInner == 0, the cell content is not truncated beyond normal padCell rules.
-func (b *Builder) render6Cols(termCols, flexWidth, toolMaxInner int) string {
+// renderNCols renders the table with the given column widths (arbitrary count).
+// dropIdx is used to map 7-col rows to the remaining columns for row rendering.
+// toolMaxInner, when > 0, limits the last column (tool/arg) via MiddleTruncate.
+//
+// Order: topBorder-merge → footerRow → separator-split → data rows → bottomBorder.
+func (b *Builder) renderNCols(colWidths []int, toolInner *int) string {
 	if len(b.rows) == 0 {
 		return ""
 	}
 
-	// 6-column widths: #, role, model, cache, out, tool/arg(flex).
-	cols := [6]int{3, 6, 10, 13, 6, flexWidth}
+	// Determine which original column indices are present.
+	nCols := len(colWidths)
+	// The dropped set: we reconstruct from colWidths vs b.cols.
+	// Since colsAfterDrop preserves order, we can infer the mapping.
+	origIndices := b.resolveOrigIndices(nCols)
 
-	// topBorder-merge: cols 0/1 boundaries use '─' (merged span), others use '┬'.
-	topBorder := hline6(cols, '┌', '┬', '┐', '─', map[int]rune{0: '─', 1: '─'})
-	// separator-split: cols 0/1 boundaries use '┬' (split down), others use '┼'.
-	separator := hline6(cols, '├', '┼', '┤', '─', map[int]rune{0: '┬', 1: '┬'})
-	// bottomBorder: standard, no merge overrides.
-	bottomBorder := hline6(cols, '└', '┴', '┘', '─', nil)
+	topBorder := hlineSlice(colWidths, '┌', '┬', '┐', '─', b.mergeAtMap(nCols, 0))
+	separator := hlineSlice(colWidths, '├', '┼', '┤', '─', b.mergeAtMap(nCols, 1))
+	bottomBorder := hlineSlice(colWidths, '└', '┴', '┘', '─', nil)
 
 	var sb strings.Builder
-	// 1. Top border (merged span over cols 0-2).
 	sb.WriteString(topBorder)
 	sb.WriteByte('\n')
-	// 2. Footer row ("Total for request" + aggregates).
-	sb.WriteString(b.buildFooterRow6(cols))
+	sb.WriteString(b.buildFooterRowN(colWidths, origIndices))
 	sb.WriteByte('\n')
-	// 3. Separator (splits footer from data rows; cols 0/1 sprout downward).
 	sb.WriteString(separator)
 	sb.WriteByte('\n')
-	// 4. Data rows newest-first, no inter-row separators.
-	for i := len(b.rows) - 1; i >= 0; i-- {
-		sb.WriteString(renderRow6(b.rows[i], cols, toolMaxInner))
+	for _, row := range b.allRows() {
+		sb.WriteString(renderRowN(row, colWidths, origIndices, toolInner))
 		sb.WriteByte('\n')
 	}
-	// 5. Bottom border.
 	sb.WriteString(bottomBorder)
 	sb.WriteByte('\n')
 	return sb.String()
 }
 
-// hline6 builds a horizontal border line for a 6-column table.
-func hline6(cols [6]int, left, join, right, fill rune, mergeAt map[int]rune) string {
+// renderNColsTrunc renders with the given column widths and tool/arg truncation.
+func (b *Builder) renderNColsTrunc(colWidths []int, toolInner int) string {
+	return b.renderNCols(colWidths, &toolInner)
+}
+
+// resolveOrigIndices returns the original column indices (0-6) present when
+// using nCols columns. For 7-col all present; for 6-col "#" dropped; for 5-col
+// "#" and "cost" dropped.
+func (b *Builder) resolveOrigIndices(nCols int) []int {
+	switch nCols {
+	case 7:
+		return []int{0, 1, 2, 3, 4, 5, 6}
+	case 6:
+		// drop col 0 (#)
+		return []int{1, 2, 3, 4, 5, 6}
+	case 5:
+		// drop col 0 (#) and col 5 (cost)
+		return []int{1, 2, 3, 4, 6}
+	default:
+		// Fallback: include all up to nCols (shouldn't happen in practice).
+		idx := make([]int, nCols)
+		for i := range idx {
+			idx[i] = i
+		}
+		return idx
+	}
+}
+
+// mergeAtMap returns the mergeAt rune map for the top border (mode=0) or
+// separator (mode=1). In the top border, col boundaries 0/1 use '─' (merged
+// span). In the separator, col boundaries 0/1 use '┬' (sprout downward).
+// This applies when the "#" column (col 0) is present; otherwise no merge.
+func (b *Builder) mergeAtMap(nCols, mode int) map[int]rune {
+	// Only apply merge when "#" col is present (7-col layout).
+	if nCols < 7 {
+		// No merge override — separator uses ┬ at position 0 to mark the split
+		// between the merged footer label and data columns.
+		if mode == 1 && nCols >= 5 {
+			// For 6-col and 5-col: the footer label merges col 0+1+2 → boundaries 0/1 use ┬.
+			return map[int]rune{0: '┬', 1: '┬'}
+		}
+		return nil
+	}
+	if mode == 0 {
+		return map[int]rune{0: '─', 1: '─'}
+	}
+	return map[int]rune{0: '┬', 1: '┬'}
+}
+
+// hlineSlice builds a horizontal border line for an arbitrary number of columns.
+func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) string {
 	var sb strings.Builder
 	sb.WriteRune(left)
 	for i, w := range cols {
@@ -274,95 +373,74 @@ func hline6(cols [6]int, left, join, right, fill rune, mergeAt map[int]rune) str
 	return sb.String()
 }
 
-// renderRow6 renders one content row for the 6-column layout (cost dropped).
-// toolMaxInner, when > 0, limits tool/arg cell via MiddleTruncate.
-func renderRow6(row Row, cols [6]int, toolMaxInner int) string {
-	// Map 7-col row to 6-col: skip col 5 (cost).
-	// Indices: 0=#, 1=role, 2=model, 3=cache, 4=out, 5=tool/arg (was col 6).
-	mapped := [6]Cell{row[0], row[1], row[2], row[3], row[4], row[6]}
-	if toolMaxInner > 0 {
-		tool := mapped[5].Content
-		mapped[5].Content = format.MiddleTruncate(tool, toolMaxInner)
-	}
+// renderRowN renders one content row selecting only the original columns in origIndices.
+// toolInner, when non-nil and > 0, limits the last column content via MiddleTruncate.
+func renderRowN(row Row, colWidths []int, origIndices []int, toolInner *int) string {
 	var sb strings.Builder
 	sb.WriteRune('│')
-	for i, cell := range mapped {
-		sb.WriteString(padCell(cell.Content, cols[i], cell.Align))
+	for i, origIdx := range origIndices {
+		cell := row[origIdx]
+		content := cell.Content
+		// Apply tool truncation to the last column (tool/arg).
+		if toolInner != nil && i == len(origIndices)-1 && *toolInner > 0 {
+			content = format.MiddleTruncate(content, *toolInner)
+		}
+		sb.WriteString(padCell(content, colWidths[i], cell.Align))
 		sb.WriteRune('│')
 	}
 	return sb.String()
 }
 
-// buildFooterRow6 returns the footer line for the 6-column layout.
-func (b *Builder) buildFooterRow6(cols [6]int) string {
-	mergedWidth := cols[0] + 1 + cols[1] + 1 + cols[2]
-	aggCacheStr := fmt.Sprintf("%s/%s",
-		format.FormatK(b.aggCache[0]),
-		format.FormatK(b.aggCache[1]),
-	)
-	return "│" +
-		padCell("Total for request", mergedWidth, AlignLeft) + "│" +
-		padCell(aggCacheStr, cols[3], AlignLeft) + "│" +
-		padCell(format.FormatK(b.aggOut), cols[4], AlignRight) + "│" +
-		padCell("", cols[5], AlignLeft) + "│"
-}
-
-// Render returns the full table string in the new §6.5 B6 order:
-// topBorder-merge → footerRow → separator-split → data rows (newest first, no rowSep) → bottomBorder.
-// Returns "" when no rows have been added.
-func (b *Builder) Render() string {
-	if len(b.rows) == 0 {
-		return ""
+// buildFooterRowN returns the footer line for an N-column layout.
+// The footer label "Total for request" spans the first three columns (merged).
+// Aggregates are orchestrator-only (subagent tokens excluded per §6.6.c).
+func (b *Builder) buildFooterRowN(colWidths []int, origIndices []int) string {
+	// Merged label spans first 3 column widths + 2 inner borders between them.
+	var mergedWidth int
+	if len(colWidths) >= 3 {
+		mergedWidth = colWidths[0] + 1 + colWidths[1] + 1 + colWidths[2]
+	} else {
+		mergedWidth = 0
+		for i, w := range colWidths {
+			if i > 0 {
+				mergedWidth++
+			}
+			mergedWidth += w
+		}
 	}
-	cols := b.effectiveCols()
 
-	// topBorder-merge: col boundaries 0/1 use '─' (merged span), 2-5 use '┬'.
-	topBorder := hline(cols, '┌', '┬', '┐', '─', map[int]rune{0: '─', 1: '─'})
-	// separator-split: col boundaries 0/1 use '┬' (sprout downward into data cols), 2-5 use '┼'.
-	separator := hline(cols, '├', '┼', '┤', '─', map[int]rune{0: '┬', 1: '┬'})
-	// bottomBorder: standard, no merge overrides.
-	bottomBorder := hline(cols, '└', '┴', '┘', '─', nil)
-
-	var sb strings.Builder
-	// 1. Top border (merged span over cols 0-2).
-	sb.WriteString(topBorder)
-	sb.WriteByte('\n')
-	// 2. Footer row ("Total for request" + aggregates).
-	sb.WriteString(b.buildFooterRow(cols))
-	sb.WriteByte('\n')
-	// 3. Separator (splits footer from data rows; cols 0/1 sprout downward).
-	sb.WriteString(separator)
-	sb.WriteByte('\n')
-	// 4. Data rows newest-first, no inter-row separators.
-	for i := len(b.rows) - 1; i >= 0; i-- {
-		sb.WriteString(renderRow(b.rows[i], cols))
-		sb.WriteByte('\n')
-	}
-	// 5. Bottom border.
-	sb.WriteString(bottomBorder)
-	sb.WriteByte('\n')
-	return sb.String()
-}
-
-// buildFooterRow returns the footer line with "Total for request" label spanning
-// the merged cols 0+1+2 region, and aggregated token/cost/duration totals in
-// cols 3-6. Footer icons: ≡ (U+2261) cache, ↗ (U+2197) output, ⏱ (U+23F1) duration.
-func (b *Builder) buildFooterRow(cols [7]int) string {
-	mergedWidth := cols[0] + 1 + cols[1] + 1 + cols[2]
-	// Cache cell: "≡ readK/createK"
 	aggCacheStr := fmt.Sprintf("≡ %s/%s",
 		format.FormatK(b.aggCache[0]),
 		format.FormatK(b.aggCache[1]),
 	)
-	// Output cell: "↗ outK"
 	outStr := fmt.Sprintf("↗ %s", format.FormatK(b.aggOut))
-	// Duration cell: "⏱ MM:SS"
 	durMS := b.durationAggregate().Milliseconds()
 	durStr := fmt.Sprintf("⏱ %s", format.FormatMMSS(durMS))
-	return "│" +
-		padCell("Total for request", mergedWidth, AlignLeft) + "│" +
-		padCell(aggCacheStr, cols[3], AlignLeft) + "│" +
-		padCell(outStr, cols[4], AlignRight) + "│" +
-		padCell(b.costForAgg(), cols[5], AlignRight) + "│" +
-		padCell(durStr, cols[6], AlignLeft) + "│"
+
+	// Columns after the merged label (starting at index 3 in origIndices).
+	// We map origIndices[3:] to the remaining colWidths[3:].
+	// origIndices: determines which "slot" each post-label cell corresponds to.
+	// Slots: 3=cache, 4=out, 5=cost, 6=tool/arg.
+	var sb strings.Builder
+	sb.WriteString("│")
+	sb.WriteString(padCell("Total for request", mergedWidth, AlignLeft))
+	sb.WriteString("│")
+
+	// Build remaining cells based on which original columns are present.
+	remaining := origIndices[3:]
+	for j, origIdx := range remaining {
+		w := colWidths[3+j]
+		switch origIdx {
+		case 3: // cache
+			sb.WriteString(padCell(aggCacheStr, w, AlignLeft))
+		case 4: // out
+			sb.WriteString(padCell(outStr, w, AlignRight))
+		case 5: // cost
+			sb.WriteString(padCell(b.costForAgg(), w, AlignRight))
+		case 6: // tool/arg (duration in footer)
+			sb.WriteString(padCell(durStr, w, AlignLeft))
+		}
+		sb.WriteString("│")
+	}
+	return sb.String()
 }
