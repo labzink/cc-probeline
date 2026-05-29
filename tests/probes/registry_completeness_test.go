@@ -48,12 +48,12 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 		"effort":   0,
 		"ctx":      0,
 		"time":     0,
-		"quota":    1,
+		"quota":    3,
 		"project":  2,
 		"cache":    2,
 		"git":      2,
 		"cost":     2,
-		"email":    3,
+		"email":    1,
 		"subagent": 4,
 	}
 
@@ -85,9 +85,9 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 // Priority table (pinned):
 //
 //	model=0  effort=0  ctx=0  time=0
-//	quota=1
+//	quota=3
 //	project=2  cache=2  git=2  cost=2
-//	email=3
+//	email=1
 //	subagent=4
 func TestRegistry_PriorityValues(t *testing.T) {
 	tt := []struct {
@@ -98,12 +98,12 @@ func TestRegistry_PriorityValues(t *testing.T) {
 		{"effort", 0},
 		{"time", 0},
 		{"ctx", 0},
-		{"quota", 1},
+		{"quota", 3},
 		{"project", 2},
 		{"cache", 2},
 		{"git", 2},
 		{"cost", 2},
-		{"email", 3},
+		{"email", 1},
 		{"subagent", 4},
 	}
 
