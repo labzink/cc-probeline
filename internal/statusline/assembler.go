@@ -18,8 +18,7 @@ import (
 
 // Assembler joins probes from the Registry into the final multi-line status
 // string. Cols is the detected terminal width; Mode gates whether the per-turn
-// table and footer are emitted. Phase 4.2.d fills in Render; this is a
-// foundation stub.
+// table and footer are emitted.
 type Assembler struct {
 	Mode   mode.Mode
 	Theme  renderer.Theme
@@ -36,7 +35,7 @@ type Assembler struct {
 //	line1  — probes from Line1Registry, separated by "{{dim}} • {{reset}}"
 //	line2  — probes from Line2Registry, separated by " | "
 //	[table] — Standard mode only: last 20 per-turn rows + footer
-//	[hint]  — Phase 4.4 stub; empty for now
+//	[hint]  — appended when non-empty (C-12)
 func (a *Assembler) Render(d probes.Data) string {
 	// Resolve effective terminal width (§4.3 T-10).
 	cols := a.Cols
@@ -60,7 +59,7 @@ func (a *Assembler) Render(d probes.Data) string {
 		lines = append(lines, tableLines...)
 	}
 
-	// Phase 4.4 hint widget stub (C-12): only append when non-empty.
+	// Phase 4.4 hint widget (C-12): only append when non-empty.
 	if h := a.hint(d); h != "" {
 		lines = append(lines, h)
 	}

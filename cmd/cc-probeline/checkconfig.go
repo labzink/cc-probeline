@@ -1,5 +1,4 @@
 // checkconfig.go implements `cc-probeline check-config` subcommand.
-// Phase 6.e GREEN: full implementation replacing the stub.
 package main
 
 import (

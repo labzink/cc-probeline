@@ -14,7 +14,7 @@ import (
 )
 
 // ErrPlatformUnsupported is returned by ProjectSlug on Windows.
-// The Windows slug formula will be verified and implemented in Phase 5/7.
+// BL-9: Windows slug formula — not yet verified; deferred to Phase 7.
 var ErrPlatformUnsupported = errors.New("parser.detect: platform not supported (MVP: macOS/Linux only)")
 
 // SessionLocation is the result of DetectActiveSession.
@@ -65,8 +65,7 @@ type DetectInput struct {
 // Formula (Unix): replace every "/" in filepath.Clean(cwd) with "-".
 // Example: "/Users/me/Projects/foo" -> "-Users-me-Projects-foo".
 //
-// Returns ErrPlatformUnsupported on Windows (Phase 5/7 will implement the
-// correct Windows formula once verified on real hardware).
+// Returns ErrPlatformUnsupported on Windows (BL-9: formula deferred to Phase 7).
 // Returns a non-nil error if cwd is not an absolute path.
 func ProjectSlug(cwd string) (string, error) {
 	if runtime.GOOS == "windows" {

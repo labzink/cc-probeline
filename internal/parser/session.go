@@ -26,8 +26,7 @@ type SessionStats struct {
 	Turns []Turn
 
 	// Cache invalidation events detected over Turns. Populated by Aggregate
-	// via DetectCacheEvents. Phase 4.4.0 foundation: always nil (detector
-	// stub); real heuristics land in 4.4.a.
+	// via DetectCacheEvents (implemented in Phase 4.4.a).
 	CacheEvents []CacheEvent
 }
 

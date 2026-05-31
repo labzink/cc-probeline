@@ -10,7 +10,7 @@
 //
 // Phase 5.a: render pipeline wired (runRender, parseMode unknown-flag, setupLogger).
 // Phase 5.0 foundation: version/help routing.
-// Remaining stubs (5.e): runInstall.
+// Phase 5.e: runInstall delegated to install.go (fully implemented).
 package main
 
 import (

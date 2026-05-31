@@ -16,7 +16,7 @@ import (
 // Other keys are preserved through pelletier round-trip. NOTE: comments are
 // LOST — pelletier/go-toml/v2 does not preserve TOML comments on round-trip.
 // This is a known limitation documented in concept §10.2 + insurance #4.
-// Phase 7 backlog will move to AST-based edit to preserve comments.
+// BL-15: move to AST-based edit to preserve TOML comments (Phase 7).
 //
 // If path does not exist:
 //  1. mkdir -p the parent directory.
