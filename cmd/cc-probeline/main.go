@@ -192,6 +192,7 @@ func runRender(strict bool) int {
 	// Apply NO_COLOR from config only when env NO_COLOR is not already set.
 	// ENV NO_COLOR > config.no_color > auto-detect (concept §7.3).
 	baseTheme := renderer.Theme{AnsiEnabled: renderer.DetectAnsi(os.Stdout)}
+	baseTheme.Colors = renderer.DefaultPalette()
 	if ccfg.General.NoColor && os.Getenv("NO_COLOR") == "" {
 		baseTheme.AnsiEnabled = false
 	}

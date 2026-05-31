@@ -4,8 +4,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 // markerRe matches any {{...}} token in the input text.
@@ -71,16 +69,16 @@ func Apply(text string, t Theme) string {
 	})
 }
 
-// DetectAnsi reports whether ANSI colour output is appropriate for stdout.
-// Returns false when the NO_COLOR environment variable is non-empty (C-8) or
-// when the provided file is not a terminal (C-7).
-func DetectAnsi(stdout *os.File) bool {
-	// C-8: respect NO_COLOR convention.
+// DetectAnsi reports whether ANSI colour output should be enabled.
+//
+// Colour is ON by default — CC always delivers the status-line value through a
+// pipe, so a tty check would incorrectly suppress colour for all users.
+// The only opt-out is the NO_COLOR environment variable (https://no-color.org/).
+// The stdout parameter is accepted for API compatibility but is no longer
+// inspected; callers should still pass os.Stdout.
+func DetectAnsi(_ *os.File) bool {
+	// Respect the NO_COLOR convention: any non-empty value disables colour.
 	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	// C-7: only enable ANSI when writing to an actual terminal.
-	if !term.IsTerminal(int(stdout.Fd())) {
 		return false
 	}
 	return true
