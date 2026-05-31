@@ -1,26 +1,26 @@
 // Package renderer_test — Phase 6.6.c RED tests for new table layout.
 //
-// T-13..T-18: new column widths {4,7,12,13,7,9,16}, new drop-order #→cost→trunc,
-// AddSubagents row mapping, and footer exclusion of agent tokens.
+// T-13..T-18: column widths updated in 6.6.d to {4,13,12,13,7,8,15}, new drop-order
+// #→cost→trunc, AddSubagents row mapping, and footer exclusion of agent tokens.
 //
-// Threshold derivation for RenderForCols (§2.3):
+// Threshold derivation for RenderForCols (§2.4, updated for 6.6.d):
 //
-//	New cols:         {4, 7, 12, 13, 7, 9, 16}
-//	Content sum:       4+7+12+13+7+9+16 = 68
-//	Full table width:  68 + 8 borders = 76
+//	New cols (6.6.d):  {4, 13, 12, 13, 7, 8, 15}
+//	Content sum:        4+13+12+13+7+8+15 = 72
+//	Full table width:   72 + 8 borders = 80
 //
 //	Step 1 — drop col "#" (width 4):
-//	  6-col content: 68-4 = 64; borders: 7 → table width = 71
-//	  Threshold: cols < 76 triggers the drop; result (71) fits when cols >= 71.
-//	  T-14 test cols = 72 → "#" dropped, cost present.
+//	  6-col content: 72-4 = 68; borders: 7 → table width = 75
+//	  Threshold: cols < 80 triggers the drop; result (75) fits when cols >= 75.
+//	  T-14 test cols = 78 → "#" dropped, cost present.
 //
-//	Step 2 — also drop "cost" (width 9):
-//	  5-col content: 64-9 = 55; borders: 6 → table width = 61
-//	  Threshold: triggered when 71-wide result doesn't fit, i.e. cols < 71.
-//	  T-15 test cols = 65 → "#" and "cost" dropped.
+//	Step 2 — also drop "cost" (width 8):
+//	  5-col content: 68-8 = 60; borders: 6 → table width = 66
+//	  Threshold: triggered when 75-wide result doesn't fit, i.e. cols < 75.
+//	  T-15 test cols = 70 → "#" and "cost" dropped.
 //
 //	Step 3 — middle-truncate tool/arg:
-//	  Triggered when 61-wide result doesn't fit, i.e. cols < 61.
+//	  Triggered when 66-wide result doesn't fit, i.e. cols < 66.
 //	  T-16 test cols = 50 → tool/arg truncated.
 package renderer_test
 
@@ -64,10 +64,12 @@ func maxVisualLen(s string) int {
 }
 
 // -------------------------------------------------------------------
-// T-13: TestTable66_Widths
+// T-21: TestTable66_Widths (updated from T-13 for 6.6.d)
 //
-// NewBuilder(80).cols must equal {4,7,12,13,7,9,16}.
-// Full table (Render()) width must equal 76 visual columns.
+// NewBuilder(80).cols must equal {4,13,12,13,7,8,15} (6.6.d widths).
+// Full table (Render()) width must equal 80 visual columns.
+//
+// Source of truth: spec-common.md §2.4.
 // -------------------------------------------------------------------
 func TestTable66_Widths(t *testing.T) {
 	b := renderer.NewBuilder(80)
@@ -76,18 +78,13 @@ func TestTable66_Widths(t *testing.T) {
 
 	out := b.Render()
 	if out == "" {
-		t.Fatal("Render() returned empty string; want non-empty table (RED: NewBuilder stub has old widths)")
+		t.Fatal("Render() returned empty string; want non-empty table (RED: NewBuilder has old widths {4,7,12,13,7,9,16})")
 	}
 
-	// Check fixed column widths via the exported Cols() accessor.
-	// AddSubagents is undefined → this test will compile-fail until GREEN adds the method.
-	// But the width assertion alone is enough to be RED on old widths.
-	wantCols := [7]int{4, 7, 12, 13, 7, 9, 16}
-	// NewBuilder must expose cols for white-box verification. Access via a small
-	// shim: render a single-row table and measure each cell via visual width of
-	// first content line. Alternatively, use the exported Cols() method once added.
-	// For now, measure the top-border line to verify total width = 76.
-	const wantWidth = 76 // 68 content + 8 borders
+	// 6.6.d revised widths: role 7→13, cost 9→8, tool 16→15.
+	wantCols := [7]int{4, 13, 12, 13, 7, 8, 15}
+	// Full table: 72 content + 8 borders = 80.
+	const wantWidth = 80 // was 76 in 6.6.c
 
 	lines := splitLines(out)
 	if len(lines) == 0 {
@@ -98,7 +95,7 @@ func TestTable66_Widths(t *testing.T) {
 	for i, l := range lines {
 		w := format.VisualLen(l)
 		if w != wantWidth {
-			t.Errorf("line[%d] visual width = %d; want %d (new widths {4,7,12,13,7,9,16})\nline: %s",
+			t.Errorf("line[%d] visual width = %d; want %d (6.6.d widths {4,13,12,13,7,8,15})\nline: %s",
 				i, w, wantWidth, l)
 		}
 	}
@@ -126,45 +123,44 @@ func TestTable66_Widths(t *testing.T) {
 		cell := parts[i+1]
 		got := format.VisualLen(cell)
 		if got != wantCols[i] {
-			t.Errorf("col[%d] cell width = %d; want %d\ncell: %q", i, got, wantCols[i], cell)
+			t.Errorf("col[%d] cell width = %d; want %d (6.6.d widths)\ncell: %q", i, got, wantCols[i], cell)
 		}
 	}
 }
 
 // -------------------------------------------------------------------
-// T-14: TestTable66_DropHashFirst
+// T-22 (part 1): TestTable66_DropHashFirst (updated for 6.6.d)
 //
-// RenderForCols(72): cols=72 < 76 (full) → col "#" must be dropped.
+// RenderForCols(78): cols=78 ∈ (75,80) → col "#" must be dropped.
 // Result must NOT contain the "#" column (first column; col index 0),
 // but "cost" column must still be present.
 //
-// Threshold: full table = 76. Drop "#" → 71. At cols=72 the 71-wide
-// result fits, so only "#" is dropped and cost remains.
+// Threshold (6.6.d §2.4):
+//   full table = 80. Drop "#" (4) → 6-col width = 68+7 = 75.
+//   At cols=78 the 75-wide result fits, so only "#" is dropped and cost remains.
 // -------------------------------------------------------------------
 func TestTable66_DropHashFirst(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, time.Minute))
 
-	// cols=72: below 76 (triggers drop of "#") but above 71 (6-col result fits).
-	out := b.RenderForCols(72)
+	// cols=78: below 80 (triggers drop of "#") but ≥ 75 (6-col result 75 fits).
+	out := b.RenderForCols(78)
 	if out == "" {
-		t.Fatal("RenderForCols(72) returned empty string; want non-empty table")
+		t.Fatal("RenderForCols(78) returned empty string; want non-empty table")
 	}
 
-	// Width of every line must be <= 72.
+	// Width of every line must be <= 78.
 	for i, line := range splitLines(out) {
 		w := format.VisualLen(line)
-		if w > 72 {
-			t.Errorf("line[%d] visual width = %d; want ≤ 72\nline: %s", i, w, line)
+		if w > 78 {
+			t.Errorf("line[%d] visual width = %d; want ≤ 78\nline: %s", i, w, line)
 		}
 	}
 
 	// The "#" column (turn index "1") must NOT appear as a stand-alone cell
 	// in the first content row at position 0. After drop the first column is "role".
-	// We verify by checking that the content row does NOT begin with │ + right-aligned
-	// single-digit number (which would mean # col is still present).
-	// Concretely: in a 4-wide "#" col the content is right-aligned: "  1 " (4 chars).
-	// After drop the first col is "role" (7-wide, left-aligned: " orch   ").
+	// In a 4-wide "#" col the content is right-aligned: "  1 " (4 chars).
+	// After drop the first col is "role" (13-wide, left-aligned in 6.6.d).
 	var contentRow string
 	for _, l := range splitLines(out) {
 		if strings.HasPrefix(l, "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
@@ -173,13 +169,10 @@ func TestTable66_DropHashFirst(t *testing.T) {
 		}
 	}
 	if contentRow == "" {
-		t.Fatal("could not find content row in RenderForCols(72) output")
+		t.Fatal("could not find content row in RenderForCols(78) output")
 	}
 
-	// After dropping "#", the content row starts with │ followed by the role cell
-	// (7 wide, left-aligned: " orch   ").
-	// The old first cell " #=1  " (4 wide, right-aligned) must NOT be the first cell.
-	// Verify: row has 6 cells (not 7).
+	// After dropping "#", the content row has 6 cells (not 7).
 	parts := strings.Split(contentRow, "│")
 	// parts[0]="" (before first │), parts[1..6]=cells, parts[7]="" (after last │)
 	if len(parts) != 8 {
@@ -189,34 +182,40 @@ func TestTable66_DropHashFirst(t *testing.T) {
 	// Cost column must still be present: cost cell contains "$" or "0.00" style string.
 	// In 6-col layout cost is at position index 5 (0-based among content cells).
 	if !strings.Contains(out, "$") && !strings.Contains(out, "0.00") {
-		t.Errorf("RenderForCols(72) must keep cost column (drop only #); cost marker not found\noutput:\n%s", out)
+		t.Errorf("RenderForCols(78) must keep cost column (drop only #); cost marker not found\noutput:\n%s", out)
 	}
 }
 
 // -------------------------------------------------------------------
-// T-15: TestTable66_DropHashAndCost
+// T-22 (part 2): TestTable66_DropHashAndCost (updated for 6.6.d)
 //
-// RenderForCols(65): cols=65 < 71 (6-col result would be 71 wide, does
-// not fit) → both "#" AND "cost" must be dropped → 5-col table (width 61).
+// RenderForCols(72): cols=72 ∈ (66,75) → both "#" AND "cost" must be
+// dropped → 5-col table (width 66).
 //
-// Threshold: 6-col width = 71. At cols=65 the 6-col result (71) overflows,
-// so cost is additionally dropped; 5-col width = 61 which fits in 65.
+// Threshold (6.6.d §2.4):
+//   6-col width = 75. At cols=72 the 6-col result (75) overflows,
+//   so cost is additionally dropped; 5-col width = 66 which fits in 72.
+//
+// Distinguishes from old 6.6.c thresholds: with old full=76/sixColWidth=71,
+// cols=72 falls in the range (71,76) → only "#" dropped, cost retained.
+// Under 6.6.d cols=72 < 75 → both dropped. This test is RED on old code.
 // -------------------------------------------------------------------
 func TestTable66_DropHashAndCost(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Edit", 5000, 300, 2*time.Minute))
 
-	// cols=65: below 71 (6-col doesn't fit) but above 61 (5-col fits).
-	out := b.RenderForCols(65)
+	// cols=72: below 75 (6-col doesn't fit) but above 66 (5-col fits).
+	// On old code (sixColWidth=71): 72 ≥ 71 → only "#" dropped, cost kept → RED.
+	out := b.RenderForCols(72)
 	if out == "" {
-		t.Fatal("RenderForCols(65) returned empty string; want non-empty table")
+		t.Fatal("RenderForCols(72) returned empty string; want non-empty table")
 	}
 
-	// All lines must be <= 65 visual columns.
+	// All lines must be <= 72 visual columns.
 	for i, line := range splitLines(out) {
 		w := format.VisualLen(line)
-		if w > 65 {
-			t.Errorf("line[%d] visual width = %d; want ≤ 65\nline: %s", i, w, line)
+		if w > 72 {
+			t.Errorf("line[%d] visual width = %d; want ≤ 72\nline: %s", i, w, line)
 		}
 	}
 
@@ -229,7 +228,7 @@ func TestTable66_DropHashAndCost(t *testing.T) {
 		}
 	}
 	if contentRow == "" {
-		t.Fatal("could not find content row in RenderForCols(65) output")
+		t.Fatal("could not find content row in RenderForCols(72) output")
 	}
 
 	parts := strings.Split(contentRow, "│")
@@ -239,17 +238,23 @@ func TestTable66_DropHashAndCost(t *testing.T) {
 	}
 
 	// Cost ("$") must NOT appear in a content row (dropped).
+	// On old code: cost is retained at cols=72 (6-col layout) → contains "$" → RED.
 	if strings.Contains(contentRow, "$") {
-		t.Errorf("RenderForCols(65) content row must NOT contain cost '$'; got:\n%s", contentRow)
+		t.Errorf("RenderForCols(72) content row must NOT contain cost '$' (both # and cost dropped at cols=72 in 6.6.d); got:\n%s", contentRow)
 	}
 }
 
 // -------------------------------------------------------------------
-// T-16: TestTable66_TruncTool
+// T-22 (part 3): TestTable66_TruncTool (updated for 6.6.d)
 //
-// RenderForCols(50): cols=50 < 61 (5-col result would be 61 wide) →
-// tool/arg column is middle-truncated. Every line must fit in 50 cols.
+// RenderForCols(60): cols=60 < 66 (fiveColWidth) → tool/arg column is
+// middle-truncated. Every line must fit in 60 cols.
 // The "…" ellipsis marker must appear in output.
+//
+// Calculation (6.6.d §2.4): fixed5 = role13+model12+cache13+out7 = 45.
+// At cols=60: flex = 60 − 6 borders − 45 = 9 ≥ 1 → trunc step runs.
+// 5-col width = 45 + 9 + 6 = 60. tool inner = 8 → 30-char tool → "…".
+// fiveColMinTotal = 53 (floor: flex=1 → 45+1+6=52+1=53).
 // -------------------------------------------------------------------
 func TestTable66_TruncTool(t *testing.T) {
 	// Use a tool name long enough to require truncation.
@@ -264,28 +269,28 @@ func TestTable66_TruncTool(t *testing.T) {
 		ToolUse: longTool,
 	})
 
-	// cols=50: below 61 (5-col doesn't fit) → tool/arg truncated.
-	out := b.RenderForCols(50)
+	// cols=60: below fiveColWidth=66 → trunc step; flex=9, table fits in 60.
+	out := b.RenderForCols(60)
 	if out == "" {
-		t.Fatal("RenderForCols(50) returned empty string; want non-empty table")
+		t.Fatal("RenderForCols(60) returned empty string; want non-empty table")
 	}
 
-	// All lines must fit within 50 cols.
+	// All lines must fit within 60 cols.
 	for i, line := range splitLines(out) {
 		w := format.VisualLen(line)
-		if w > 50 {
-			t.Errorf("line[%d] visual width = %d; want ≤ 50\nline: %s", i, w, line)
+		if w > 60 {
+			t.Errorf("line[%d] visual width = %d; want ≤ 60\nline: %s", i, w, line)
 		}
 	}
 
 	// "…" must appear (middle-truncation indicator).
 	if !strings.Contains(out, "…") {
-		t.Errorf("RenderForCols(50) with 30-char tool must emit '…' (middle-truncation); not found\noutput:\n%s", out)
+		t.Errorf("RenderForCols(60) with 30-char tool must emit '…' (middle-truncation); not found\noutput:\n%s", out)
 	}
 
 	// Full tool string must NOT appear verbatim.
 	if strings.Contains(out, longTool) {
-		t.Errorf("RenderForCols(50) must truncate 30-char ToolUse; full string found\noutput:\n%s", out)
+		t.Errorf("RenderForCols(60) must truncate 30-char ToolUse; full string found\noutput:\n%s", out)
 	}
 }
 
@@ -324,15 +329,16 @@ func TestTable66_SubagentRow(t *testing.T) {
 		t.Errorf("AddSubagents: output must contain '↳' in # column; not found\noutput:\n%s", out)
 	}
 
-	// Verify AgentType appears in output (truncated by padCell to 7-wide col).
-	// "code-reviewer" is 13 chars → padCell inner=6 → middle-truncated to ≤6 runes.
-	// Verify that some prefix/truncation of "code-reviewer" appears (not the full string).
+	// Verify AgentType appears in output (truncated by padCell to 13-wide col in 6.6.d).
+	// "code-reviewer" is 13 chars → padCell inner=12 → fits exactly without truncation (6.6.d).
+	// The full string "code-reviewer" (13 chars) fits in inner=12? No: 13 > 12 → must be truncated.
+	// padCell inner = col_width - 1 (margin) = 13 - 1 = 12. 13 chars > 12 → truncated.
 	if strings.Contains(out, "code-reviewer") {
-		// It's 13 chars, inner=6 chars → must be truncated; full string should NOT appear.
-		t.Errorf("AddSubagents: long AgentType 'code-reviewer' (13 chars) must be truncated in 7-wide col; full string found\noutput:\n%s", out)
+		// 13 chars, inner=12 → must be middle-truncated; full string should NOT appear.
+		t.Errorf("AddSubagents: AgentType 'code-reviewer' (13 chars) must be truncated in 13-wide col (inner=12); full string found\noutput:\n%s", out)
 	}
 	// The truncated form must contain "…" for middle-truncation.
-	// code-reviewer → MiddleTruncate("code-reviewer", 6) → "co…er" or similar with "…".
+	// code-reviewer (13) → MiddleTruncate("code-reviewer", 12) → "code-r…iewer" with "…".
 
 	// Verify cost cell is "—" (not a dollar amount).
 	// Cost column for subagent must show "—" as per spec (BL-7, no source).
@@ -435,5 +441,131 @@ func TestTable66_TotalExcludesAgents(t *testing.T) {
 	// Turn out total = 300 → "300". Subagent out = 800 → if leaked total = 1100 → "1.1K" or "1100".
 	if strings.Contains(footerRow, "1100") || strings.Contains(footerRow, "1.1K") {
 		t.Errorf("footer must NOT contain subagent output tokens (1100 / 1.1K); got:\n%s", footerRow)
+	}
+}
+
+// -------------------------------------------------------------------
+// T-23: TestTable66_RoleWidth
+//
+// 6.6.d widens role column to 13 (inner = 12 = col_width - 1 margin).
+//
+//   Case A: AgentType exactly 12 runes → padCell fits without truncation.
+//           All 12 runes must appear verbatim in the content row.
+//
+//   Case B: AgentType exactly 13 runes → padCell inner=12 → middle-truncated
+//           to 12 runes total (11 chars + "…"). The full 13-rune string
+//           must NOT appear verbatim; "…" must be present.
+//
+// Source: spec-common.md §2.4 (role col 13, inner=12).
+// -------------------------------------------------------------------
+func TestTable66_RoleWidth(t *testing.T) {
+	// Case A: 12-rune AgentType — must fit without truncation.
+	// "code-review." is exactly 12 ASCII runes.
+	roleExact12 := "code-review." // len=12
+	if len([]rune(roleExact12)) != 12 {
+		// Sanity: ensure fixture length is correct.
+		t.Fatalf("test fixture roleExact12 has %d runes, want 12", len([]rune(roleExact12)))
+	}
+
+	b12 := renderer.NewBuilder(80)
+	b12.Add(makeTurn(1, "orch", "sonnet-4", "Read", 500, 100, 0))
+	b12.AddSubagents([]parser.SubagentStats{
+		makeAgentStats("a1", roleExact12, "sonnet-4", "Read", 100, 50, 80),
+	})
+
+	out12 := b12.Render()
+	if out12 == "" {
+		t.Fatal("Case A: Render() returned empty string")
+	}
+
+	// The full 12-rune role value must appear verbatim in the output (no truncation).
+	if !strings.Contains(out12, roleExact12) {
+		t.Errorf("Case A: role value %q (12 runes) must appear verbatim in 13-wide col (inner=12); not found\noutput:\n%s",
+			roleExact12, out12)
+	}
+
+	// "…" must NOT appear in the role cell for a 12-rune value.
+	// Note: "…" may appear in tool/arg cell from other turns, so we check the
+	// content row that carries our subagent (the one containing "↳").
+	var subRow string
+	for _, l := range splitLines(out12) {
+		if strings.Contains(l, "↳") {
+			subRow = l
+			break
+		}
+	}
+	if subRow == "" {
+		t.Fatal("Case A: could not find subagent row (↳) in output")
+	}
+	// The role cell is the second cell (index 1, after "#"="↳").
+	// Split and check that cell does not contain "…".
+	parts12 := strings.Split(subRow, "│")
+	if len(parts12) >= 3 {
+		roleCell := parts12[2] // col index 1 = role, after "#" and before model
+		if strings.Contains(roleCell, "…") {
+			t.Errorf("Case A: role cell must NOT contain '…' for 12-rune value; got cell=%q\nrow: %s",
+				roleCell, subRow)
+		}
+		// Verify the full value appears in the role cell.
+		if !strings.Contains(roleCell, roleExact12) {
+			t.Errorf("Case A: role cell must contain %q verbatim; got cell=%q\nrow: %s",
+				roleExact12, roleCell, subRow)
+		}
+	} else {
+		t.Fatalf("Case A: could not split subagent row into cells; got %d parts\nrow: %s",
+			len(parts12), subRow)
+	}
+
+	// Case B: 13-rune AgentType — must be middle-truncated.
+	// "code-reviewer" is exactly 13 ASCII runes.
+	roleOver12 := "code-reviewer" // len=13
+	if len([]rune(roleOver12)) != 13 {
+		t.Fatalf("test fixture roleOver12 has %d runes, want 13", len([]rune(roleOver12)))
+	}
+
+	b13 := renderer.NewBuilder(80)
+	b13.Add(makeTurn(1, "orch", "sonnet-4", "Read", 500, 100, 0))
+	b13.AddSubagents([]parser.SubagentStats{
+		makeAgentStats("b1", roleOver12, "sonnet-4", "Read", 100, 50, 80),
+	})
+
+	out13 := b13.Render()
+	if out13 == "" {
+		t.Fatal("Case B: Render() returned empty string")
+	}
+
+	// The full 13-rune string must NOT appear verbatim (it was truncated).
+	if strings.Contains(out13, roleOver12) {
+		t.Errorf("Case B: role value %q (13 runes) must be truncated in 13-wide col (inner=12); full string found\noutput:\n%s",
+			roleOver12, out13)
+	}
+
+	// "…" must appear in the subagent row (middle-truncation indicator in role cell).
+	var subRow13 string
+	for _, l := range splitLines(out13) {
+		if strings.Contains(l, "↳") {
+			subRow13 = l
+			break
+		}
+	}
+	if subRow13 == "" {
+		t.Fatal("Case B: could not find subagent row (↳) in output")
+	}
+	parts13 := strings.Split(subRow13, "│")
+	if len(parts13) >= 3 {
+		roleCell13 := parts13[2] // col index 1 = role
+		if !strings.Contains(roleCell13, "…") {
+			t.Errorf("Case B: role cell must contain '…' (middle-truncation) for 13-rune value; got cell=%q\nrow: %s",
+				roleCell13, subRow13)
+		}
+		// The truncated role cell must still be exactly 13 visual runes wide (col width=13).
+		cellWidth := format.VisualLen(roleCell13)
+		if cellWidth != 13 {
+			t.Errorf("Case B: role cell visual width = %d; want 13 (6.6.d col width)\ncell: %q",
+				cellWidth, roleCell13)
+		}
+	} else {
+		t.Fatalf("Case B: could not split subagent row into cells; got %d parts\nrow: %s",
+			len(parts13), subRow13)
 	}
 }

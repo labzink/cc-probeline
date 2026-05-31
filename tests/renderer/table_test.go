@@ -304,11 +304,11 @@ func TestTable_LongToolArg_MiddleTruncate(t *testing.T) {
 // -------------------------------------------------------------------
 // TestTable_ColumnWidths_Fixed — table renders at fixed content width, not stretched to terminal.
 //
-// Phase 6.6.c new cols: [4,7,12,13,7,9,16]. Sum = 68. Borders = 8 (left + 6 inner + right).
-// Total fixed width = 68 + 8 = 76. The builder cols argument no longer affects width.
+// Phase 6.6.d new cols: [4,13,12,13,7,8,15]. Sum = 72. Borders = 8 (left + 6 inner + right).
+// Total fixed width = 72 + 8 = 80. The builder cols argument no longer affects width.
 // -------------------------------------------------------------------
 func TestTable_ColumnWidths_80Cols(t *testing.T) {
-	const wantWidth = 76 // 4+7+12+13+7+9+16 content + 8 border runes
+	const wantWidth = 80 // 4+13+12+13+7+8+15 content + 8 border runes (6.6.d)
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
@@ -698,21 +698,21 @@ func TestRender_ReverseNoSep(t *testing.T) {
 }
 
 // -------------------------------------------------------------------
-// T-23: TestRender6Cols_NewOrder — §6.5.b6 / §6.6.c 6-col layout uses
+// T-23: TestRender6Cols_NewOrder — §6.5.b6 / §6.6.d 6-col layout uses
 // footer-first / reverse / no-sep grammar.
 //
-// Phase 6.6.c thresholds: full=76, 6-col=71, 5-col=61.
-// cols=72 → "#" dropped, cost retained → 6-col table (width 71 ≤ 72).
+// Phase 6.6.d thresholds: full=80, 6-col=75, 5-col=66.
+// cols=78 → "#" dropped, cost retained → 6-col table (width 75 ≤ 78).
 // -------------------------------------------------------------------
 func TestRender6Cols_NewOrder(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(5, "orch", "sonnet-4", "Read", 1000, 200, 0))
 	b.Add(makeTurn(6, "orch", "opus-4-7", "Edit", 2000, 100, time.Minute))
 
-	// 72 cols → 6-col layout: below 76 (full) but above 71 (6-col fits).
-	out := b.RenderForCols(72)
+	// 78 cols → 6-col layout: below 80 (full) but above 75 (6-col 75 fits).
+	out := b.RenderForCols(78)
 	if out == "" {
-		t.Fatal("RenderForCols(72) returned empty string; want non-empty table")
+		t.Fatal("RenderForCols(78) returned empty string; want non-empty table")
 	}
 
 	lines := splitLines(out)
@@ -720,7 +720,7 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 	// Same line count as 7-col with 2 rows: 6 lines.
 	const wantLines = 6
 	if len(lines) != wantLines {
-		t.Errorf("RenderForCols(72) with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
+		t.Errorf("RenderForCols(78) with 2 turns: got %d lines; want %d (new footer-first layout)\noutput:\n%s",
 			len(lines), wantLines, out)
 	}
 
@@ -746,7 +746,7 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 	}
 
 	// line[0] (topBorder) must start with '┌'.
-	// Phase 6.6.c: 6-col has 5 join points all '┬' (no merge override at nCols<7).
+	// Phase 6.6.d: 6-col has 5 join points all '┬' (no merge override at nCols<7).
 	// 7-col has 6 join points with 2 overridden to '─' → 4 '┬'.
 	// So 6-col topBorder has more '┬' (5) than 7-col (4): verify ≥ 4.
 	topLine := lines[0]
