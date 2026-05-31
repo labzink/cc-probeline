@@ -48,28 +48,28 @@ const (
 	colCost = 5 // "cost" column — second to drop
 )
 
-// widths for each number of visible columns:
+// widths for each number of visible columns (Phase 6.6.d):
 //
-//	7-col (full):  content=68 borders=8 → total 76
-//	6-col (#drop): content=64 borders=7 → total 71
-//	5-col (+cost): content=55 borders=6 → total 61
+//	7-col (full):  content=72 borders=8 → total 80  (4+13+12+13+7+8+15)
+//	6-col (#drop): content=68 borders=7 → total 75  (drop #=4)
+//	5-col (+cost): content=60 borders=6 → total 66  (drop #+cost=8)
 const (
-	fullTableWidth  = 76
-	sixColWidth     = 71
-	fiveColWidth    = 61
-	fiveColMinTotal = 46 // cols below this → overflow accepted (tool min=1)
+	fullTableWidth  = 80
+	sixColWidth     = 75
+	fiveColWidth    = 66
+	fiveColMinTotal = 53 // cols below this → overflow accepted (fixed5=45 + borders5=6 + tool_min=2)
 )
 
 // NewBuilder returns a Builder with default layout using the given terminal
 // width (cols). If cols <= 0, defaults to 80.
-// Column widths (Phase 6.6.c): [#=4, role=7, model=12, cache=13, out=7, cost=9, tool/arg=16].
-// Full table width: 4+7+12+13+7+9+16=68 content + 8 borders = 76.
+// Column widths (Phase 6.6.d): [#=4, role=13, model=12, cache=13, out=7, cost=8, tool/arg=15].
+// Full table width: 4+13+12+13+7+8+15=72 content + 8 borders = 80.
 func NewBuilder(cols int) *Builder {
 	if cols <= 0 {
 		cols = 80
 	}
 	return &Builder{
-		cols:         [7]int{4, 7, 12, 13, 7, 9, 16},
+		cols:         [7]int{4, 13, 12, 13, 7, 8, 15},
 		terminalCols: cols,
 	}
 }
@@ -200,13 +200,13 @@ func (b *Builder) Render() string {
 }
 
 // RenderForCols renders the table targeting cols terminal width, applying a
-// three-step column-drop strategy (§6.6.c §2.3):
+// three-step column-drop strategy (§6.6.d §2.4):
 //
-//  1. cols >= 76 → full 7-col table.
-//  2. cols < 76, >= 71 → drop col "#" (index 0) → 6-col table.
-//  3. cols < 71, >= 61 → drop "#" + "cost" (index 5) → 5-col table.
-//  4. cols < 61, >= 46 → 5-col + middle-truncate tool/arg.
-//  5. cols < 46 → accept overflow (return Render()).
+//  1. cols >= 80 → full 7-col table.
+//  2. cols < 80, >= 75 → drop col "#" (index 0) → 6-col table.
+//  3. cols < 75, >= 66 → drop "#" + "cost" (index 5) → 5-col table.
+//  4. cols < 66, >= 53 → 5-col + middle-truncate tool/arg.
+//  5. cols < 53 → accept overflow (return Render()).
 //
 // When cols == 0 the result is identical to Render() (no truncation).
 func (b *Builder) RenderForCols(cols int) string {
@@ -235,9 +235,9 @@ func (b *Builder) RenderForCols(cols int) string {
 
 	// Step 4: 5-col + middle-truncate tool/arg.
 	// tool/arg is the last column in c5; flex = cols - borders(6) - fixed.
-	// Fixed widths in 5-col: role(7)+model(12)+cache(13)+out(7) = 39.
+	// Fixed widths in 5-col: role(13)+model(12)+cache(13)+out(7) = 45.
 	const borders5 = 6
-	const fixed5 = 39
+	const fixed5 = 45
 	flex := cols - borders5 - fixed5
 	if flex < 1 {
 		// cols too narrow even for 5-col with tool min=1 → overflow.
