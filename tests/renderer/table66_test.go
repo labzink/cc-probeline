@@ -49,6 +49,10 @@ func makeAgentStats(agentID, agentType, model, lastTool string, cacheRead, cache
 	}
 }
 
+// stripMk removes {{marker}} tokens so structural border/row detection can run
+// against the bare box-drawing runes (borders are now wrapped in {{dim}}…{{reset}}).
+func stripMk(s string) string { return format.StripMarkers(s) }
+
 // maxVisualLen returns the maximum format.VisualLen across all non-empty lines.
 func maxVisualLen(s string) int {
 	max := 0
@@ -104,7 +108,7 @@ func TestTable66_Widths(t *testing.T) {
 	// The content row (not a border/separator) has the form: │cell0│cell1│...│cell6│
 	var contentRow string
 	for _, l := range lines {
-		if strings.HasPrefix(l, "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
+		if strings.HasPrefix(stripMk(l), "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
 			contentRow = l
 			break
 		}
@@ -165,7 +169,7 @@ func TestTable66_DropHashFirst(t *testing.T) {
 	// After drop the first col is "role" (13-wide, left-aligned in 6.6.d).
 	var contentRow string
 	for _, l := range splitLines(out) {
-		if strings.HasPrefix(l, "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
+		if strings.HasPrefix(stripMk(l), "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
 			contentRow = l
 			break
 		}
@@ -225,7 +229,7 @@ func TestTable66_DropHashAndCost(t *testing.T) {
 	// Content row must have 5 cells (not 6 or 7).
 	var contentRow string
 	for _, l := range splitLines(out) {
-		if strings.HasPrefix(l, "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
+		if strings.HasPrefix(stripMk(l), "│") && !strings.Contains(l, "─") && !strings.Contains(l, "Total for request") {
 			contentRow = l
 			break
 		}

@@ -25,7 +25,8 @@ func (p *ModelProbe) Visible(d Data, c Config) bool {
 // effort icon (e.g. "sonnet-4-6 ◑"). Effort is appended without a separator so
 // it reads as one visual unit.
 //
-// When AnsiEnabled, the model name is wrapped in {{bold}}…{{reset}} markers.
+// When AnsiEnabled, the model name is wrapped in {{bold}}…{{reset}} markers and
+// the appended effort glyph is colour-wrapped per B3 §5 (see effortGlyph).
 // All display levels return the same value.
 func (p *ModelProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	id := d.Stdin.Model.ID
@@ -39,8 +40,8 @@ func (p *ModelProbe) Render(d Data, _ Config, t renderer.Theme, level Level) str
 	} else {
 		displayName = name
 	}
-	if icon := effortIcon[d.Stdin.Effort.Level]; icon != "" {
-		return displayName + " " + icon
+	if glyph := effortGlyph(d.Stdin.Effort.Level, t.AnsiEnabled); glyph != "" {
+		return displayName + " " + glyph
 	}
 	return displayName
 }

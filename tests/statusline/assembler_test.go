@@ -191,7 +191,7 @@ func TestAssembler_Standard_Cap20Turns(t *testing.T) {
 	// that start with "┌" / "└" and separators that start with "├".
 	dataRowCount := 0
 	for _, line := range strings.Split(out, "\n") {
-		trimmed := strings.TrimSpace(line)
+		trimmed := strings.TrimSpace(stripMk(line))
 		if strings.HasPrefix(trimmed, "│") &&
 			!strings.HasPrefix(trimmed, "├") &&
 			!strings.HasPrefix(trimmed, "┌") &&

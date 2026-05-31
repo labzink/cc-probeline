@@ -111,6 +111,27 @@ func TestColour_Effort_Medium_NoColour(t *testing.T) {
 	}
 }
 
+// TestColour_Model_EffortGlyph_Magenta (regression RC1) verifies that the
+// effort glyph ModelProbe appends — the glyph actually shown on the header
+// line — is colour-wrapped. Before the fix ModelProbe emitted a BARE icon, so
+// effort=high rendered grey on the real path despite EffortProbe's (unwired)
+// magenta logic passing its own unit test.
+func TestColour_Model_EffortGlyph_Magenta(t *testing.T) {
+	p := &probes.ModelProbe{}
+	th := colourTheme()
+	cfg := probes.Config{ModelEnabled: true}
+
+	d := probes.Data{Stdin: stdin.Payload{
+		Model:  stdin.Model{ID: "claude-opus-4-8"},
+		Effort: stdin.Effort{Level: "high"},
+	}}
+	got := renderer.Apply(p.Render(d, cfg, th, probes.LevelFull), th)
+
+	if !strings.Contains(got, "\x1b[35m") {
+		t.Errorf("RC1 model+effort=high: want magenta \\x1b[35m around the appended effort glyph, got %q", got)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // T-5: GitProbe — branch cyan, ⚠N yellow
 // ----------------------------------------------------------------------------

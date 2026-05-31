@@ -14,6 +14,7 @@ package renderer_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -234,11 +235,11 @@ func TestTableColour_CostNoColour(t *testing.T) {
 	// a colour escape code. We check for known colour escapes (not dim/bold/reset
 	// which are style attributes, not colour).
 	colourEscapes := []string{
-		"\x1b[36m", // cyan
-		"\x1b[33m", // yellow
-		"\x1b[31m", // red
-		"\x1b[32m", // green
-		"\x1b[35m", // magenta
+		"\x1b[36m",       // cyan
+		"\x1b[33m",       // yellow
+		"\x1b[31m",       // red
+		"\x1b[32m",       // green
+		"\x1b[35m",       // magenta
 		"\x1b[38;5;208m", // orange
 	}
 
@@ -247,6 +248,87 @@ func TestTableColour_CostNoColour(t *testing.T) {
 		if strings.Contains(out, esc+"$") {
 			t.Errorf("T-11e: cost cell '$...' must NOT be preceded by colour escape %q (cost is neutral); found sequence in output\noutput (first 600 chars):\n%.600s",
 				esc, out)
+		}
+	}
+}
+
+// -------------------------------------------------------------------
+// T-11g: TestTableColour_SubagentElapsed (regression RC3)
+//
+// The subagent row must surface a colour-wrapped ⏱elapsed cell (span =
+// LastTimestamp − FirstTimestamp): >300s → red, ≤300s → yellow. Before the fix
+// the table rendered no elapsed at all (the coloured SubagentProbe was unwired
+// dead code), so subagent elapsed was always absent/grey.
+// -------------------------------------------------------------------
+func TestTableColour_SubagentElapsed(t *testing.T) {
+	th := colourTheme()
+	base := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+
+	// span 400s > 300s → red.
+	bRed := renderer.NewBuilder(80)
+	bRed.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	bRed.AddSubagents([]parser.SubagentStats{{
+		AgentID: "sa1", AgentType: "general", Model: "sonnet-4",
+		FirstTimestamp: base, LastTimestamp: base.Add(400 * time.Second),
+		Tokens: parser.TokenCounts{CacheRead: 500, Output: 100}, LastTool: "Bash",
+	}})
+	outRed := renderer.Apply(bRed.Render(), th)
+	if !strings.Contains(outRed, "\x1b[31m⏱") {
+		t.Errorf("RC3 elapsed >300s: want red \\x1b[31m⏱ in subagent row; got:\n%s", outRed)
+	}
+
+	// span 120s ≤ 300s → yellow.
+	bYel := renderer.NewBuilder(80)
+	bYel.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	bYel.AddSubagents([]parser.SubagentStats{{
+		AgentID: "sa2", AgentType: "general", Model: "sonnet-4",
+		FirstTimestamp: base, LastTimestamp: base.Add(120 * time.Second),
+		Tokens: parser.TokenCounts{CacheRead: 500, Output: 100}, LastTool: "Bash",
+	}})
+	outYel := renderer.Apply(bYel.Render(), th)
+	if !strings.Contains(outYel, "\x1b[33m⏱") {
+		t.Errorf("RC3 elapsed ≤300s: want yellow \\x1b[33m⏱ in subagent row; got:\n%s", outYel)
+	}
+}
+
+// -------------------------------------------------------------------
+// T-11h: TestTableColour_LongAgentNameKeepsColour (regression RC2)
+//
+// A subagent AgentType wider than the role column is middle-truncated by
+// padCell. The colour wrapper must survive truncation. Before the fix padCell
+// stripped ALL markers before truncating, so long names rendered grey while
+// short names stayed yellow (the intermittent yellow/grey symptom).
+// -------------------------------------------------------------------
+func TestTableColour_LongAgentNameKeepsColour(t *testing.T) {
+	th := colourTheme()
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	b.AddSubagents([]parser.SubagentStats{{
+		AgentID: "sa1", AgentType: "code-reviewer-extra-long", Model: "sonnet-4",
+		Tokens: parser.TokenCounts{CacheRead: 500, Output: 100}, LastTool: "Bash",
+	}})
+	out := renderer.Apply(b.Render(), th)
+	if !strings.Contains(out, "\x1b[33m") {
+		t.Errorf("RC2: truncated long agent name must keep yellow \\x1b[33m; got:\n%s", out)
+	}
+}
+
+// -------------------------------------------------------------------
+// T-11i: TestTableColour_BordersUniformDim (regression RC4)
+//
+// All border elements — corner runes AND vertical bars — must be dim, not only
+// the horizontal fill. Before the fix corners were written outside the {{dim}}
+// wrapper and vertical bars carried no marker, giving a mixed light/dark look.
+// -------------------------------------------------------------------
+func TestTableColour_BordersUniformDim(t *testing.T) {
+	th := colourTheme()
+	b := renderer.NewBuilder(80)
+	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
+	out := renderer.Apply(b.Render(), th)
+
+	for _, seq := range []string{"\x1b[2m┌", "\x1b[2m└", "\x1b[2m│"} {
+		if !strings.Contains(out, seq) {
+			t.Errorf("RC4: border element %q must be dim-wrapped (uniform dim borders); not found in:\n%s", seq, out)
 		}
 	}
 }

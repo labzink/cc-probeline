@@ -3,6 +3,7 @@ package renderer
 import (
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,6 +11,26 @@ import (
 	"github.com/labzink/cc-probeline/internal/format"
 	"github.com/labzink/cc-probeline/internal/parser"
 )
+
+// leadMarkerRE / trailMarkerRE match a run of consecutive {{marker}} tokens at
+// the start / end of a string. Used by padCell to peel a cell's colour wrapper
+// off before truncating the visible core, then re-attach it — so colour
+// survives truncation instead of being stripped (cells are wrapped as
+// {{color:X}}…{{reset}}).
+var (
+	leadMarkerRE  = regexp.MustCompile(`^(?:\{\{[a-z][a-z0-9:_-]*\}\})+`)
+	trailMarkerRE = regexp.MustCompile(`(?:\{\{[a-z][a-z0-9:_-]*\}\})+$`)
+)
+
+// splitWrapMarkers separates s into a leading marker run, the middle core, and
+// a trailing marker run. For an unwrapped string prefix and suffix are "".
+func splitWrapMarkers(s string) (prefix, core, suffix string) {
+	prefix = leadMarkerRE.FindString(s)
+	rest := s[len(prefix):]
+	suffix = trailMarkerRE.FindString(rest)
+	core = rest[:len(rest)-len(suffix)]
+	return prefix, core, suffix
+}
 
 // Align controls horizontal alignment inside a Cell.
 type Align int
@@ -83,9 +104,11 @@ func (b *Builder) effectiveCols() [7]int {
 //   - AlignLeft:  " " + content + trailing_spaces
 //   - AlignRight: leading_spaces + content + " "
 //
-// Content wider than (w-1) visual columns is stripped of markers and
-// middle-truncated. Visual width is computed via format.VisualLen so that
-// {{marker}} tokens are treated as zero-width (they carry no terminal columns).
+// Content wider than (w-1) visual columns is middle-truncated. The cell's
+// leading/trailing colour markers are preserved across truncation (only the
+// visible core is shortened) so a long coloured cell keeps its colour instead
+// of degrading to plain text. Visual width is computed via format.VisualLen so
+// that {{marker}} tokens are treated as zero-width.
 func padCell(s string, w int, a Align) string {
 	inner := w - 1
 	if inner < 0 {
@@ -93,15 +116,16 @@ func padCell(s string, w int, a Align) string {
 	}
 	vlen := format.VisualLen(s)
 	if vlen > inner {
-		// Strip markers before truncation so the ellipsis lands correctly.
-		s = format.MiddleTruncate(format.StripMarkers(s), inner)
-		vlen = format.VisualLen(s)
-		if vlen > inner {
+		// Peel the colour wrapper, truncate the visible core, re-attach the wrapper.
+		prefix, core, suffix := splitWrapMarkers(s)
+		core = format.MiddleTruncate(format.StripMarkers(core), inner)
+		if format.VisualLen(core) > inner {
 			// Hard-cut as a last resort.
-			runes := []rune(s)
-			s = string(runes[:inner])
-			vlen = inner
+			runes := []rune(core)
+			core = string(runes[:inner])
 		}
+		s = prefix + core + suffix
+		vlen = format.VisualLen(s)
 	}
 	pad := inner - vlen
 	if a == AlignRight {
@@ -118,6 +142,27 @@ func (b *Builder) costForAgg() string { return cost.Format(cost.ComputeAggregate
 
 // durationAggregate returns the sum of all turn Durations.
 func (b *Builder) durationAggregate() time.Duration { return b.aggDur }
+
+// subagentElapsedCell returns the elapsed-time cell for a subagent row,
+// colour-wrapped per spec §2.3:
+//
+//	span > 300s → {{color:red}}⏱MM:SS{{reset}}   (long-running agent)
+//	span ≤ 300s → {{color:yellow}}⏱MM:SS{{reset}} (active agent)
+//
+// Span is the agent's active window LastTimestamp − FirstTimestamp (no wall
+// clock needed). When either timestamp is missing or the span is non-positive
+// the cell falls back to "—" (no usable duration).
+func subagentElapsedCell(first, last time.Time) string {
+	if first.IsZero() || last.IsZero() || !last.After(first) {
+		return "—"
+	}
+	span := last.Sub(first)
+	text := "⏱" + format.FormatMMSS(span.Milliseconds())
+	if span > 300*time.Second {
+		return "{{color:red}}" + text + "{{reset}}"
+	}
+	return "{{color:yellow}}" + text + "{{reset}}"
+}
 
 // roleColour wraps a role string with the appropriate colour marker:
 //   - "orch" (orchestrator) → cyan
@@ -162,8 +207,11 @@ func (b *Builder) Add(t parser.Turn) {
 // AddSubagents appends subagent rows (layout A) after orchestrator rows.
 // Subagent tokens are NOT included in aggCache/aggOut (footer Total is orchestrator-only).
 // Column mapping: #=↳, role=AgentType (yellow), model=Model, cache=CacheRead/CacheCreate,
-// out=Output, cost=— (no source, BL-7), tool/arg=LastTool (empty → —).
-// AgentType is wrapped with {{color:yellow}}...{{reset}} per spec §2.3.
+// out=Output, cost-slot=⏱elapsed (red>300s / yellow, span Last−First; "—" when unknown),
+// tool/arg=LastTool (empty → —).
+// AgentType is wrapped with {{color:yellow}}...{{reset}} per spec §2.3; the
+// elapsed cell carries its own colour (see subagentElapsedCell). The cost
+// column has no subagent source (BL-7), so the slot surfaces elapsed instead.
 func (b *Builder) AddSubagents(subs []parser.SubagentStats) {
 	slog.Debug("renderer.table: AddSubagents", "count", len(subs))
 	for _, s := range subs {
@@ -187,7 +235,7 @@ func (b *Builder) AddSubagents(subs []parser.SubagentStats) {
 			{Content: model, Align: AlignLeft},
 			{Content: cache, Align: AlignLeft},
 			{Content: format.FormatK(s.Tokens.Output), Align: AlignRight},
-			{Content: "—", Align: AlignRight}, // cost: no source (BL-7)
+			{Content: subagentElapsedCell(s.FirstTimestamp, s.LastTimestamp), Align: AlignRight}, // cost-slot → ⏱elapsed (BL-7: no cost source)
 			{Content: tool, Align: AlignLeft},
 		}
 		b.agentRows = append(b.agentRows, row)
@@ -374,17 +422,21 @@ func (b *Builder) mergeAtMap(nCols, mode int) map[int]rune {
 	return map[int]rune{0: '┬', 1: '┬'}
 }
 
+// dimBar is the vertical cell separator wrapped in {{dim}} so that, like the
+// horizontal borders, it renders in the terminal's dim colour (spec §2.3 —
+// borders → dim). Keeping all border runes dim avoids the mixed light/dark
+// look that occurs when only some borders carry the dim attribute.
+const dimBar = "{{dim}}│{{reset}}"
+
 // hlineSlice builds a horizontal border line for an arbitrary number of columns.
 //
-// The inner content (fill runs and join characters) is wrapped in
-// {{dim}}...{{reset}} so that Apply renders them in the terminal's dim colour
-// (spec §2.3 — borders → dim). The left corner rune is written before the
-// marker and the right corner rune after, so that HasPrefix/HasSuffix checks
-// on the raw line still pass while the fill-rune colours are correct.
+// The entire line — corner runes, fill runs and join characters — is wrapped in
+// {{dim}}...{{reset}} so that Apply renders the whole border in the terminal's
+// dim colour (spec §2.3 — borders → dim), uniformly with the vertical bars.
 func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) string {
 	var sb strings.Builder
-	sb.WriteRune(left)
 	sb.WriteString("{{dim}}")
+	sb.WriteRune(left)
 	for i, w := range cols {
 		sb.WriteString(strings.Repeat(string(fill), w))
 		if i < len(cols)-1 {
@@ -395,8 +447,8 @@ func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) 
 			}
 		}
 	}
-	sb.WriteString("{{reset}}")
 	sb.WriteRune(right)
+	sb.WriteString("{{reset}}")
 	return sb.String()
 }
 
@@ -404,7 +456,7 @@ func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) 
 // toolInner, when non-nil and > 0, limits the last column content via MiddleTruncate.
 func renderRowN(row Row, colWidths []int, origIndices []int, toolInner *int) string {
 	var sb strings.Builder
-	sb.WriteRune('│')
+	sb.WriteString(dimBar)
 	for i, origIdx := range origIndices {
 		cell := row[origIdx]
 		content := cell.Content
@@ -413,7 +465,7 @@ func renderRowN(row Row, colWidths []int, origIndices []int, toolInner *int) str
 			content = format.MiddleTruncate(content, *toolInner)
 		}
 		sb.WriteString(padCell(content, colWidths[i], cell.Align))
-		sb.WriteRune('│')
+		sb.WriteString(dimBar)
 	}
 	return sb.String()
 }
@@ -449,9 +501,9 @@ func (b *Builder) buildFooterRowN(colWidths []int, origIndices []int) string {
 	// origIndices: determines which "slot" each post-label cell corresponds to.
 	// Slots: 3=cache, 4=out, 5=cost, 6=tool/arg.
 	var sb strings.Builder
-	sb.WriteString("│")
+	sb.WriteString(dimBar)
 	sb.WriteString(padCell("Total for request", mergedWidth, AlignLeft))
-	sb.WriteString("│")
+	sb.WriteString(dimBar)
 
 	// Build remaining cells based on which original columns are present.
 	remaining := origIndices[3:]
@@ -467,7 +519,7 @@ func (b *Builder) buildFooterRowN(colWidths []int, origIndices []int) string {
 		case 6: // tool/arg (duration in footer)
 			sb.WriteString(padCell(durStr, w, AlignLeft))
 		}
-		sb.WriteString("│")
+		sb.WriteString(dimBar)
 	}
 	return sb.String()
 }

@@ -165,7 +165,7 @@ func TestTable_R1Borders_MultiRow(t *testing.T) {
 	// Footer row also matches, so subtract 1.
 	rowContentCount := 0
 	for _, l := range lines {
-		if strings.HasPrefix(l, "│") && !strings.ContainsAny(l, "─") {
+		if strings.HasPrefix(stripMk(l), "│") && !strings.ContainsAny(l, "─") {
 			rowContentCount++
 		}
 	}
@@ -215,7 +215,7 @@ func TestTable_MergedFooter(t *testing.T) {
 	lines := splitLines(out)
 	sepFound := false
 	for _, l := range lines {
-		if strings.HasPrefix(l, "├") && strings.Contains(l, "┬") {
+		if strings.HasPrefix(stripMk(l), "├") && strings.Contains(l, "┬") {
 			count := strings.Count(l, "┬")
 			if count < 2 {
 				t.Errorf("separator-split has %d ┬ glyph(s); want ≥2 for split cols 0/1\nline: %s", count, l)
@@ -230,7 +230,7 @@ func TestTable_MergedFooter(t *testing.T) {
 
 	// The bottom border must start with └ and end with ┘.
 	lastLine := lines[len(lines)-1]
-	if !strings.HasPrefix(lastLine, "└") || !strings.HasSuffix(lastLine, "┘") {
+	if !strings.HasPrefix(stripMk(lastLine), "└") || !strings.HasSuffix(stripMk(lastLine), "┘") {
 		t.Errorf("last line must start with └ and end with ┘; got: %s", lastLine)
 	}
 }
@@ -262,7 +262,7 @@ func TestTable_Cap20_NotEnforcedHere(t *testing.T) {
 		stripped := stripANSI(l)
 		// A content row has │ at start AND at least one space-or-digit after it
 		// AND is not a border line (no leading ├ or └ etc.)
-		if strings.HasPrefix(stripped, "│") && !strings.Contains(stripped, "─") {
+		if strings.HasPrefix(stripMk(stripped), "│") && !strings.Contains(stripped, "─") {
 			contentRows++
 		}
 	}
@@ -507,7 +507,7 @@ func TestTable_CellAlign(t *testing.T) {
 	var contentRow string
 	for _, l := range splitLines(out) {
 		stripped := stripANSI(l)
-		if strings.HasPrefix(stripped, "│") && !strings.Contains(stripped, "─") {
+		if strings.HasPrefix(stripMk(stripped), "│") && !strings.Contains(stripped, "─") {
 			// Must not be the footer row (which starts with "│ Total").
 			if !strings.Contains(stripped, "Total for request") {
 				contentRow = stripped
@@ -604,10 +604,10 @@ func TestRender_FooterFirst(t *testing.T) {
 
 	// line[0]: topBorder-merge — '─' at col boundaries 0/1, '┬' at 2/3/4/5 → 4 ┬ total.
 	topLine := lines[0]
-	if !strings.HasPrefix(topLine, "┌") {
+	if !strings.HasPrefix(stripMk(topLine), "┌") {
 		t.Errorf("line[0] must start with '┌'; got %q", topLine)
 	}
-	if !strings.HasSuffix(topLine, "┐") {
+	if !strings.HasSuffix(stripMk(topLine), "┐") {
 		t.Errorf("line[0] must end with '┐'; got %q", topLine)
 	}
 	if got := strings.Count(topLine, "┬"); got != 4 {
@@ -621,10 +621,10 @@ func TestRender_FooterFirst(t *testing.T) {
 
 	// line[2]: separator-split — '┬' at cols 0/1 (exactly 2), '┼' at cols 2-5 (≥3).
 	sepLine := lines[2]
-	if !strings.HasPrefix(sepLine, "├") {
+	if !strings.HasPrefix(stripMk(sepLine), "├") {
 		t.Errorf("line[2] (separator-split) must start with '├'; got %q", sepLine)
 	}
-	if !strings.HasSuffix(sepLine, "┤") {
+	if !strings.HasSuffix(stripMk(sepLine), "┤") {
 		t.Errorf("line[2] (separator-split) must end with '┤'; got %q", sepLine)
 	}
 	if got := strings.Count(sepLine, "┬"); got != 2 {
@@ -636,10 +636,10 @@ func TestRender_FooterFirst(t *testing.T) {
 
 	// last line: bottomBorder — starts '└', ends '┘', contains '┴' but not '┬'.
 	lastLine := lines[len(lines)-1]
-	if !strings.HasPrefix(lastLine, "└") {
+	if !strings.HasPrefix(stripMk(lastLine), "└") {
 		t.Errorf("last line must start with '└'; got %q", lastLine)
 	}
-	if !strings.HasSuffix(lastLine, "┘") {
+	if !strings.HasSuffix(stripMk(lastLine), "┘") {
 		t.Errorf("last line must end with '┘'; got %q", lastLine)
 	}
 	if !strings.Contains(lastLine, "┴") {
@@ -681,7 +681,7 @@ func TestRender_ReverseNoSep(t *testing.T) {
 	// Row starts with "│ 30 │" — leading space before index, trailing space margin.
 	findLine := func(marker string) int {
 		for i, l := range lines {
-			if strings.Contains(l, marker) {
+			if strings.Contains(stripMk(l), marker) {
 				return i
 			}
 		}
@@ -766,7 +766,7 @@ func TestRender6Cols_NewOrder(t *testing.T) {
 	// 7-col has 6 join points with 2 overridden to '─' → 4 '┬'.
 	// So 6-col topBorder has more '┬' (5) than 7-col (4): verify ≥ 4.
 	topLine := lines[0]
-	if !strings.HasPrefix(topLine, "┌") {
+	if !strings.HasPrefix(stripMk(topLine), "┌") {
 		t.Errorf("line[0] must start with '┌'; got %q", topLine)
 	}
 	// 6-col top border: 5 column boundaries, none overridden → 5 '┬'.

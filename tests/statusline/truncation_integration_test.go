@@ -55,13 +55,17 @@ func statusLines(out string) (line0, line1, line2 string) {
 	return parts[0], parts[1], parts[2]
 }
 
+// stripMk removes {{marker}} tokens so structural row detection runs against the
+// bare box-drawing runes (borders/bars are wrapped in {{dim}}…{{reset}}).
+func stripMk(s string) string { return format.StripMarkers(s) }
+
 // countDataRows counts the number of per-turn data rows in the Render() output.
 // A data row is a line that starts with '│', contains no '─' (not a separator
 // or border), and does not contain the footer label "Total for request".
 func countDataRows(out string) int {
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
-		trimmed := strings.TrimSpace(line)
+		trimmed := strings.TrimSpace(stripMk(line))
 		if strings.HasPrefix(trimmed, "│") &&
 			!strings.Contains(trimmed, "─") &&
 			!strings.Contains(trimmed, "Total for request") {

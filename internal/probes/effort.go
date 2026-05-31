@@ -32,21 +32,27 @@ func (p *EffortProbe) Visible(d Data, c Config) bool {
 	return lvl != "" && lvl != "off"
 }
 
-// Render returns the Unicode icon for the effort level.
-// When AnsiEnabled, the icon is wrapped in the appropriate colour marker per B3 §5:
+// Render returns the Unicode icon for the effort level, colour-wrapped per
+// B3 §5 (see effortGlyph). Returns "" for "off" or unrecognised levels.
+func (p *EffortProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
+	return effortGlyph(d.Stdin.Effort.Level, t.AnsiEnabled)
+}
+
+// effortGlyph returns the effort icon for lvl, colour-wrapped per B3 §5 when
+// ansiEnabled. It is the single source of truth for effort colouring, shared by
+// EffortProbe.Render and ModelProbe.Render (which appends the glyph inline):
 //
-//	low       → {{dim}}…{{reset}}
-//	medium    → no marker (default colour)
+//	low            → {{dim}}…{{reset}}
+//	medium         → no marker (default colour)
 //	high/xhigh/max → {{color:magenta}}…{{reset}}
 //
-// Returns "" for "off" or unrecognised levels (renderer drops the separator).
-func (p *EffortProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
-	lvl := d.Stdin.Effort.Level
+// Returns "" for "off" or unrecognised levels (caller drops the segment).
+func effortGlyph(lvl string, ansiEnabled bool) string {
 	icon, ok := effortIcon[lvl]
-	if !ok {
+	if !ok || icon == "" {
 		return ""
 	}
-	if !t.AnsiEnabled {
+	if !ansiEnabled {
 		return icon
 	}
 	switch lvl {
