@@ -23,15 +23,24 @@ func (p *ModelProbe) Visible(d Data, c Config) bool {
 
 // Render returns the canonical short model name, optionally followed by the
 // effort icon (e.g. "sonnet-4-6 ◑"). Effort is appended without a separator so
-// it reads as one visual unit. All display levels return the same value.
+// it reads as one visual unit.
+//
+// When AnsiEnabled, the model name is wrapped in {{bold}}…{{reset}} markers.
+// All display levels return the same value.
 func (p *ModelProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	id := d.Stdin.Model.ID
 	if id == "" {
 		return ""
 	}
 	name := parser.CanonicalModelKey(id)
-	if icon := effortIcon[d.Stdin.Effort.Level]; icon != "" {
-		return name + " " + icon
+	var displayName string
+	if t.AnsiEnabled {
+		displayName = "{{bold}}" + name + "{{reset}}"
+	} else {
+		displayName = name
 	}
-	return name
+	if icon := effortIcon[d.Stdin.Effort.Level]; icon != "" {
+		return displayName + " " + icon
+	}
+	return displayName
 }

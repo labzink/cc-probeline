@@ -20,13 +20,20 @@ func (p *TimeProbe) Visible(d Data, c Config) bool {
 	return true
 }
 
-// Render formats the elapsed time:
+// Render formats the elapsed time. When AnsiEnabled, the value is wrapped in
+// {{dim}}…{{reset}} per B3 §5.
 //
-//	Full:    "time: MM:SS"
-//	Compact: "MM:SS"
-//	Minimal: "MM:SS"
+//	Full:    "time: MM:SS"  (or "time: {{dim}}MM:SS{{reset}}" with colour)
+//	Compact: "MM:SS"        (or "{{dim}}MM:SS{{reset}}" with colour)
+//	Minimal: "MM:SS"        (or "{{dim}}MM:SS{{reset}}" with colour)
 func (p *TimeProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
-	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
+	raw := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
+	var mmss string
+	if t.AnsiEnabled {
+		mmss = "{{dim}}" + raw + "{{reset}}"
+	} else {
+		mmss = raw
+	}
 	if level == LevelFull {
 		return "time: " + mmss
 	}

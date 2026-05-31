@@ -58,17 +58,28 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		return label
 	}
 
+	// colourReset returns the reset escape only when AnsiEnabled.
+	// t.Colors.Reset may be non-empty even with AnsiEnabled=false (palette set but gated).
+	colourReset := ""
+	if t.AnsiEnabled {
+		colourReset = t.Colors.Reset
+	}
+
 	if level == LevelCompact {
 		// 5-segment bar; no percentage display.
 		// Round to nearest 10 before passing to ProgressBar for visual stability.
 		bar := renderer.ProgressBar(roundNearest10(pct))
-		return bar + " " + label
+		colorCode := renderer.ProgressBarColor(pct, t)
+		// ProgressBarColor returns "" when AnsiEnabled=false → bar without colour.
+		return colorCode + bar + colourReset + " " + label
 	}
 
 	// LevelFull: 10-segment bar + label + percentage (raw pct, not rounded).
 	bar := renderer.ProgressBar10(pct)
+	colorCode := renderer.ProgressBarColor(pct, t)
 	pctInt := int(pct)
-	return fmt.Sprintf("ctx %s %s (%d%%)", bar, label, pctInt)
+	// ProgressBarColor returns "" when AnsiEnabled=false → bar without colour.
+	return fmt.Sprintf("ctx %s%s%s %s (%d%%)", colorCode, bar, colourReset, label, pctInt)
 }
 
 // roundNearest10 rounds v to the nearest multiple of 10 using standard rounding

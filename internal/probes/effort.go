@@ -33,11 +33,29 @@ func (p *EffortProbe) Visible(d Data, c Config) bool {
 }
 
 // Render returns the Unicode icon for the effort level.
+// When AnsiEnabled, the icon is wrapped in the appropriate colour marker per B3 §5:
+//
+//	low       → {{dim}}…{{reset}}
+//	medium    → no marker (default colour)
+//	high/xhigh/max → {{color:magenta}}…{{reset}}
+//
 // Returns "" for "off" or unrecognised levels (renderer drops the separator).
 func (p *EffortProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
-	icon, ok := effortIcon[d.Stdin.Effort.Level]
+	lvl := d.Stdin.Effort.Level
+	icon, ok := effortIcon[lvl]
 	if !ok {
 		return ""
 	}
-	return icon
+	if !t.AnsiEnabled {
+		return icon
+	}
+	switch lvl {
+	case "low":
+		return "{{dim}}" + icon + "{{reset}}"
+	case "high", "xhigh", "max":
+		return "{{color:magenta}}" + icon + "{{reset}}"
+	default:
+		// medium and any future default levels — no colour marker.
+		return icon
+	}
 }

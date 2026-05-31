@@ -25,19 +25,25 @@ func (p *EmailProbe) Visible(d Data, c Config) bool {
 	return c.EmailEnabled && c.Email != ""
 }
 
-// Render formats the email address:
+// Render formats the email address. When AnsiEnabled, the value is wrapped in
+// {{dim}}…{{reset}} per B3 §5.
 //
-//	Full:    full email unchanged.
-//	Compact: middle-truncate to 16 runes.
-//	Minimal: middle-truncate to 12 runes.
+//	Full:    full email (or {{dim}}full email{{reset}} with colour)
+//	Compact: middle-truncate(16)
+//	Minimal: middle-truncate(12)
 func (p *EmailProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	email := c.Email
+	var value string
 	switch level {
 	case LevelCompact:
-		return middleTruncate(email, 16)
+		value = middleTruncate(email, 16)
 	case LevelMinimal:
-		return middleTruncate(email, 12)
+		value = middleTruncate(email, 12)
 	default:
-		return email
+		value = email
 	}
+	if t.AnsiEnabled {
+		return "{{dim}}" + value + "{{reset}}"
+	}
+	return value
 }

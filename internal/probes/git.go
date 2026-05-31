@@ -29,9 +29,15 @@ func (p *GitProbe) Visible(d Data, c Config) bool {
 
 // Render formats the git branch status.
 //
-//	Full:    "⎇ <branch>" (+ " ⚠N" if N>0), no truncation.
-//	Compact: "⎇ <branch12>" (+ " ⚠N" if N>0), branch middle-truncated to 12.
-//	Minimal: "⎇ <branch8>", no ⚠N.
+// Colour markers applied per B3 §5:
+//
+//   - branch segment "⎇ <name>" → {{color:cyan}}…{{reset}}
+//
+//   - warning segment "⚠N" (when ModifiedCount > 0) → {{color:yellow}}…{{reset}}
+//
+//     Full:    "⎇ <branch>" (+ " ⚠N" if N>0), no truncation.
+//     Compact: "⎇ <branch12>" (+ " ⚠N" if N>0), branch middle-truncated to 12.
+//     Minimal: "⎇ <branch8>", no ⚠N.
 func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	if d.Git == nil {
 		return ""
@@ -42,20 +48,36 @@ func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		branch = "-:" + branch
 	}
 
+	// warnSegment returns the ⚠N segment (with colour marker when AnsiEnabled) or empty string.
+	warnSegment := func(n int) string {
+		if n <= 0 {
+			return ""
+		}
+		warn := " ⚠" + strconv.Itoa(n)
+		if t.AnsiEnabled {
+			return " {{color:yellow}}⚠" + strconv.Itoa(n) + "{{reset}}"
+		}
+		return warn
+	}
+
 	switch level {
 	case LevelMinimal:
-		return "⎇ " + middleTruncate(branch, 8)
+		branchText := "⎇ " + middleTruncate(branch, 8)
+		if t.AnsiEnabled {
+			return "{{color:cyan}}" + branchText + "{{reset}}"
+		}
+		return branchText
 	case LevelCompact:
-		result := "⎇ " + middleTruncate(branch, 12)
-		if d.Git.ModifiedCount > 0 {
-			result += " ⚠" + strconv.Itoa(d.Git.ModifiedCount)
+		branchText := "⎇ " + middleTruncate(branch, 12)
+		if t.AnsiEnabled {
+			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount)
 		}
-		return result
+		return branchText + warnSegment(d.Git.ModifiedCount)
 	default: // LevelFull
-		result := "⎇ " + branch
-		if d.Git.ModifiedCount > 0 {
-			result += " ⚠" + strconv.Itoa(d.Git.ModifiedCount)
+		branchText := "⎇ " + branch
+		if t.AnsiEnabled {
+			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount)
 		}
-		return result
+		return branchText + warnSegment(d.Git.ModifiedCount)
 	}
 }

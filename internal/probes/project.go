@@ -23,23 +23,29 @@ func (p *ProjectProbe) Visible(d Data, c Config) bool {
 	return true
 }
 
-// Render returns the project name derived from basename(Cwd):
+// Render returns the project name derived from basename(Cwd). When AnsiEnabled,
+// the value is wrapped in {{dim}}…{{reset}} per B3 §5.
 //
-//	Full:    full basename (no truncation).
-//	Compact: middle-truncate to 12 runes.
-//	Minimal: middle-truncate to 8 runes.
+//	Full:    full basename (or {{dim}}…{{reset}} with colour)
+//	Compact: middle-truncate(12)
+//	Minimal: middle-truncate(8)
 func (p *ProjectProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
 	name := filepath.Base(d.Stdin.Cwd)
 	if name == "" || name == "." || name == "/" {
 		return "?"
 	}
 
+	var value string
 	switch level {
 	case LevelCompact:
-		return middleTruncate(name, 12)
+		value = middleTruncate(name, 12)
 	case LevelMinimal:
-		return middleTruncate(name, 8)
+		value = middleTruncate(name, 8)
 	default:
-		return name
+		value = name
 	}
+	if t.AnsiEnabled {
+		return "{{dim}}" + value + "{{reset}}"
+	}
+	return value
 }

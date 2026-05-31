@@ -28,11 +28,17 @@ func (p *CacheProbe) Name() string  { return "cache" }
 func (p *CacheProbe) Priority() int { return 2 }
 func (p *CacheProbe) MinWidth() int { return len("0K/0K | 0K | $0.00") }
 
-// cacheTTL computes the ⏱Nm suffix for the cache row.
+// cacheTTL computes the ⏱Nm suffix for the cache row, with optional colour markers.
 // Returns "" when TTL should be hidden (expired, zero timestamp, zero turns, or zero window).
 // remaining = window − floor((now − lastTimestamp).Minutes()), floor applied.
 // Used at all levels (Full, Compact, Minimal) when remaining > 0.
-func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int) string {
+//
+// Colour rules per B3 §5 (applied only when ansiEnabled=true):
+//
+//	≤10m remaining → {{color:red}}⏱ Nm{{reset}}
+//	≤30m remaining → {{color:yellow}}⏱ Nm{{reset}}
+//	>30m remaining → no colour marker
+func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int, ansiEnabled bool) string {
 	if orchTTLMinutes <= 0 {
 		return ""
 	}
@@ -48,7 +54,18 @@ func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinu
 	if remaining <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("⏱ %dm", remaining)
+	ttlText := fmt.Sprintf("⏱ %dm", remaining)
+	if !ansiEnabled {
+		return ttlText
+	}
+	switch {
+	case remaining <= 10:
+		return "{{color:red}}" + ttlText + "{{reset}}"
+	case remaining <= 30:
+		return "{{color:yellow}}" + ttlText + "{{reset}}"
+	default:
+		return ttlText
+	}
 }
 
 // Visible returns false when CacheEnabled is false or Session is nil (no JSONL data parsed yet).
@@ -70,7 +87,7 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 
 	// TTL is computed at all levels; omitted only when conditions not met (see cacheTTL).
-	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes)
+	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes, t.AnsiEnabled)
 
 	// ttlInfix returns " ⏱ Nm" when ttl is non-empty, "" otherwise.
 	// Placed right after cache numbers, before the first separator.
