@@ -593,8 +593,8 @@ func TestAggregate_BuildsTurns_FieldsFromFixture(t *testing.T) {
 	if first.Model != "opus-4-7" {
 		t.Errorf("Turns[0].Model: want opus-4-7, got %q", first.Model)
 	}
-	if first.Role != "orch" {
-		t.Errorf("Turns[0].Role: want orch, got %q", first.Role)
+	if first.Role != "orchestrator" {
+		t.Errorf("Turns[0].Role: want orchestrator, got %q", first.Role)
 	}
 	if first.Tokens != records[0].Usage {
 		t.Errorf("Turns[0].Tokens: want %+v, got %+v", records[0].Usage, first.Tokens)
@@ -630,8 +630,8 @@ func TestAggregate_BuildsTurns_SidechainRole(t *testing.T) {
 	if len(got.Turns) != 2 {
 		t.Fatalf("len(Turns): want 2, got %d", len(got.Turns))
 	}
-	if got.Turns[0].Role != "orch" || got.Turns[0].IsSidechain {
-		t.Errorf("Turns[0]: want role=orch, IsSidechain=false; got role=%q IsSidechain=%v",
+	if got.Turns[0].Role != "orchestrator" || got.Turns[0].IsSidechain {
+		t.Errorf("Turns[0]: want role=orchestrator, IsSidechain=false; got role=%q IsSidechain=%v",
 			got.Turns[0].Role, got.Turns[0].IsSidechain)
 	}
 	if got.Turns[1].Role != "agent" || !got.Turns[1].IsSidechain {

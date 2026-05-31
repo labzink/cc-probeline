@@ -9,7 +9,7 @@ type ColorScheme struct {
 	DimGrey string // dim grey for separators
 	Bold    string
 	Reset   string
-	Cyan    string // git branch, "orch" label
+	Cyan    string // git branch, "orchestrator" label
 	Yellow  string // warnings, TTL <30m, agent IDs
 	Red     string // cache miss, TTL <5m, cost >90% budget
 	Green   string // progress <50%, healthy cost

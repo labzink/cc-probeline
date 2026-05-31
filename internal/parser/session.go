@@ -81,7 +81,7 @@ func Aggregate(records []Record) SessionStats {
 			}
 		}
 
-		role := "orch"
+		role := "orchestrator"
 		if rec.IsSidechain {
 			role = "agent"
 		}

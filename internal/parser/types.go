@@ -51,7 +51,7 @@ type ParseError struct {
 // Built by Aggregate together with the existing totals.
 type Turn struct {
 	Index       int           // 1-based display position
-	Role        string        // "orch" when IsSidechain=false, "agent" when true
+	Role        string        // "orchestrator" when IsSidechain=false, "agent" when true
 	Model       string        // CanonicalModelKey(Record.Model)
 	Tokens      TokenCounts   // per-record usage
 	ToolUse     string        // name of the first tool_use ContentBlock; "" when none
