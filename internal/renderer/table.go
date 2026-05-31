@@ -79,29 +79,35 @@ func (b *Builder) effectiveCols() [7]int {
 	return b.cols
 }
 
-// padCell pads s to exactly w runes with a 1-space margin:
+// padCell pads s to exactly w visual columns with a 1-space margin:
 //   - AlignLeft:  " " + content + trailing_spaces
 //   - AlignRight: leading_spaces + content + " "
 //
-// Content > (w-1) runes is middle-truncated then hard-cut if needed.
+// Content wider than (w-1) visual columns is stripped of markers and
+// middle-truncated. Visual width is computed via format.VisualLen so that
+// {{marker}} tokens are treated as zero-width (they carry no terminal columns).
 func padCell(s string, w int, a Align) string {
 	inner := w - 1
 	if inner < 0 {
 		inner = 0
 	}
-	runes := []rune(s)
-	if len(runes) > inner {
-		s = format.MiddleTruncate(s, inner)
-		runes = []rune(s)
+	vlen := format.VisualLen(s)
+	if vlen > inner {
+		// Strip markers before truncation so the ellipsis lands correctly.
+		s = format.MiddleTruncate(format.StripMarkers(s), inner)
+		vlen = format.VisualLen(s)
+		if vlen > inner {
+			// Hard-cut as a last resort.
+			runes := []rune(s)
+			s = string(runes[:inner])
+			vlen = inner
+		}
 	}
-	if len(runes) > inner {
-		runes = runes[:inner]
-	}
-	pad := inner - len(runes)
+	pad := inner - vlen
 	if a == AlignRight {
-		return strings.Repeat(" ", pad) + string(runes) + " "
+		return strings.Repeat(" ", pad) + s + " "
 	}
-	return " " + string(runes) + strings.Repeat(" ", pad)
+	return " " + s + strings.Repeat(" ", pad)
 }
 
 // costFor returns the formatted cost string for a single turn.
@@ -113,8 +119,19 @@ func (b *Builder) costForAgg() string { return cost.Format(cost.ComputeAggregate
 // durationAggregate returns the sum of all turn Durations.
 func (b *Builder) durationAggregate() time.Duration { return b.aggDur }
 
+// roleColour wraps a role string with the appropriate colour marker:
+//   - "orch" (orchestrator) → cyan
+//   - all other values (agent names / types) → yellow
+func roleColour(role string) string {
+	if role == "orch" {
+		return "{{color:cyan}}" + role + "{{reset}}"
+	}
+	return "{{color:yellow}}" + role + "{{reset}}"
+}
+
 // Add appends one per-turn row built from a parser.Turn.
 // Orchestrator turns only — aggCache/aggOut/aggDur track only these rows.
+// The role cell is wrapped with colour markers (spec §2.3).
 func (b *Builder) Add(t parser.Turn) {
 	model := t.Model
 	if strings.HasPrefix(model, "claude-") {
@@ -127,7 +144,7 @@ func (b *Builder) Add(t parser.Turn) {
 
 	row := Row{
 		{Content: fmt.Sprintf("%d", t.Index), Align: AlignRight},
-		{Content: t.Role, Align: AlignLeft},
+		{Content: roleColour(t.Role), Align: AlignLeft},
 		{Content: model, Align: AlignLeft},
 		{Content: cache, Align: AlignLeft},
 		{Content: format.FormatK(t.Tokens.Output), Align: AlignRight},
@@ -144,8 +161,9 @@ func (b *Builder) Add(t parser.Turn) {
 
 // AddSubagents appends subagent rows (layout A) after orchestrator rows.
 // Subagent tokens are NOT included in aggCache/aggOut (footer Total is orchestrator-only).
-// Column mapping: #=↳, role=AgentType, model=Model, cache=CacheRead/CacheCreate,
+// Column mapping: #=↳, role=AgentType (yellow), model=Model, cache=CacheRead/CacheCreate,
 // out=Output, cost=— (no source, BL-7), tool/arg=LastTool (empty → —).
+// AgentType is wrapped with {{color:yellow}}...{{reset}} per spec §2.3.
 func (b *Builder) AddSubagents(subs []parser.SubagentStats) {
 	slog.Debug("renderer.table: AddSubagents", "count", len(subs))
 	for _, s := range subs {
@@ -161,9 +179,11 @@ func (b *Builder) AddSubagents(subs []parser.SubagentStats) {
 		if tool == "" {
 			tool = "—"
 		}
+		// Subagent AgentType is displayed as the "role" cell → yellow (spec §2.3).
+		agentType := "{{color:yellow}}" + s.AgentType + "{{reset}}"
 		row := Row{
 			{Content: "↳", Align: AlignLeft},
-			{Content: s.AgentType, Align: AlignLeft},
+			{Content: agentType, Align: AlignLeft},
 			{Content: model, Align: AlignLeft},
 			{Content: cache, Align: AlignLeft},
 			{Content: format.FormatK(s.Tokens.Output), Align: AlignRight},
@@ -355,9 +375,16 @@ func (b *Builder) mergeAtMap(nCols, mode int) map[int]rune {
 }
 
 // hlineSlice builds a horizontal border line for an arbitrary number of columns.
+//
+// The inner content (fill runs and join characters) is wrapped in
+// {{dim}}...{{reset}} so that Apply renders them in the terminal's dim colour
+// (spec §2.3 — borders → dim). The left corner rune is written before the
+// marker and the right corner rune after, so that HasPrefix/HasSuffix checks
+// on the raw line still pass while the fill-rune colours are correct.
 func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) string {
 	var sb strings.Builder
 	sb.WriteRune(left)
+	sb.WriteString("{{dim}}")
 	for i, w := range cols {
 		sb.WriteString(strings.Repeat(string(fill), w))
 		if i < len(cols)-1 {
@@ -368,6 +395,7 @@ func hlineSlice(cols []int, left, join, right, fill rune, mergeAt map[int]rune) 
 			}
 		}
 	}
+	sb.WriteString("{{reset}}")
 	sb.WriteRune(right)
 	return sb.String()
 }

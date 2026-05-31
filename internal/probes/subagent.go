@@ -68,6 +68,21 @@ func findSubagentByID(subagents []parser.SubagentStats, id string) (parser.Subag
 	return parser.SubagentStats{}, false
 }
 
+// elapsedColour wraps the ⏱elapsed string with the appropriate colour marker:
+//   - elapsed > 300s → red (long-running agent, spec §2.3)
+//   - elapsed ≤ 300s → yellow (active agent, spec §2.3)
+//
+// The ⏱ glyph is included inside the colour span so the escape directly
+// precedes the glyph after renderer.Apply (T-12 contract).
+func elapsedColour(elapsed time.Duration) string {
+	secs := int(elapsed.Seconds())
+	formatted := "⏱" + formatElapsed(elapsed)
+	if secs > 300 {
+		return "{{color:red}}" + formatted + "{{reset}}"
+	}
+	return "{{color:yellow}}" + formatted + "{{reset}}"
+}
+
 // renderMatchedLine renders the enriched display line for a matched task+stats pair.
 func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, now time.Time, level Level) string {
 	// Phase 4.1: context window size is unknown for subagents — use "?" as max.
@@ -77,8 +92,9 @@ func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, now time.Tim
 	// Phase 4.1 stub: no cost source until Phase 6.
 	costField := fmt.Sprintf("$%.2f", 0.0)
 
-	// Compute real elapsed time from task.StartTime to now.
-	timeField := formatElapsed(now.Sub(task.StartTime))
+	// Elapsed time with colour marker (spec §2.3: >300s → red, ≤300s → yellow).
+	elapsed := now.Sub(task.StartTime)
+	timeField := elapsedColour(elapsed)
 
 	lastTool := stats.LastTool
 	if lastTool == "" {

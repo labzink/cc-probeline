@@ -14,15 +14,31 @@ import (
 	"github.com/labzink/cc-probeline/internal/renderer"
 )
 
-// stripANSI removes ANSI escape sequences from s so that rune/byte widths can
-// be measured safely. Only CSI sequences (ESC [ ... m) are stripped. The
-// builder currently emits no ANSI (raw UTF-8 only, per §4.2), but this helper
-// future-proofs width assertions.
+// stripANSI removes ANSI escape sequences and {{marker}} tokens from s so that
+// rune/byte widths can be measured safely. Both CSI sequences (ESC [ ... m)
+// and marker tokens ({{...}}) are zero-visual-width and must be excluded from
+// any column-width calculation. Phase 6.7 adds marker tokens to the raw Render
+// output; this helper was updated to strip them so existing width assertions
+// remain correct.
 func stripANSI(s string) string {
 	out := make([]byte, 0, len(s))
 	inSeq := false
+	inMarker := false
 	for i := 0; i < len(s); i++ {
 		b := s[i]
+		// Strip {{...}} marker tokens (added in Phase 6.7).
+		if !inSeq && !inMarker && b == '{' && i+1 < len(s) && s[i+1] == '{' {
+			inMarker = true
+			i++ // skip second '{'
+			continue
+		}
+		if inMarker {
+			if b == '}' && i+1 < len(s) && s[i+1] == '}' {
+				inMarker = false
+				i++ // skip second '}'
+			}
+			continue
+		}
 		if b == 0x1b && i+1 < len(s) && s[i+1] == '[' {
 			inSeq = true
 			i++ // skip '['
