@@ -248,9 +248,9 @@ func TestResolveMarker_AllColors(t *testing.T) {
 	}
 }
 
-// §4.2 ANSI detect — non-tty file (regular temp file) → DetectAnsi must return false.
-// PASS on stub: intentional contract for empty-input/no-op path.
-// (stub always returns false, which is correct for non-tty)
+// Phase 6.7.a: DetectAnsi semantics changed — tty-check removed, colour is on by default.
+// non-tty file + empty NO_COLOR → must return true (was false under old tty-gating logic).
+// RED: FAILS until DetectAnsi is reworked to drop the term.IsTerminal check.
 func TestDetectAnsi_NonTty(t *testing.T) {
 	// Create a regular file — definitely not a terminal.
 	f, err := os.CreateTemp(t.TempDir(), "fake-out")
@@ -259,11 +259,12 @@ func TestDetectAnsi_NonTty(t *testing.T) {
 	}
 	t.Cleanup(func() { f.Close() })
 
-	// Ensure NO_COLOR is absent so the tty check is exercised.
+	// Ensure NO_COLOR is absent so only the tty check (now removed) would gate.
 	t.Setenv("NO_COLOR", "")
 
 	got := renderer.DetectAnsi(f)
-	if got != false {
-		t.Errorf("DetectAnsi(non-tty file): got %v, want false", got)
+	// New contract: colour by default; tty-gating dropped.
+	if got != true {
+		t.Errorf("DetectAnsi(non-tty file, NO_COLOR=''): got %v, want true", got)
 	}
 }
