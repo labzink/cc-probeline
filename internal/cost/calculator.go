@@ -16,6 +16,7 @@ type Pricing struct {
 // see project_cost_methodology memory for delta methodology).
 // Update here when Anthropic changes public pricing.
 var modelPricing = map[string]Pricing{
+	"opus-4-8":   {Input: 15.00, Output: 75.00, CacheRead: 1.50, CacheCreate: 18.75}, // stopgap: mirrors opus-4-7 until delta-based cost (BL-10)
 	"opus-4-7":   {Input: 15.00, Output: 75.00, CacheRead: 1.50, CacheCreate: 18.75},
 	"sonnet-4-6": {Input: 3.00, Output: 15.00, CacheRead: 0.30, CacheCreate: 3.75},
 	"haiku-4-5":  {Input: 1.00, Output: 5.00, CacheRead: 0.10, CacheCreate: 1.25},

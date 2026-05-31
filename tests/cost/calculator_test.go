@@ -37,6 +37,21 @@ func TestCompute_KnownModel_Opus(t *testing.T) {
 	}
 }
 
+// TestCompute_KnownModel_Opus48: opus-4-8 is a stopgap entry mirroring opus-4-7
+// pricing so a freshly-released model is not silently costed at $0 (BL-10).
+// Manual: 1_000_000 tokens × $15.00/M = $15.00 (same as opus-4-7).
+func TestCompute_KnownModel_Opus48(t *testing.T) {
+	turn := parser.Turn{
+		Model:  "opus-4-8",
+		Tokens: parser.TokenCounts{Input: 1_000_000},
+	}
+	got := cost.Compute(turn)
+	want := 15.00
+	if !approxEqual(got, want) {
+		t.Errorf("Compute(opus-4-8, Input=1M) = %.6f; want %.6f", got, want)
+	}
+}
+
 // TestCompute_KnownModel_Sonnet: Turn{Model:"sonnet-4-6", Tokens:{Output:100_000}}
 // Manual: 100_000 tokens × $15.00/M = 0.1 × 15 = $1.50
 func TestCompute_KnownModel_Sonnet(t *testing.T) {
