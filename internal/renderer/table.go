@@ -57,7 +57,7 @@ const (
 	fullTableWidth  = 80
 	sixColWidth     = 75
 	fiveColWidth    = 66
-	fiveColMinTotal = 53 // cols below this → overflow accepted (fixed5=45 + borders5=6 + tool_min=2)
+	fiveColMinTotal = 53 // min width for 5-col with a 1-rune tool cell: fixed5=45 + borders5=6 + tool col 2; below this → overflow
 )
 
 // NewBuilder returns a Builder with default layout using the given terminal
@@ -221,36 +221,35 @@ func (b *Builder) RenderForCols(cols int) string {
 		return full
 	}
 
-	// Step 2: drop "#" col (index 0) → 6-col, width 71.
+	// Step 2: drop "#" col (index 0) → 6-col, width 75.
 	c6 := b.colsAfterDrop([]int{colHash})
 	if cols >= sixColWidth {
 		return b.renderNCols(c6, nil)
 	}
 
-	// Step 3: drop "#" + "cost" → 5-col, width 61.
+	// Step 3: drop "#" + "cost" → 5-col, width 66.
 	c5 := b.colsAfterDrop([]int{colHash, colCost})
 	if cols >= fiveColWidth {
 		return b.renderNCols(c5, nil)
 	}
 
 	// Step 4: 5-col + middle-truncate tool/arg.
+	// Below fiveColMinTotal there is not enough width for a 5-col layout with a
+	// ≥1-rune tool/arg cell, so overflow is accepted (see const block).
+	if cols < fiveColMinTotal {
+		return full
+	}
 	// tool/arg is the last column in c5; flex = cols - borders(6) - fixed.
 	// Fixed widths in 5-col: role(13)+model(12)+cache(13)+out(7) = 45.
 	const borders5 = 6
 	const fixed5 = 45
 	flex := cols - borders5 - fixed5
-	if flex < 1 {
-		// cols too narrow even for 5-col with tool min=1 → overflow.
-		return full
-	}
 	// Rebuild c5 with tool/arg column set to flex width.
+	// cols >= fiveColMinTotal guarantees flex >= 2, so toolInner >= 1.
 	c5flex := make([]int, len(c5))
 	copy(c5flex, c5)
 	c5flex[len(c5flex)-1] = flex
 	toolInner := flex - 1
-	if toolInner < 1 {
-		return full
-	}
 	return b.renderNColsTrunc(c5flex, toolInner)
 }
 

@@ -136,8 +136,10 @@ func TestTable66_Widths(t *testing.T) {
 // but "cost" column must still be present.
 //
 // Threshold (6.6.d §2.4):
-//   full table = 80. Drop "#" (4) → 6-col width = 68+7 = 75.
-//   At cols=78 the 75-wide result fits, so only "#" is dropped and cost remains.
+//
+//	full table = 80. Drop "#" (4) → 6-col width = 68+7 = 75.
+//	At cols=78 the 75-wide result fits, so only "#" is dropped and cost remains.
+//
 // -------------------------------------------------------------------
 func TestTable66_DropHashFirst(t *testing.T) {
 	b := renderer.NewBuilder(80)
@@ -193,8 +195,9 @@ func TestTable66_DropHashFirst(t *testing.T) {
 // dropped → 5-col table (width 66).
 //
 // Threshold (6.6.d §2.4):
-//   6-col width = 75. At cols=72 the 6-col result (75) overflows,
-//   so cost is additionally dropped; 5-col width = 66 which fits in 72.
+//
+//	6-col width = 75. At cols=72 the 6-col result (75) overflows,
+//	so cost is additionally dropped; 5-col width = 66 which fits in 72.
 //
 // Distinguishes from old 6.6.c thresholds: with old full=76/sixColWidth=71,
 // cols=72 falls in the range (71,76) → only "#" dropped, cost retained.
@@ -299,7 +302,7 @@ func TestTable66_TruncTool(t *testing.T) {
 //
 // AddSubagents([SubagentStats{...}]) must produce a row where:
 //   - "#" cell = "↳"
-//   - role cell = AgentType (truncated to 7-wide col by padCell)
+//   - role cell = AgentType (truncated to 13-wide col by padCell, 6.6.d)
 //   - model cell = SubagentStats.Model
 //   - cache cell = "<CacheRead>/<CacheCreate>" (FormatK)
 //   - out cell = SubagentStats.Tokens.Output (FormatK)
@@ -339,6 +342,11 @@ func TestTable66_SubagentRow(t *testing.T) {
 	}
 	// The truncated form must contain "…" for middle-truncation.
 	// code-reviewer (13) → MiddleTruncate("code-reviewer", 12) → "code-r…iewer" with "…".
+	// The only over-width cell here is role (model "opus-4" and tool "Bash" are short),
+	// so "…" must originate from the truncated AgentType.
+	if !strings.Contains(out, "…") {
+		t.Errorf("AddSubagents: truncated AgentType 'code-reviewer' (13>12) must emit '…'; not found\noutput:\n%s", out)
+	}
 
 	// Verify cost cell is "—" (not a dollar amount).
 	// Cost column for subagent must show "—" as per spec (BL-7, no source).
@@ -449,12 +457,12 @@ func TestTable66_TotalExcludesAgents(t *testing.T) {
 //
 // 6.6.d widens role column to 13 (inner = 12 = col_width - 1 margin).
 //
-//   Case A: AgentType exactly 12 runes → padCell fits without truncation.
-//           All 12 runes must appear verbatim in the content row.
+//	Case A: AgentType exactly 12 runes → padCell fits without truncation.
+//	        All 12 runes must appear verbatim in the content row.
 //
-//   Case B: AgentType exactly 13 runes → padCell inner=12 → middle-truncated
-//           to 12 runes total (11 chars + "…"). The full 13-rune string
-//           must NOT appear verbatim; "…" must be present.
+//	Case B: AgentType exactly 13 runes → padCell inner=12 → middle-truncated
+//	        to 12 runes total (11 chars + "…"). The full 13-rune string
+//	        must NOT appear verbatim; "…" must be present.
 //
 // Source: spec-common.md §2.4 (role col 13, inner=12).
 // -------------------------------------------------------------------

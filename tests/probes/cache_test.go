@@ -1,6 +1,6 @@
 // Package probes_test — black-box tests for CacheProbe.
 // Covers visibility (nil Session → hidden), rendering across Full/Compact/Minimal
-// levels with known token counts, and the TTL-absent guarantee for Phase 4.1.
+// levels with known token counts, and the TTL block (⏱…) behaviour.
 //
 // CacheProbe renders the entire row-2 aggregate:
 //
@@ -8,8 +8,9 @@
 //	Compact: "<read>K/<create>K | <out>K | $<cost> | MM:SS"   (drop labels)
 //	Minimal: "<read>K/<create>K | <out>K | $<cost>"           (drop time block)
 //
-// In Phase 4.1 the TTL detector (cache_events, Phase 4.4) is absent; the ⏱…
-// block must never appear in output.
+// Since 6.6.b the ⏱… block is kept in Minimal when a cache TTL is detected;
+// these fixtures carry no TTL event, so it is absent here (the ⏱-absent cases
+// are pinned by TestCache_NoTTL).
 //
 // Token sources (Phase 4.1):
 //
