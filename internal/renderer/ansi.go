@@ -16,6 +16,11 @@ var markerRe = regexp.MustCompile(`\{\{[a-z][a-z0-9:_-]*\}\}`)
 func resolveMarker(token string, cs ColorScheme) string {
 	switch token {
 	case "dim":
+		// Prefer cs.Dim (set by all palettes); fall back to cs.DimGrey for legacy
+		// callers that populate only DimGrey (highContrast/minimal palettes).
+		if cs.Dim != "" {
+			return cs.Dim
+		}
 		return cs.DimGrey
 	case "bold":
 		return cs.Bold

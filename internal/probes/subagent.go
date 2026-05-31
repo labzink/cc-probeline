@@ -89,7 +89,7 @@ func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, now time.Tim
 	ctxK := formatK(stats.Tokens.Input)
 	ctxField := ctxK + "/?"
 
-	// Phase 4.1 stub: no cost source until Phase 6.
+	// BL-13: subagent per-turn cost not available; hardcoded $0.00
 	costField := fmt.Sprintf("$%.2f", 0.0)
 
 	// Elapsed time with colour marker (spec §2.3: >300s → red, ≤300s → yellow).
@@ -116,7 +116,7 @@ func renderMatchedLine(task stdin.Task, stats parser.SubagentStats, now time.Tim
 // renderFallbackLine renders a fallback line when no SubagentStats matched the task.
 // elapsed is computed from task.StartTime; cost remains "?" (no source until Phase 6).
 func renderFallbackLine(name string, startTime time.Time, now time.Time, level Level) string {
-	timeField := "⏱" + formatElapsed(now.Sub(startTime))
+	timeField := elapsedColour(now.Sub(startTime))
 	switch level {
 	case LevelMinimal:
 		return name + " · ? · ?"

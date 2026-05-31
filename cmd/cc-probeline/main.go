@@ -237,4 +237,4 @@ func runRender(strict bool) int {
 // Stubs filled in by later subtasks.
 func runUninstall() int { return runUninstallImpl() } // delegated to uninstall.go (5.b)
 func runInstall() int   { return runInstallImpl() }   // delegated to install.go (5.e)
-func runCheck() int     { return 0 }                  // TODO(5.a/check)
+func runCheck() int     { return 0 }                  // BL-14: --check subcommand not yet implemented
