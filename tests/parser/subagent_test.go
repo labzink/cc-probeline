@@ -859,3 +859,212 @@ func BenchmarkCollectSubagents(b *testing.B) {
 		_, _ = parser.CollectSubagents(ctx, sessionDir)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6.9.d helpers
+// ---------------------------------------------------------------------------
+
+// fixtureJSONLDir returns the path to tests/fixtures/jsonl/ (root level, not subagents/).
+// Used by Phase 6.9.d tests that need the agent-sendmsg.jsonl fixture.
+func fixtureJSONLDir(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("fixtureJSONLDir: getwd: %v", err)
+	}
+	// Running from tests/parser/ → two levels up is repo root.
+	candidate := filepath.Join(wd, "..", "..", "tests", "fixtures", "jsonl")
+	if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+		return candidate
+	}
+	// Fallback: repo root is cwd itself (go test ./... from root).
+	candidate = filepath.Join(wd, "tests", "fixtures", "jsonl")
+	if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+		return candidate
+	}
+	t.Fatalf("fixtureJSONLDir: cannot locate tests/fixtures/jsonl from %s", wd)
+	return ""
+}
+
+// setupSessionDirFromRoot creates a temp sessionDir with a subagents/ sub-directory,
+// copies named fixture files from tests/fixtures/jsonl/ (root level) into it,
+// and returns the sessionDir path.
+func setupSessionDirFromRoot(t *testing.T, fixtureNames []string) string {
+	t.Helper()
+	srcDir := fixtureJSONLDir(t)
+	sessionDir := t.TempDir()
+	subDir := filepath.Join(sessionDir, "subagents")
+	if err := os.MkdirAll(subDir, 0o700); err != nil {
+		t.Fatalf("setupSessionDirFromRoot: mkdir %q: %v", subDir, err)
+	}
+	for _, name := range fixtureNames {
+		src := filepath.Join(srcDir, name)
+		dst := filepath.Join(subDir, name)
+		copyFile(t, src, dst)
+	}
+	return sessionDir
+}
+
+// writeMetaJSON writes a meta.json file into the subagents/ dir of sessionDir.
+// content is raw JSON bytes, e.g. []byte(`{"agentType":"test-writer"}`).
+func writeMetaJSON(t *testing.T, sessionDir, agentID string, content []byte) {
+	t.Helper()
+	metaPath := filepath.Join(sessionDir, "subagents", "agent-"+agentID+".meta.json")
+	if err := os.WriteFile(metaPath, content, 0o600); err != nil {
+		t.Fatalf("writeMetaJSON: write %q: %v", metaPath, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-1a — RoleIsAgentType
+// meta.agentType="test-writer" → each Turns[i].Role == "test-writer".
+// Spec-common §2.3: collectOne prosets Turns[i].Role = AgentType after read.
+// ---------------------------------------------------------------------------
+
+// TestSubagent_RoleIsAgentType verifies that when meta.json contains agentType,
+// every Turn in Turns has Role equal to that AgentType value.
+func TestSubagent_RoleIsAgentType(t *testing.T) {
+	// Given: agent-sendmsg.jsonl (4 assistant turns) with meta agentType="test-writer".
+	sessionDir := setupSessionDirFromRoot(t, []string{"agent-sendmsg.jsonl"})
+	writeMetaJSON(t, sessionDir, "sendmsg", []byte(`{"agentType":"test-writer","description":"Phase 6.9.d fixture"}`))
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1", len(got))
+	}
+	agent := got[0]
+	if agent.AgentType != "test-writer" {
+		t.Fatalf("AgentType=%q, want %q (pre-condition)", agent.AgentType, "test-writer")
+	}
+	// All Turns must carry the AgentType as their Role.
+	if len(agent.Turns) == 0 {
+		t.Fatal("Turns is empty; want at least one Turn (4 assistant records in fixture)")
+	}
+	for i, turn := range agent.Turns {
+		if turn.Role != "test-writer" {
+			t.Errorf("Turns[%d].Role=%q, want %q (AgentType)", i, turn.Role, "test-writer")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-1b — RoleFallbackEmpty
+// No meta.json → AgentType="" → Turns[i].Role == "agent" (fallback).
+// Spec-common §2.3: fallback "agent" when AgentType is empty.
+// ---------------------------------------------------------------------------
+
+// TestSubagent_RoleFallbackEmpty verifies that when meta.json is absent (AgentType=""),
+// every Turn in Turns has Role equal to the fallback value "agent".
+func TestSubagent_RoleFallbackEmpty(t *testing.T) {
+	// Given: agent-sendmsg.jsonl with NO meta.json (meta absent → AgentType="").
+	sessionDir := setupSessionDirFromRoot(t, []string{"agent-sendmsg.jsonl"})
+	// No writeMetaJSON call — meta.json is intentionally absent.
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1", len(got))
+	}
+	agent := got[0]
+	if agent.AgentType != "" {
+		t.Fatalf("AgentType=%q, want empty (pre-condition: no meta.json)", agent.AgentType)
+	}
+	if len(agent.Turns) == 0 {
+		t.Fatal("Turns is empty; want at least one Turn")
+	}
+	for i, turn := range agent.Turns {
+		if turn.Role != "agent" {
+			t.Errorf("Turns[%d].Role=%q, want %q (fallback when AgentType empty)", i, turn.Role, "agent")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-2a — ActivationStartFirstTurn
+// Fixture without user-text boundary → ActivationStart = first turn timestamp;
+// CurrentTurnNum = total assistant turns.
+// Spec-common §2.3; Insurance #1 fallback path.
+// ---------------------------------------------------------------------------
+
+// TestSubagent_ActivationStartFirstTurn verifies that when a transcript contains
+// no user-text boundary, ActivationStart equals the timestamp of the very first
+// assistant turn, and CurrentTurnNum equals the total number of turns.
+func TestSubagent_ActivationStartFirstTurn(t *testing.T) {
+	// Given: agent-aa1.jsonl (5 assistant turns, no user records).
+	// agent-aa1 is used here because it has multiple turns and no user boundary.
+	sessionDir := setupSessionDir(t, []string{"agent-aa1.jsonl", "agent-aa1.meta.json"})
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1", len(got))
+	}
+	agent := got[0]
+
+	// agent-aa1 has 5 assistant turns. First turn timestamp: 2026-05-15T10:00:00Z.
+	wantActivationStart := parseTimeUTC(t, "2026-05-15T10:00:00.000000000Z")
+
+	// T-2a: ActivationStart == timestamp of first assistant turn (no user boundary).
+	if !agent.ActivationStart.Equal(wantActivationStart) {
+		t.Errorf("ActivationStart=%v, want %v (first turn, no user boundary)",
+			agent.ActivationStart, wantActivationStart)
+	}
+
+	// T-2a: CurrentTurnNum == total assistant turns (all in single activation).
+	if agent.CurrentTurnNum != 5 {
+		t.Errorf("CurrentTurnNum=%d, want 5 (all turns in one activation)", agent.CurrentTurnNum)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-2b — ActivationStartAfterSendMsg
+// Fixture agent-sendmsg.jsonl: 2 assistant turns, then user-text boundary, then 2
+// assistant turns.
+// ActivationStart = timestamp of third assistant record (first after boundary).
+// CurrentTurnNum = 2 (only turns after the boundary).
+// Spec-common §2.3; Insurance #1 verify path.
+// ---------------------------------------------------------------------------
+
+// TestSubagent_ActivationStartAfterSendMsg verifies that when a transcript contains
+// a user-text boundary (SendMessage appears as a user record), ActivationStart
+// equals the timestamp of the first assistant turn AFTER the boundary, and
+// CurrentTurnNum counts only the turns in that activation.
+func TestSubagent_ActivationStartAfterSendMsg(t *testing.T) {
+	// Given: agent-sendmsg.jsonl layout:
+	//   [0] assistant @ 09:00  — activation 1
+	//   [1] assistant @ 09:01  — activation 1
+	//   [2] user-text @ 09:02  — boundary (SendMessage)
+	//   [3] assistant @ 09:03  — activation 2  ← ActivationStart
+	//   [4] assistant @ 09:04  — activation 2
+	sessionDir := setupSessionDirFromRoot(t, []string{"agent-sendmsg.jsonl"})
+	writeMetaJSON(t, sessionDir, "sendmsg", []byte(`{"agentType":"test-writer"}`))
+
+	got, err := parser.CollectSubagents(context.Background(), sessionDir)
+	if err != nil {
+		t.Fatalf("CollectSubagents: unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got)=%d, want 1", len(got))
+	}
+	agent := got[0]
+
+	// ActivationStart must be the timestamp of the first assistant turn after the
+	// user-text boundary (09:03, not 09:00).
+	wantActivationStart := parseTimeUTC(t, "2026-06-01T09:03:00.000000000Z")
+	if !agent.ActivationStart.Equal(wantActivationStart) {
+		t.Errorf("ActivationStart=%v, want %v (first turn after user-text boundary)",
+			agent.ActivationStart, wantActivationStart)
+	}
+
+	// CurrentTurnNum must be 2: only the two assistant turns in the current activation.
+	if agent.CurrentTurnNum != 2 {
+		t.Errorf("CurrentTurnNum=%d, want 2 (only turns after user-text boundary)", agent.CurrentTurnNum)
+	}
+}
