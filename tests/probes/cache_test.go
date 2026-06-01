@@ -198,27 +198,30 @@ func TestCacheProbe_TTL_Full(t *testing.T) {
 }
 
 // T-7: TestCacheProbe_TTL_Expired verifies that an expired TTL (remaining ≤ 0)
-// produces no ⏱ block in any output level.
+// renders "⏱ 0m" with {{color:bold_red}} marker (Phase 6.8: never hidden when expired).
 //
 // Setup: OrchTTLMinutes=60, LastTimestamp=70 min ago (remaining = 60-70 = -10).
 func TestCacheProbe_TTL_Expired(t *testing.T) {
 	p := &probes.CacheProbe{}
 	cfg := cfgAllOn()
 	cfg.OrchTTLMinutes = 60
-	th := renderer.Theme{}
+	th := renderer.Theme{AnsiEnabled: true, Colors: renderer.DefaultPalette()}
 
 	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
 	lastTS := now.Add(-70 * time.Minute)
 	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
 
 	fullOut := p.Render(d, cfg, th, probes.LevelFull)
-	if strings.Contains(fullOut, "⏱") {
-		t.Errorf("Render(Full): ⏱ must not appear when TTL expired, got %q", fullOut)
+	if !strings.Contains(fullOut, "⏱ 0m") {
+		t.Errorf("Render(Full): want '⏱ 0m' when TTL expired, got %q", fullOut)
+	}
+	if !strings.Contains(fullOut, "{{color:bold_red}}") && !strings.Contains(fullOut, th.Colors.BoldRed) {
+		t.Errorf("Render(Full): want bold_red colour on expired TTL, got %q", fullOut)
 	}
 
 	compactOut := p.Render(d, cfg, th, probes.LevelCompact)
-	if strings.Contains(compactOut, "⏱") {
-		t.Errorf("Render(Compact): ⏱ must not appear when TTL expired, got %q", compactOut)
+	if !strings.Contains(compactOut, "⏱ 0m") {
+		t.Errorf("Render(Compact): want '⏱ 0m' when TTL expired, got %q", compactOut)
 	}
 }
 
