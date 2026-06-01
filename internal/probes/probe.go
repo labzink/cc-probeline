@@ -47,6 +47,21 @@ type Data struct {
 	// ExtraCacheEvents lets main inject synthetic alerts (e.g. config load
 	// errors) that are not derived from session/subagent JSONL data. Phase 6.
 	ExtraCacheEvents []parser.CacheEvent
+
+	// Phase 6.8.a: delta-based cost fields.
+	// SessionTotal is the cost incurred in this session (ccTotal − BaselineCost).
+	// Populated by main after cost.Reconcile; zero when state not yet loaded.
+	SessionTotal float64
+
+	// LastRequestCost is the cost of the most recent prompt group
+	// (ccTotal − PromptCost[curGroupID]). Zero when not yet computed.
+	LastRequestCost float64
+
+	// PerTurnCostFn returns the finalized per-turn USD cost for the given UUID.
+	// Returns (0, false) when the turn has no recorded cost yet.
+	// Set by main from state.Session.PerTurnCost via cost.PerTurn.
+	// nil when state not available (graceful degradation: render "—").
+	PerTurnCostFn func(uuid string) (float64, bool)
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

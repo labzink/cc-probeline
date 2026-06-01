@@ -29,16 +29,24 @@ func (p *CacheProbe) Priority() int { return 2 }
 func (p *CacheProbe) MinWidth() int { return len("0K/0K | 0K | $0.00") }
 
 // cacheTTL computes the ⏱Nm suffix for the cache row, with optional colour markers.
-// Returns "" when TTL should be hidden (expired, zero timestamp, zero turns, or zero window).
+// Returns "" when TTL should be hidden (zero timestamp, zero turns, zero window,
+// or subagent context: subagentGapMinutes > 0).
 // remaining = window − floor((now − lastTimestamp).Minutes()), floor applied.
-// Used at all levels (Full, Compact, Minimal) when remaining > 0.
+// Used at all levels (Full, Compact, Minimal).
 //
-// Colour rules per B3 §5 (applied only when ansiEnabled=true):
+// Colour rules per spec T-24 (applied only when ansiEnabled=true):
 //
-//	≤10m remaining → {{color:red}}⏱ Nm{{reset}}
-//	≤30m remaining → {{color:yellow}}⏱ Nm{{reset}}
-//	>30m remaining → no colour marker
-func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int, ansiEnabled bool) string {
+//	>30m remaining  → {{color:green}}⏱ Nm{{reset}}
+//	≤30m remaining  → {{color:yellow}}⏱ Nm{{reset}}
+//	≤10m remaining  → {{color:red}}⏱ Nm{{reset}}
+//	≤0m remaining   → {{color:bold_red}}⏱ 0m{{reset}}  (NOT hidden)
+//
+// T-23: TTL is suppressed entirely when subagentGapMinutes > 0 (subagent context).
+func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int, subagentGapMinutes int, ansiEnabled bool) string {
+	// T-23: TTL only for orchestrator.
+	if subagentGapMinutes > 0 {
+		return ""
+	}
 	if orchTTLMinutes <= 0 {
 		return ""
 	}
@@ -51,9 +59,15 @@ func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinu
 	elapsed := now.Sub(lastTimestamp)
 	elapsedMinutes := int(math.Floor(elapsed.Minutes()))
 	remaining := orchTTLMinutes - elapsedMinutes
+
+	// T-24: at remaining ≤ 0, show "0m" with bold_red (not hidden).
 	if remaining <= 0 {
-		return ""
+		if !ansiEnabled {
+			return "⏱ 0m"
+		}
+		return "{{color:bold_red}}⏱ 0m{{reset}}"
 	}
+
 	ttlText := fmt.Sprintf("⏱ %dm", remaining)
 	if !ansiEnabled {
 		return ttlText
@@ -64,7 +78,8 @@ func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinu
 	case remaining <= 30:
 		return "{{color:yellow}}" + ttlText + "{{reset}}"
 	default:
-		return ttlText
+		// T-24: > 30m → green.
+		return "{{color:green}}" + ttlText + "{{reset}}"
 	}
 }
 
@@ -87,7 +102,7 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 
 	// TTL is computed at all levels; omitted only when conditions not met (see cacheTTL).
-	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes, t.AnsiEnabled)
+	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes, c.SubagentGapMinutes, t.AnsiEnabled)
 
 	// ttlInfix returns " ⏱ Nm" when ttl is non-empty, "" otherwise.
 	// Placed right after cache numbers, before the first separator.

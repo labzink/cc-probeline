@@ -23,10 +23,12 @@ import (
 	"time"
 
 	"github.com/labzink/cc-probeline/internal/config"
+	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/statusline"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
@@ -172,6 +174,18 @@ func runRender(strict bool) int {
 	}
 	session := parser.Aggregate(records)
 
+	// Load per-session state, reconcile delta cost, and persist (Phase 6.8.a).
+	// Fail-soft: errors log and render continues without state.
+	ccTotal := payload.Cost.TotalCostUSD
+	var st *state.Session
+	if payload.SessionID != "" {
+		st = state.Load(payload.SessionID)
+		cost.Reconcile(st, ccTotal, session.Turns)
+		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
+			slog.Warn("state.Save failed", "err", saveErr)
+		}
+	}
+
 	// Collect subagent stats: fail-soft when sessionDir cannot be determined.
 	var subagents []parser.SubagentStats
 	if payload.SessionID != "" && payload.Cwd != "" {
@@ -213,6 +227,19 @@ func runRender(strict bool) int {
 		Now:              now,
 		SessionID:        payload.SessionID,
 		ExtraCacheEvents: configAlerts,
+	}
+
+	// Populate delta-cost fields from reconciled state (Phase 6.8.a).
+	if st != nil {
+		d.SessionTotal = cost.SessionTotal(st, ccTotal)
+		// LastRequest: use the highest observed GroupID as the current group.
+		// GroupID tracking requires 6.8.0 Turn.GroupID; use 0 as safe default.
+		d.LastRequestCost = cost.LastRequest(st, ccTotal, 0)
+		// Capture st for per-turn lookup (closure over current st snapshot).
+		captured := st
+		d.PerTurnCostFn = func(uuid string) (float64, bool) {
+			return cost.PerTurn(captured, uuid)
+		}
 	}
 
 	// Detect git info for the current working directory.
