@@ -257,9 +257,9 @@ ctx_warn_ratio = 0.5
 	if strings.TrimSpace(stdout) == "" {
 		t.Errorf("T-RC6: stdout should be non-empty; got empty")
 	}
-	// Output must contain ctx usage fraction (probe is visible and renders a ratio).
-	// "60%" or "60 %" or similar; we check for presence of "%" as a proxy.
-	if !strings.Contains(stdout, "%") {
-		t.Errorf("T-RC6: expected ctx usage percentage in output; got: %q", stdout)
+	// Phase 6.8.e (T-22): ctx Full no longer emits "%" — the used-K number is
+	// coloured instead. Verify the bar glyph is present (proves ctx probe rendered).
+	if !strings.Contains(stdout, "ctx") {
+		t.Errorf("T-RC6: expected ctx label in output (probe is visible); got: %q", stdout)
 	}
 }

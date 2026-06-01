@@ -12,11 +12,26 @@ import (
 // cache_read_input_tokens + cache_creation_input_tokens + input_tokens.
 // Percentage = used / Size * 100 (clamped to [0, 100]).
 //
-// Display:
+// Display (AnsiEnabled=false / legacy):
 //
 //	Full:    "ctx <bar10> <usedK>/<sizeK> (<pct>%)"
 //	Compact: "<bar5> <usedK>/<sizeK>"   (no %)
 //	Minimal: "<usedK>/<sizeK>"           (no bar, no %)
+//
+// Display (AnsiEnabled=true / T-22):
+//
+//	Full:    "ctx <bar10> <coloured-usedK>/<sizeK>"  (no %; usedK colour by fill)
+//	Compact: "<bar5> <usedK>/<sizeK>"               (unchanged)
+//	Minimal: "<usedK>/<sizeK>"                       (no colour markers)
+//
+// Colour rules for usedK (AnsiEnabled=true, > 95% → bold_red; < 50% → green;
+// otherwise marker from ProgressBarColor threshold):
+//
+//	> 95% → {{color:bold_red}}
+//	< 50% → {{color:green}}
+//	50–69% → {{color:yellow}}
+//	70–89% → {{color:orange}}
+//	≥ 90%  → {{color:red}}
 type CtxProbe struct{}
 
 func (p *CtxProbe) Name() string  { return "ctx" }
@@ -29,6 +44,31 @@ func (p *CtxProbe) Visible(d Data, c Config) bool {
 		return false
 	}
 	return d.Stdin.ContextWindow.Size > 0
+}
+
+// ctxNumberMarker returns the semantic colour marker token for the usedK number
+// when AnsiEnabled=true. Uses bold_red above 95%, otherwise falls back to the
+// ProgressBarColor threshold (green/yellow/orange/red).
+func ctxNumberMarker(pct float64, t renderer.Theme) string {
+	if !t.AnsiEnabled {
+		return ""
+	}
+	if pct > 95 {
+		return "{{color:bold_red}}"
+	}
+	// Reuse ProgressBarColor thresholds for the remaining bands.
+	// ProgressBarColor returns ANSI codes, but we need marker tokens.
+	// Map the same thresholds manually.
+	switch {
+	case pct < 50:
+		return "{{color:green}}"
+	case pct < 70:
+		return "{{color:yellow}}"
+	case pct < 90:
+		return "{{color:orange}}"
+	default:
+		return "{{color:red}}"
+	}
 }
 
 // Render formats the context window usage with a progress bar.
@@ -52,17 +92,16 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 
 	usedK := formatK(used)
 	sizeK := formatK(size)
-	label := usedK + "/" + sizeK
 
 	if level == LevelMinimal {
-		return label
+		// Minimal: bare numbers, no colour markers (T-22).
+		return usedK + "/" + sizeK
 	}
 
-	// colourReset returns the reset escape only when AnsiEnabled.
-	// t.Colors.Reset may be non-empty even with AnsiEnabled=false (palette set but gated).
+	// colourReset is only emitted when AnsiEnabled is true.
 	colourReset := ""
 	if t.AnsiEnabled {
-		colourReset = t.Colors.Reset
+		colourReset = "{{reset}}"
 	}
 
 	if level == LevelCompact {
@@ -71,15 +110,22 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		bar := renderer.ProgressBar(roundNearest10(pct))
 		colorCode := renderer.ProgressBarColor(pct, t)
 		// ProgressBarColor returns "" when AnsiEnabled=false → bar without colour.
-		return colorCode + bar + colourReset + " " + label
+		return colorCode + bar + colourReset + " " + usedK + "/" + sizeK
 	}
 
-	// LevelFull: 10-segment bar + label + percentage (raw pct, not rounded).
+	// LevelFull path.
 	bar := renderer.ProgressBar10(pct)
-	colorCode := renderer.ProgressBarColor(pct, t)
+
+	if t.AnsiEnabled {
+		// T-22: colour the usedK number; no percent sign; bar preserved.
+		marker := ctxNumberMarker(pct, t)
+		return fmt.Sprintf("ctx %s %s%s{{reset}}/%s", bar, marker, usedK, sizeK)
+	}
+
+	// Legacy (AnsiEnabled=false): include percentage for existing tests.
+	barColor := renderer.ProgressBarColor(pct, t) // returns "" when disabled
 	pctInt := int(pct)
-	// ProgressBarColor returns "" when AnsiEnabled=false → bar without colour.
-	return fmt.Sprintf("ctx %s%s%s %s (%d%%)", colorCode, bar, colourReset, label, pctInt)
+	return fmt.Sprintf("ctx %s%s%s %s/%s (%d%%)", barColor, bar, colourReset, usedK, sizeK, pctInt)
 }
 
 // roundNearest10 rounds v to the nearest multiple of 10 using standard rounding

@@ -47,9 +47,12 @@ func (a *Assembler) Render(d probes.Data) string {
 	const bulletSep = "{{dim}} • {{reset}}"
 	const pipeSep = " | "
 
-	l0 := renderer.FitLine(a.buildProbeEntries(probes.Line0Registry, d), cols, bulletSep)
-	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d), cols, bulletSep)
-	l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d), cols, pipeSep)
+	// T-21: line0/line1 use registry order (no Priority sort).
+	// line2 retains ascending-Priority sort for backwards compatibility
+	// with Phase 4.2 contract (lower number = higher importance = leftmost).
+	l0 := renderer.FitLine(a.buildProbeEntries(probes.Line0Registry, d, false), cols, bulletSep)
+	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d, false), cols, bulletSep)
+	l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d, true), cols, pipeSep)
 
 	lines := []string{l0, l1, l2}
 
@@ -69,7 +72,14 @@ func (a *Assembler) Render(d probes.Data) string {
 
 // buildProbeEntries converts a probe registry slice into []renderer.ProbeEntry
 // for consumption by FitLine. Invisible probes are excluded (§4.3 T-11).
-func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data) []renderer.ProbeEntry {
+//
+// When sortByPriority is false (line0, line1), registry order is preserved:
+// probes appear left-to-right in registration order; Priority is used only by
+// FitLine/levelForPass for collapse ordering (T-21).
+//
+// When sortByPriority is true (line2), entries are sorted ascending by Priority
+// so lower-number (higher-importance) probes appear leftmost (Phase 4.2 §C-9).
+func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data, sortByPriority bool) []renderer.ProbeEntry {
 	entries := make([]renderer.ProbeEntry, 0, len(ps))
 	for _, p := range ps {
 		if !p.Visible(d, a.Config) {
@@ -83,10 +93,11 @@ func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data) []render
 			},
 		})
 	}
-	// Sort by priority ascending so FitLine sees probes in display order.
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].Priority < entries[j].Priority
-	})
+	if sortByPriority {
+		sort.SliceStable(entries, func(i, j int) bool {
+			return entries[i].Priority < entries[j].Priority
+		})
+	}
 	return entries
 }
 

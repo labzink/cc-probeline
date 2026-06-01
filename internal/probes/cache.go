@@ -13,9 +13,9 @@ import (
 //
 // Display:
 //
-//	Full:    "cache <readK>/<createK> ⏱ Nm • out <outK> • cost: $<cost> • time: MM:SS"
-//	Compact: "<readK>/<createK> ⏱ Nm • <outK> • $<cost> • MM:SS"
-//	Minimal: "<readK>/<createK> ⏱ Nm • <outK> • $<cost>"   (TTL preserved, no time)
+//	Full:    "cache <readK>/<createK> ⏱ Nm{{dim}} • {{reset}}out <outK>{{dim}} • {{reset}}cost: $<cost>{{dim}} • {{reset}}time: MM:SS"
+//	Compact: "<readK>/<createK> ⏱ Nm{{dim}} • {{reset}}<outK>{{dim}} • {{reset}}$<cost>{{dim}} • {{reset}}MM:SS"
+//	Minimal: "<readK>/<createK> ⏱ Nm{{dim}} • {{reset}}<outK>{{dim}} • {{reset}}$<cost>"   (TTL preserved, no time)
 //
 // TTL block (⏱Nm) is omitted when:
 //   - d.Session is nil
@@ -116,24 +116,24 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	switch level {
 	case LevelFull:
 		if !c.CostEnabled {
-			return fmt.Sprintf("cache %s/%s%s • out %s • time: %s",
+			return fmt.Sprintf("cache %s/%s%s{{dim}} • {{reset}}out %s{{dim}} • {{reset}}time: %s",
 				readK, createK, ttlInfix(), outK, mmss)
 		}
-		return fmt.Sprintf("cache %s/%s%s • out %s • cost: %s • time: %s",
+		return fmt.Sprintf("cache %s/%s%s{{dim}} • {{reset}}out %s{{dim}} • {{reset}}cost: %s{{dim}} • {{reset}}time: %s",
 			readK, createK, ttlInfix(), outK, cost, mmss)
 	case LevelCompact:
 		if !c.CostEnabled {
-			return fmt.Sprintf("%s/%s%s • %s • %s",
+			return fmt.Sprintf("%s/%s%s{{dim}} • {{reset}}%s{{dim}} • {{reset}}%s",
 				readK, createK, ttlInfix(), outK, mmss)
 		}
-		return fmt.Sprintf("%s/%s%s • %s • %s • %s",
+		return fmt.Sprintf("%s/%s%s{{dim}} • {{reset}}%s{{dim}} • {{reset}}%s{{dim}} • {{reset}}%s",
 			readK, createK, ttlInfix(), outK, cost, mmss)
 	default: // LevelMinimal — TTL preserved, no time block
 		if !c.CostEnabled {
-			return fmt.Sprintf("%s/%s%s • %s",
+			return fmt.Sprintf("%s/%s%s{{dim}} • {{reset}}%s",
 				readK, createK, ttlInfix(), outK)
 		}
-		return fmt.Sprintf("%s/%s%s • %s • %s",
+		return fmt.Sprintf("%s/%s%s{{dim}} • {{reset}}%s{{dim}} • {{reset}}%s",
 			readK, createK, ttlInfix(), outK, cost)
 	}
 }
