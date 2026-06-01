@@ -109,6 +109,19 @@ func renderRowNPlainBar(row Row, colWidths []int) string {
 	return sb.String()
 }
 
+// unifiedRoleColour wraps a role label with colour markers based on IsSidechain:
+//   - IsSidechain=false (orchestrator) → cyan
+//   - IsSidechain=true  (sidechain agent) → yellow
+//
+// This supersedes the legacy roleColour("orch") string-match approach, which
+// failed because Turn.Role is "orchestrator" (not "orch") in production data.
+func unifiedRoleColour(role string, isSidechain bool) string {
+	if !isSidechain {
+		return "{{color:cyan}}" + role + "{{reset}}"
+	}
+	return "{{color:yellow}}" + role + "{{reset}}"
+}
+
 // buildUnifiedRow constructs a Row for a single Turn using the redesigned layout.
 //
 // Column mapping: # / role / model / cache / out / cost / tool
@@ -145,7 +158,7 @@ func (b *Builder) buildUnifiedRow(t parser.Turn, st *state.Session) Row {
 
 	return Row{
 		{Content: idxStr, Align: AlignRight},
-		{Content: roleColour(t.Role), Align: AlignLeft},
+		{Content: unifiedRoleColour(t.Role, t.IsSidechain), Align: AlignLeft},
 		{Content: model, Align: AlignLeft},
 		{Content: cache, Align: AlignLeft},
 		{Content: format.FormatK(t.Tokens.Output), Align: AlignRight},
