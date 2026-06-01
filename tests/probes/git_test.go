@@ -177,7 +177,7 @@ func TestGit_ColoursUnchanged(t *testing.T) {
 			wantContains: []string{
 				"{{color:cyan}}",   // branch must be cyan
 				"{{color:yellow}}", // warning must be yellow
-				"⚠3",               // warning glyph + count
+				"⚠ 3",              // warning glyph + space + count (spec §2.3, T-29)
 				"main",             // branch name
 			},
 			wantAbsent: []string{
@@ -222,5 +222,42 @@ func TestGit_ColoursUnchanged(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-29: git warn spacing — spec-common.md §2.3
+//
+// The warn segment must be "⚠ N" (space between glyph and count), not "⚠N".
+// Colour (yellow) and visibility condition (count > 0) are unchanged.
+// ---------------------------------------------------------------------------
+
+// TestGit_WarnSpacing (T-29) verifies that the warn segment contains a space
+// between the warning glyph and the modified-file count: "⚠ 6", not "⚠6".
+// The yellow colour wrapper must also be present (AnsiEnabled=true).
+func TestGit_WarnSpacing(t *testing.T) {
+	p := &probes.GitProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+	cfg := probes.Config{GitEnabled: true}
+	d := probes.Data{
+		Git: &parser.GitStatus{
+			Branch:        "main",
+			ModifiedCount: 6,
+		},
+	}
+
+	got := p.Render(d, cfg, th, probes.LevelFull)
+
+	// Must contain warn glyph followed by a space then the count.
+	if !strings.Contains(got, "⚠ 6") {
+		t.Errorf("T-29: want %q in output (space between glyph and count), got %q", "⚠ 6", got)
+	}
+	// Yellow colour wrapper must still be present (colour unchanged).
+	if !strings.Contains(got, "{{color:yellow}}") {
+		t.Errorf("T-29: want {{color:yellow}} wrapper in output, got %q", got)
+	}
+	// The old compact form without space must NOT appear.
+	if strings.Contains(got, "⚠6") {
+		t.Errorf("T-29: must NOT contain %q (no-space form), got %q", "⚠6", got)
 	}
 }
