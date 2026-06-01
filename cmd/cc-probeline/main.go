@@ -267,13 +267,26 @@ func runRender(strict bool) int {
 	}
 
 	// Detect git info for the current working directory.
+	// Anti-flicker: on error use state.Session.LastGoodGit; on success update it.
 	const gitTimeout = 150 * time.Millisecond
 	if payload.Cwd != "" {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
-		gs, gitErr := parser.DetectGit(gitCtx, payload.Cwd)
+		freshGit, gitErr := parser.DetectGit(gitCtx, payload.Cwd)
 		gitCancel()
-		if gitErr == nil {
-			d.Git = gs
+
+		var lastGoodGit *parser.GitStatus
+		if st != nil {
+			lastGoodGit = st.LastGoodGit
+		}
+		resolved := parser.ResolveGitStatus(freshGit, gitErr, lastGoodGit)
+		d.Git = resolved
+
+		// Persist the new successful result so the next invocation can use it.
+		if gitErr == nil && st != nil && payload.SessionID != "" {
+			st.LastGoodGit = freshGit
+			if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
+				slog.Warn("state.Save after git update failed", "err", saveErr)
+			}
 		}
 	}
 
