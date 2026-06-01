@@ -58,4 +58,9 @@ type Turn struct {
 	Timestamp   time.Time     // Record.Timestamp (may be zero)
 	Duration    time.Duration // gap from the previous turn's Timestamp; 0 for first
 	IsSidechain bool          // mirrors Record.IsSidechain
+
+	// Phase 6.8.0 additions.
+	UUID     string // Record.UUID — stable turn key used for per-turn cost tracking
+	GroupID  int    // 1-based index of the enclosing user prompt; 0 for sidechain turns (assigned in merge)
+	Thinking bool   // true: content had a thinking-block AND no tool_use block
 }

@@ -30,12 +30,38 @@ type SessionStats struct {
 	CacheEvents []CacheEvent
 }
 
-// Aggregate computes a SessionStats from a deduplicated, sorted []Record
-// (the output of ParseLines). Pure function: no I/O, no logging, no mutation
-// of the input slice.
+// isUserTextRecord reports whether r is a user record with textual (non-tool-result)
+// content. Such records mark prompt boundaries for GroupID assignment (spec §2.3,
+// Insurance #1: any user-text record = new group).
 //
-// Upstream contract: records are sorted ASC by Timestamp and deduplicated;
-// only assistant records with non-empty usage are present.
+// A user-text record has Role=="user" and content that is either empty or a plain
+// string. Tool-result records have content as a list with type "tool_result".
+// We detect this by checking that none of the ContentBlocks has type "tool_result".
+func isUserTextRecord(r Record) bool {
+	if r.Type != "user" {
+		return false
+	}
+	// If content blocks exist, verify no tool_result is present.
+	for _, c := range r.Content {
+		if c.Type == "tool_result" {
+			return false
+		}
+	}
+	return true
+}
+
+// Aggregate computes a SessionStats from a []Record that may contain both user
+// and assistant records. User records with textual content are used as prompt
+// boundaries for GroupID assignment (spec §2.3). Only assistant records contribute
+// to Turns, token totals, and PerModel counts.
+//
+// Phase 6.8.0 additions:
+//   - Turn.UUID is set from Record.UUID.
+//   - Turn.GroupID is set to the 1-based index of the most recent user-text boundary
+//     for orchestrator turns (IsSidechain=false); sidechain turns get GroupID=0.
+//   - Turn.Thinking is true when the record had a thinking-block AND no tool_use block.
+//
+// Pure function: no I/O, no logging, no mutation of the input slice.
 // Nil or empty input returns SessionStats{} (zero value, PerModel == nil).
 func Aggregate(records []Record) SessionStats {
 	if len(records) == 0 {
@@ -46,10 +72,28 @@ func Aggregate(records []Record) SessionStats {
 	// Pre-allocate for typical session: Opus orchestrator + Sonnet/Haiku subagent + spare.
 	s.PerModel = make(map[string]TokenCounts, 4)
 	s.Turns = make([]Turn, 0, len(records))
-	s.FirstTimestamp = records[0].Timestamp
 
+	// groupID tracks the current 1-based prompt group index.
+	// Incremented on every user-text boundary record.
+	groupID := 0
+
+	// prevTimestamp is used to compute Turn.Duration. We track it across
+	// all assistant records only (not user boundaries).
 	var prevTimestamp time.Time
-	for i, rec := range records {
+	turnIndex := 0 // 1-based index among assistant records only
+
+	for _, rec := range records {
+		// User-text records mark prompt boundaries; they do not produce a Turn.
+		if isUserTextRecord(rec) {
+			groupID++
+			continue
+		}
+
+		// Skip all other non-assistant records (e.g. user tool-result records).
+		if rec.Type != "assistant" {
+			continue
+		}
+
 		key := CanonicalModelKey(rec.Model)
 
 		cur := s.PerModel[key]
@@ -70,10 +114,16 @@ func Aggregate(records []Record) SessionStats {
 
 		s.TurnCount++
 
+		hasThinking := false
+		hasToolUse := false
 		toolUse := ""
 		for _, c := range rec.Content {
-			if c.Type == "tool_use" {
+			switch c.Type {
+			case "thinking":
+				hasThinking = true
+			case "tool_use":
 				s.ToolUseCount++
+				hasToolUse = true
 				if toolUse == "" {
 					toolUse = c.ToolName
 				}
@@ -84,12 +134,21 @@ func Aggregate(records []Record) SessionStats {
 		if rec.IsSidechain {
 			role = "agent"
 		}
+
+		// Sidechain turns do not get a GroupID here; it will be assigned
+		// during the merge step in 6.8.d based on timestamp.
+		turnGroupID := 0
+		if !rec.IsSidechain {
+			turnGroupID = groupID
+		}
+
+		turnIndex++
 		var dur time.Duration
-		if i > 0 {
+		if turnIndex > 1 {
 			dur = rec.Timestamp.Sub(prevTimestamp)
 		}
 		s.Turns = append(s.Turns, Turn{
-			Index:       i + 1,
+			Index:       turnIndex,
 			Role:        role,
 			Model:       key,
 			Tokens:      rec.Usage,
@@ -97,12 +156,21 @@ func Aggregate(records []Record) SessionStats {
 			Timestamp:   rec.Timestamp,
 			Duration:    dur,
 			IsSidechain: rec.IsSidechain,
+			UUID:        rec.UUID,
+			GroupID:     turnGroupID,
+			Thinking:    hasThinking && !hasToolUse,
 		})
 		prevTimestamp = rec.Timestamp
+
+		if s.FirstTimestamp.IsZero() {
+			s.FirstTimestamp = rec.Timestamp
+		}
+		s.LastTimestamp = rec.Timestamp
 	}
 
-	s.LastTimestamp = records[len(records)-1].Timestamp
-	s.CacheEvents = DetectCacheEvents(s.Turns, time.Now())
+	if len(s.Turns) > 0 {
+		s.CacheEvents = DetectCacheEvents(s.Turns, time.Now())
+	}
 	return s
 }
 

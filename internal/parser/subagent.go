@@ -80,6 +80,11 @@ type SubagentStats struct {
 	// Phase 5 cache layer also uses this for mtime-based invalidation
 	// (see specs.md §B2).
 	JSONLModTime time.Time
+
+	// Turns holds one Turn per record, in record order. Each Turn has
+	// Role=AgentType, IsSidechain=true, and GroupID=0 (assigned during merge
+	// in Phase 6.8.d). Added in Phase 6.8.0 for interleaved table rendering.
+	Turns []Turn
 }
 
 // subagentFile pairs a JSONL path with its sibling meta path before aggregation.
@@ -330,6 +335,10 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 // tool_use ContentBlock encountered scanning records in forward order
 // (overwritten on each tool_use → keeps the final one).
 //
+// Phase 6.8.0: Turns is populated with one Turn per record. Each Turn has
+// Role="agent" (IsSidechain=true) and GroupID=0; GroupID is assigned during
+// the merge step in Phase 6.8.d based on timestamp.
+//
 // Pure function. AgentID, TaskID, AgentType, Description, TranscriptPath, and
 // JSONLModTime are filled by the caller (CollectSubagents / collectOne).
 func aggregateSubagent(records []Record) SubagentStats {
@@ -339,8 +348,10 @@ func aggregateSubagent(records []Record) SubagentStats {
 
 	var s SubagentStats
 	s.FirstTimestamp = records[0].Timestamp
+	s.Turns = make([]Turn, 0, len(records))
 
-	for _, rec := range records {
+	var prevTimestamp time.Time
+	for i, rec := range records {
 		s.Tokens.Input += rec.Usage.Input
 		s.Tokens.Output += rec.Usage.Output
 		s.Tokens.CacheRead += rec.Usage.CacheRead
@@ -349,12 +360,42 @@ func aggregateSubagent(records []Record) SubagentStats {
 		s.Tokens.CacheCreate1h += rec.Usage.CacheCreate1h
 		s.TurnCount++
 
+		hasThinking := false
+		hasToolUse := false
+		toolUse := ""
 		for _, c := range rec.Content {
-			if c.Type == "tool_use" {
+			switch c.Type {
+			case "thinking":
+				hasThinking = true
+			case "tool_use":
 				s.ToolUseCount++
+				hasToolUse = true
+				if toolUse == "" {
+					toolUse = c.ToolName
+				}
 				s.LastTool = c.ToolName // overwrite — keeps last in iteration order
 			}
 		}
+
+		var dur time.Duration
+		if i > 0 {
+			dur = rec.Timestamp.Sub(prevTimestamp)
+		}
+		// Sidechain turns: Role="agent", IsSidechain=true, GroupID=0 (merge assigns it).
+		s.Turns = append(s.Turns, Turn{
+			Index:       i + 1,
+			Role:        "agent",
+			Model:       CanonicalModelKey(rec.Model),
+			Tokens:      rec.Usage,
+			ToolUse:     toolUse,
+			Timestamp:   rec.Timestamp,
+			Duration:    dur,
+			IsSidechain: true,
+			UUID:        rec.UUID,
+			GroupID:     0,
+			Thinking:    hasThinking && !hasToolUse,
+		})
+		prevTimestamp = rec.Timestamp
 	}
 
 	s.LastTimestamp = records[len(records)-1].Timestamp
