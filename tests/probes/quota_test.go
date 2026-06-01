@@ -280,3 +280,288 @@ func TestQuotaProbe_Boundary(t *testing.T) {
 		})
 	}
 }
+
+// --- Phase 6.9.b: T-23, T-24, T-25 ---
+
+// TestQuotaRender_PctSuffixInRed (T-23) verifies that Full/Compact render
+// inserts " NN%" between the progress bar and the reset countdown when pct ≥ 90,
+// and that no such suffix appears when pct < 90.
+//
+// Spec §2.3: "Full/Compact insert ` NN%` between bar and reset when pct >= 90,
+// coloured with ProgressBarColor(pct)".
+//
+// Current behaviour: no % suffix is emitted at any pct level → test is RED.
+func TestQuotaRender_PctSuffixInRed(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	// Plain theme so colour-marker presence can be tested via string contains without ANSI.
+	th := renderer.Theme{}
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	// Reset is well in the future (2h) so the reset countdown is non-zero.
+	resetUnix := json.RawMessage(fmt.Sprintf("%d", now.Add(2*time.Hour).Unix()))
+
+	cases := []struct {
+		name       string
+		pct        float64
+		wantSuffix bool   // whether " NN%" should appear in output
+		pctStr     string // the exact percent digits (e.g. "92")
+	}{
+		{
+			name:       "pct_92_triggers_suffix",
+			pct:        92.0,
+			wantSuffix: true,
+			pctStr:     "92",
+		},
+		{
+			name:       "pct_90_triggers_suffix",
+			pct:        90.0,
+			wantSuffix: true,
+			pctStr:     "90",
+		},
+		{
+			name:       "pct_85_no_suffix",
+			pct:        85.0,
+			wantSuffix: false,
+			pctStr:     "85",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rl := &stdin.RateLimits{
+				FiveHour: stdin.RateWindow{
+					UsedPercentage: tc.pct,
+					ResetsAt:       resetUnix,
+				},
+				SevenDay: stdin.RateWindow{
+					UsedPercentage: 50.0, // below threshold — no suffix expected for 7d here
+					ResetsAt:       resetUnix,
+				},
+			}
+			d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
+
+			for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact} {
+				got := p.Render(d, cfg, th, level)
+				// The pct suffix should appear as " NN%" (space + digits + percent sign).
+				suffix := " " + tc.pctStr + "%"
+				hasSuffix := strings.Contains(got, suffix)
+				if tc.wantSuffix && !hasSuffix {
+					t.Errorf("T-23 %s level=%v: want %q in render output (pct≥90 triggers suffix), got %q",
+						tc.name, level, suffix, got)
+				}
+				if !tc.wantSuffix && hasSuffix {
+					// Only fail if the suffix appears in a contextually pct-suffix position;
+					// the Minimal-level "NN% · NN%" would contain "85%" but that's not a
+					// bar-adjacent suffix. Since we are testing Full/Compact, a false match
+					// would be ↻…85%… which would indicate a real bug.
+					t.Errorf("T-23 %s level=%v: must NOT contain %q (pct<90 no suffix), got %q",
+						tc.name, level, suffix, got)
+				}
+			}
+		})
+	}
+}
+
+// TestQuotaRender_5hResetColour (T-24) verifies the gradient colour rule for
+// the 5-hour reset countdown:
+//
+//	> 60m           → no colour marker
+//	≤ 60m && > 30m  → {{color:green}}
+//	≤ 30m && > 10m  → {{color:orange}}
+//	≤ 10m           → {{color:red}}
+//
+// Spec §2.3: "5h reset — >60m no marker; >30m&&<=60m green; >10m&&<=30m orange; <=10m red".
+//
+// Current behaviour: single threshold < 30m → yellow; no green/orange/red gradient → RED.
+func TestQuotaRender_5hResetColour(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	// AnsiEnabled=true so colour markers are emitted in raw form.
+	th := renderer.Theme{AnsiEnabled: true, Colors: renderer.DefaultPalette()}
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name        string
+		resetIn     time.Duration // duration from now until reset
+		wantMarker  string        // expected colour marker; "" means no marker
+		noMarker    bool          // true when no colour marker expected
+	}{
+		{
+			name:       "45m_green",
+			resetIn:    45 * time.Minute,
+			wantMarker: "{{color:green}}",
+		},
+		{
+			name:       "20m_orange",
+			resetIn:    20 * time.Minute,
+			wantMarker: "{{color:orange}}",
+		},
+		{
+			name:       "5m_red",
+			resetIn:    5 * time.Minute,
+			wantMarker: "{{color:red}}",
+		},
+		{
+			name:     "90m_no_marker",
+			resetIn:  90 * time.Minute,
+			noMarker: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetUnix := json.RawMessage(fmt.Sprintf("%d", now.Add(tc.resetIn).Unix()))
+			// 7d reset is far in the future so it doesn't interfere with colour assertions.
+			farFuture := json.RawMessage(fmt.Sprintf("%d", now.Add(72*time.Hour).Unix()))
+
+			rl := &stdin.RateLimits{
+				FiveHour: stdin.RateWindow{
+					UsedPercentage: 50.0,
+					ResetsAt:       resetUnix,
+				},
+				SevenDay: stdin.RateWindow{
+					UsedPercentage: 30.0,
+					ResetsAt:       farFuture,
+				},
+			}
+			d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
+
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			if tc.noMarker {
+				// None of the gradient markers should appear for the 5h part.
+				// We verify by checking that the 5h reset portion (which is before the "·")
+				// does not contain any colour marker.
+				fiveHourPart := got
+				if idx := strings.Index(got, " · "); idx >= 0 {
+					fiveHourPart = got[:idx]
+				}
+				for _, forbidden := range []string{"{{color:green}}", "{{color:orange}}", "{{color:red}}", "{{color:yellow}}"} {
+					if strings.Contains(fiveHourPart, forbidden) {
+						t.Errorf("T-24 %s: 5h part must have no colour marker for reset>60m, but found %q in %q",
+							tc.name, forbidden, fiveHourPart)
+					}
+				}
+			} else {
+				// The 5h part must contain the expected colour marker.
+				fiveHourPart := got
+				if idx := strings.Index(got, " · "); idx >= 0 {
+					fiveHourPart = got[:idx]
+				}
+				if !strings.Contains(fiveHourPart, tc.wantMarker) {
+					t.Errorf("T-24 %s: 5h reset countdown: want marker %q in 5h part %q (full: %q)",
+						tc.name, tc.wantMarker, fiveHourPart, got)
+				}
+				// Must NOT contain the old yellow marker (regression guard).
+				if strings.Contains(fiveHourPart, "{{color:yellow}}") {
+					t.Errorf("T-24 %s: 5h reset must use gradient (not yellow); got %q",
+						tc.name, fiveHourPart)
+				}
+			}
+		})
+	}
+}
+
+// TestQuotaRender_7dResetColour (T-25) verifies the gradient colour rule for
+// the 7-day reset countdown:
+//
+//	> 2d            → no colour marker
+//	≤ 2d && > 1d    → {{color:green}}
+//	≤ 24h && > 5h   → {{color:orange}}
+//	≤ 5h            → {{color:red}}
+//
+// Spec §2.3: "7d reset — >2d no marker; >1d&&<=2d green; >5h&&<=24h orange; <=5h red".
+//
+// Current behaviour: single threshold < 30m → yellow; no gradient for 7d → RED.
+func TestQuotaRender_7dResetColour(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	th := renderer.Theme{AnsiEnabled: true, Colors: renderer.DefaultPalette()}
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// Keep 5h reset far in the future so it doesn't produce markers that
+	// could interfere with assertions on the 7d part.
+	farFuture5h := json.RawMessage(fmt.Sprintf("%d", now.Add(3*time.Hour).Unix()))
+
+	cases := []struct {
+		name       string
+		resetIn    time.Duration
+		wantMarker string
+		noMarker   bool
+	}{
+		{
+			name:       "36h_green",
+			resetIn:    36 * time.Hour,
+			wantMarker: "{{color:green}}",
+		},
+		{
+			name:       "12h_orange",
+			resetIn:    12 * time.Hour,
+			wantMarker: "{{color:orange}}",
+		},
+		{
+			name:       "3h_red",
+			resetIn:    3 * time.Hour,
+			wantMarker: "{{color:red}}",
+		},
+		{
+			name:     "50h_no_marker",
+			resetIn:  50 * time.Hour,
+			noMarker: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetUnix := json.RawMessage(fmt.Sprintf("%d", now.Add(tc.resetIn).Unix()))
+
+			rl := &stdin.RateLimits{
+				FiveHour: stdin.RateWindow{
+					UsedPercentage: 30.0,
+					ResetsAt:       farFuture5h,
+				},
+				SevenDay: stdin.RateWindow{
+					UsedPercentage: 40.0,
+					ResetsAt:       resetUnix,
+				},
+			}
+			d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: rl}}
+
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			// Isolate the 7d part (after the "·" separator).
+			sevenDayPart := got
+			if idx := strings.Index(got, " · "); idx >= 0 {
+				sevenDayPart = got[idx+3:] // skip " · "
+			}
+
+			if tc.noMarker {
+				for _, forbidden := range []string{"{{color:green}}", "{{color:orange}}", "{{color:red}}", "{{color:yellow}}"} {
+					if strings.Contains(sevenDayPart, forbidden) {
+						t.Errorf("T-25 %s: 7d part must have no colour marker for reset>2d, but found %q in %q",
+							tc.name, forbidden, sevenDayPart)
+					}
+				}
+			} else {
+				if !strings.Contains(sevenDayPart, tc.wantMarker) {
+					t.Errorf("T-25 %s: 7d reset countdown: want marker %q in 7d part %q (full: %q)",
+						tc.name, tc.wantMarker, sevenDayPart, got)
+				}
+				// Must NOT use old yellow marker (regression guard).
+				if strings.Contains(sevenDayPart, "{{color:yellow}}") {
+					t.Errorf("T-25 %s: 7d reset must use gradient (not yellow); got %q",
+						tc.name, sevenDayPart)
+				}
+			}
+		})
+	}
+}
