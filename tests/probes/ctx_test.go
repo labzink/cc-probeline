@@ -164,6 +164,132 @@ func TestCtx_Render_Percent(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// T-E2: TestCtx_NumbersColoured (Phase 6.8.e)
+//
+// Spec T-22: Full output = "ctx <bar> <usedK>/<sizeK>" where usedK is
+// wrapped with a semantic colour marker; no "%" character; bar preserved.
+//
+// Colour rules (AnsiEnabled=true, markers resolved later by renderer.Apply):
+//   > 95% fill → {{color:bold_red}} on usedK number
+//   < 50% fill → {{color:green}} on usedK number
+//
+// Minimal output = bare "usedK/sizeK" — no colour markers, no "%".
+// ---------------------------------------------------------------------------
+
+// TestCtx_NumbersColoured verifies that CtxProbe.Render (Full) wraps the used-K
+// number with the correct colour marker based on fill percentage, emits no "%"
+// character, and preserves the progress bar glyph.
+func TestCtx_NumbersColoured(t *testing.T) {
+	p := &probes.CtxProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+
+	tests := []struct {
+		name          string
+		size          int
+		usedTokens    int
+		level         probes.Level
+		wantContains  []string // all must appear in output
+		wantAbsent    []string // none may appear in output
+	}{
+		{
+			// >95% → usedK must carry {{color:bold_red}}.
+			// size=200000, used=192000 → 96% → bold_red.
+			name:       "full_over95pct_bold_red",
+			size:       200000,
+			usedTokens: 192000,
+			level:      probes.LevelFull,
+			wantContains: []string{
+				"{{color:bold_red}}", // colour marker must be present on used-K
+				"192K",              // the number itself
+				"200K",              // size
+				"ctx",               // label preserved
+			},
+			wantAbsent: []string{
+				"%", // no percent sign in Full output (T-22)
+			},
+		},
+		{
+			// <50% → usedK must carry {{color:green}}.
+			// size=200000, used=60000 → 30% → green.
+			name:       "full_under50pct_green",
+			size:       200000,
+			usedTokens: 60000,
+			level:      probes.LevelFull,
+			wantContains: []string{
+				"{{color:green}}", // colour marker must be present on used-K
+				"60K",            // the number itself
+				"200K",           // size
+				"ctx",            // label preserved
+			},
+			wantAbsent: []string{
+				"%", // no percent sign in Full output (T-22)
+			},
+		},
+		{
+			// Full output must contain a progress bar glyph (T-22: bar preserved).
+			// size=200000, used=128000 → 64% → bar exists but between 50% and 95%.
+			name:       "full_bar_preserved",
+			size:       200000,
+			usedTokens: 128000,
+			level:      probes.LevelFull,
+			wantContains: []string{
+				"█",   // at least one full block glyph proves bar is present
+				"ctx", // label
+			},
+			wantAbsent: []string{
+				"%", // no percent sign (T-22)
+			},
+		},
+		{
+			// Minimal level: bare "usedK/sizeK", no colour markers, no "%".
+			name:       "minimal_bare_numbers",
+			size:       200000,
+			usedTokens: 192000,
+			level:      probes.LevelMinimal,
+			wantContains: []string{
+				"192K/200K",
+			},
+			wantAbsent: []string{
+				"%",            // no percent sign
+				"{{color:",     // no colour markers at Minimal
+				"ctx",          // no label at Minimal
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := probes.Data{Stdin: stdin.Payload{
+				ContextWindow: stdin.ContextWindow{
+					Size: tc.size,
+					CurrentUsage: map[string]int{
+						"cache_read_input_tokens":     tc.usedTokens,
+						"input_tokens":                0,
+						"cache_creation_input_tokens": 0,
+						"output_tokens":               0,
+					},
+				},
+			}}
+			cfg := probes.Config{CtxEnabled: true}
+			got := p.Render(d, cfg, th, tc.level)
+
+			for _, want := range tc.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("Render(%v, used=%d, size=%d): expected %q in output, got %q",
+						tc.level, tc.usedTokens, tc.size, want, got)
+				}
+			}
+			for _, absent := range tc.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("Render(%v, used=%d, size=%d): must NOT contain %q, got %q",
+						tc.level, tc.usedTokens, tc.size, absent, got)
+				}
+			}
+		})
+	}
+}
+
 // TestCtx_RoundNearest10_ClampAbove100 verifies that roundNearest10 clamps
 // values above 100 to exactly 100 (the r > 100 branch, ctx.go:89-92).
 // This exercises the branch that existing tests do not cover (66.7% → 100%).
