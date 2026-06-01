@@ -185,12 +185,12 @@ func TestCtx_NumbersColoured(t *testing.T) {
 	th := renderer.Theme{AnsiEnabled: true}
 
 	tests := []struct {
-		name          string
-		size          int
-		usedTokens    int
-		level         probes.Level
-		wantContains  []string // all must appear in output
-		wantAbsent    []string // none may appear in output
+		name         string
+		size         int
+		usedTokens   int
+		level        probes.Level
+		wantContains []string // all must appear in output
+		wantAbsent   []string // none may appear in output
 	}{
 		{
 			// >95% → usedK must carry {{color:bold_red}}.
@@ -201,9 +201,9 @@ func TestCtx_NumbersColoured(t *testing.T) {
 			level:      probes.LevelFull,
 			wantContains: []string{
 				"{{color:bold_red}}", // colour marker must be present on used-K
-				"192K",              // the number itself
-				"200K",              // size
-				"ctx",               // label preserved
+				"192K",               // the number itself
+				"200K",               // size
+				"ctx",                // label preserved
 			},
 			wantAbsent: []string{
 				"%", // no percent sign in Full output (T-22)
@@ -218,9 +218,9 @@ func TestCtx_NumbersColoured(t *testing.T) {
 			level:      probes.LevelFull,
 			wantContains: []string{
 				"{{color:green}}", // colour marker must be present on used-K
-				"60K",            // the number itself
-				"200K",           // size
-				"ctx",            // label preserved
+				"60K",             // the number itself
+				"200K",            // size
+				"ctx",             // label preserved
 			},
 			wantAbsent: []string{
 				"%", // no percent sign in Full output (T-22)
@@ -251,9 +251,9 @@ func TestCtx_NumbersColoured(t *testing.T) {
 				"192K/200K",
 			},
 			wantAbsent: []string{
-				"%",            // no percent sign
-				"{{color:",     // no colour markers at Minimal
-				"ctx",          // no label at Minimal
+				"%",        // no percent sign
+				"{{color:", // no colour markers at Minimal
+				"ctx",      // no label at Minimal
 			},
 		},
 	}
@@ -285,6 +285,102 @@ func TestCtx_NumbersColoured(t *testing.T) {
 					t.Errorf("Render(%v, used=%d, size=%d): must NOT contain %q, got %q",
 						tc.level, tc.usedTokens, tc.size, absent, got)
 				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-15: ctx Full — bar coloured, usedK number plain (Phase 6.9.c)
+//
+// Contract (spec-common.md §2.3):
+//   Full with AnsiEnabled=true: the progress bar carries the colour marker,
+//   but the usedK number is rendered WITHOUT a colour marker.
+//   Previously both bar and usedK shared the same marker token; after this
+//   change only the bar is wrapped.
+//
+// The test checks:
+//   1. A colour marker is present (bar is coloured).
+//   2. The pattern "<colour-marker><usedK>" does NOT appear (number is plain).
+//   3. The pattern "{{reset}} <usedK>" IS present (usedK follows a reset, plain).
+// ---------------------------------------------------------------------------
+
+// TestCtx_NumberPlainBarColoured (T-15) verifies that CtxProbe.Render (Full,
+// AnsiEnabled=true) colours the progress bar but leaves the usedK number
+// without any colour marker, for three representative fill-percentage bands.
+func TestCtx_NumberPlainBarColoured(t *testing.T) {
+	p := &probes.CtxProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+	cfg := probes.Config{CtxEnabled: true}
+
+	tests := []struct {
+		name       string
+		size       int
+		usedTokens int
+		usedKStr   string // expected usedK label (e.g. "192K")
+	}{
+		{
+			// >95% band → bar marker = {{color:bold_red}}.
+			// size=200000, used=192000 → 96% → usedK = "192K".
+			name:       "96pct_bold_red",
+			size:       200000,
+			usedTokens: 192000,
+			usedKStr:   "192K",
+		},
+		{
+			// <50% band → bar marker = {{color:green}}.
+			// size=200000, used=60000 → 30% → usedK = "60K".
+			name:       "30pct_green",
+			size:       200000,
+			usedTokens: 60000,
+			usedKStr:   "60K",
+		},
+		{
+			// 70–89% band → bar marker = {{color:orange}}.
+			// size=200000, used=160000 → 80% → usedK = "160K".
+			name:       "80pct_orange",
+			size:       200000,
+			usedTokens: 160000,
+			usedKStr:   "160K",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := probes.Data{Stdin: stdin.Payload{
+				ContextWindow: stdin.ContextWindow{
+					Size: tc.size,
+					CurrentUsage: map[string]int{
+						"cache_read_input_tokens":     tc.usedTokens,
+						"input_tokens":                0,
+						"cache_creation_input_tokens": 0,
+						"output_tokens":               0,
+					},
+				},
+			}}
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			// Bar must carry a colour marker — at least one {{color:…}} in output.
+			if !strings.Contains(got, "{{color:") {
+				t.Errorf("T-15: %s: want a {{color:…}} marker on bar, got %q", tc.name, got)
+			}
+
+			// usedK number must NOT be directly preceded by a colour marker.
+			// The bad pattern is "{{color:bold_red}}192K" (or any colour token + usedK).
+			badPattern := "{{color:" // any colour token immediately before usedK
+			// Check that no colour marker is glued to the usedK number.
+			// We do this by verifying the plain usedK is present but colour+usedK is absent.
+			if strings.Contains(got, badPattern+tc.usedKStr) {
+				t.Errorf("T-15: %s: usedK %q must NOT be directly preceded by a colour marker, got %q",
+					tc.name, tc.usedKStr, got)
+			}
+
+			// Verify the usedK label is plain in the output (appears without marker prefix).
+			// Pattern: "{{reset}} <usedK>" — reset from bar, then space, then plain usedK.
+			plainPattern := "{{reset}} " + tc.usedKStr
+			if !strings.Contains(got, plainPattern) {
+				t.Errorf("T-15: %s: want plain usedK as %q in output, got %q",
+					tc.name, plainPattern, got)
 			}
 		})
 	}

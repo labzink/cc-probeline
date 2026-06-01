@@ -4,6 +4,7 @@
 package probes_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -83,5 +84,117 @@ func TestModel_MinWidth(t *testing.T) {
 	p := &probes.ModelProbe{}
 	if got := p.MinWidth(); got < 8 {
 		t.Errorf("MinWidth(): want >= 8, got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-14: Model colour = effortColorMarker (Phase 6.9.c)
+//
+// Contract (spec-common.md §2.3):
+//   ModelProbe.Render wraps the model name in effortColorMarker(effort.Level)
+//   instead of {{bold}}.
+//   - effort=high/xhigh/max → "{{color:magenta}}<name>{{reset}}"
+//   - effort=low            → "{{dim}}<name>{{reset}}"
+//   - effort=medium or none → plain "<name>" (no colour marker, no {{bold}})
+// ---------------------------------------------------------------------------
+
+// TestModel_ColourMatchesEffortHigh (T-14a) verifies that when effort.Level is
+// "high"/"xhigh"/"max", the model name itself is prefixed by {{color:magenta}}
+// (not just the effort glyph), and the legacy {{bold}} marker is absent.
+func TestModel_ColourMatchesEffortHigh(t *testing.T) {
+	p := &probes.ModelProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+
+	efforts := []string{"high", "xhigh", "max"}
+	for _, lvl := range efforts {
+		t.Run("effort="+lvl, func(t *testing.T) {
+			d := probes.Data{
+				Stdin: stdin.Payload{
+					Model:  stdin.Model{ID: "claude-sonnet-4-6"},
+					Effort: stdin.Effort{Level: lvl},
+				},
+			}
+			cfg := probes.Config{ModelEnabled: true}
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			// The model name must be directly preceded by {{color:magenta}}.
+			// Pattern: "{{color:magenta}}sonnet-4-6"
+			if !strings.Contains(got, "{{color:magenta}}sonnet-4-6") {
+				t.Errorf("T-14a: effort=%q: want model name wrapped as {{color:magenta}}sonnet-4-6 in output, got %q", lvl, got)
+			}
+			// Legacy {{bold}} must NOT appear — model colour now comes from effortColorMarker.
+			if strings.Contains(got, "{{bold}}") {
+				t.Errorf("T-14a: effort=%q: must NOT contain {{bold}}, got %q", lvl, got)
+			}
+		})
+	}
+}
+
+// TestModel_ColourMatchesEffortLow (T-14b) verifies that when effort.Level is
+// "low", the model name itself is directly preceded by {{dim}} (wrapping the
+// model name, not just the effort glyph), and {{bold}} is absent.
+func TestModel_ColourMatchesEffortLow(t *testing.T) {
+	p := &probes.ModelProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+
+	d := probes.Data{
+		Stdin: stdin.Payload{
+			Model:  stdin.Model{ID: "claude-opus-4-7-20250805"},
+			Effort: stdin.Effort{Level: "low"},
+		},
+	}
+	cfg := probes.Config{ModelEnabled: true}
+	got := p.Render(d, cfg, th, probes.LevelFull)
+
+	// The model name must be directly preceded by {{dim}}.
+	// Pattern: "{{dim}}opus-4-7"
+	if !strings.Contains(got, "{{dim}}opus-4-7") {
+		t.Errorf("T-14b: effort=low: want model name wrapped as {{dim}}opus-4-7 in output, got %q", got)
+	}
+	// Legacy {{bold}} must NOT appear.
+	if strings.Contains(got, "{{bold}}") {
+		t.Errorf("T-14b: effort=low: must NOT contain {{bold}}, got %q", got)
+	}
+}
+
+// TestModel_NoMarkerMedium (T-14c) verifies that for effort=medium or no effort,
+// the model name is rendered plain (no colour marker, no {{bold}}).
+func TestModel_NoMarkerMedium(t *testing.T) {
+	p := &probes.ModelProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+
+	tests := []struct {
+		name  string
+		level string
+	}{
+		{"effort=medium", "medium"},
+		{"effort=empty", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := probes.Data{
+				Stdin: stdin.Payload{
+					Model:  stdin.Model{ID: "claude-sonnet-4-6"},
+					Effort: stdin.Effort{Level: tc.level},
+				},
+			}
+			cfg := probes.Config{ModelEnabled: true}
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			// No colour markers expected for medium/no effort.
+			if strings.Contains(got, "{{bold}}") {
+				t.Errorf("T-14c: %s: must NOT contain {{bold}}, got %q", tc.name, got)
+			}
+			if strings.Contains(got, "{{color:magenta}}") {
+				t.Errorf("T-14c: %s: must NOT contain {{color:magenta}}, got %q", tc.name, got)
+			}
+			if strings.Contains(got, "{{dim}}") {
+				t.Errorf("T-14c: %s: must NOT contain {{dim}} on model name, got %q", tc.name, got)
+			}
+			if !strings.Contains(got, "sonnet-4-6") {
+				t.Errorf("T-14c: %s: want model name in output, got %q", tc.name, got)
+			}
+		})
 	}
 }

@@ -145,3 +145,82 @@ func TestGit_NoModified(t *testing.T) {
 		t.Errorf("Render(Full, ModifiedCount=0): want no ⚠ suffix, got %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T-27: git colours unchanged — regression anchor (Phase 6.9.c)
+//
+// Phase 6.9.c is a no-op for git.go (19=no-op). This test anchors that the
+// colour semantics introduced in Phase 6.7 are preserved:
+//   - branch segment wraps in {{color:cyan}}…{{reset}} when AnsiEnabled=true
+//   - ⚠N warning wraps in {{color:yellow}}…{{reset}} when ModifiedCount > 0
+// ---------------------------------------------------------------------------
+
+// TestGit_ColoursUnchanged (T-27) is a regression anchor verifying that
+// GitProbe.Render produces cyan-wrapped branch and yellow-wrapped ⚠N when
+// AnsiEnabled=true. Phase 6.9.c must not alter git colour behaviour.
+func TestGit_ColoursUnchanged(t *testing.T) {
+	p := &probes.GitProbe{}
+	th := renderer.Theme{AnsiEnabled: true}
+
+	tests := []struct {
+		name          string
+		branch        string
+		modifiedCount int
+		wantContains  []string
+		wantAbsent    []string
+	}{
+		{
+			// Branch with modifications: cyan branch + yellow warning.
+			name:          "branch_with_modifications",
+			branch:        "main",
+			modifiedCount: 3,
+			wantContains: []string{
+				"{{color:cyan}}",   // branch must be cyan
+				"{{color:yellow}}", // warning must be yellow
+				"⚠3",               // warning glyph + count
+				"main",             // branch name
+			},
+			wantAbsent: []string{
+				"{{bold}}", // no bold on branch (not part of git colour contract)
+			},
+		},
+		{
+			// Branch without modifications: cyan branch only, no yellow warning.
+			name:          "branch_no_modifications",
+			branch:        "agent/test/phase-6-9",
+			modifiedCount: 0,
+			wantContains: []string{
+				"{{color:cyan}}", // branch must be cyan
+				"agent/test/phase-6-9",
+			},
+			wantAbsent: []string{
+				"{{color:yellow}}", // no warning → no yellow marker
+				"⚠",                // no warning glyph
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := probes.Data{
+				Git: &parser.GitStatus{
+					Branch:        tc.branch,
+					ModifiedCount: tc.modifiedCount,
+				},
+			}
+			cfg := probes.Config{GitEnabled: true}
+			got := p.Render(d, cfg, th, probes.LevelFull)
+
+			for _, want := range tc.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("T-27: %s: want %q in output, got %q", tc.name, want, got)
+				}
+			}
+			for _, absent := range tc.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("T-27: %s: must NOT contain %q, got %q", tc.name, absent, got)
+				}
+			}
+		})
+	}
+}
