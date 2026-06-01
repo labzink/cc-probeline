@@ -311,3 +311,285 @@ func TestFormat_ZeroDollars(t *testing.T) {
 		t.Errorf("Format(0) = %q; want %q", got, want)
 	}
 }
+
+// =============================================================================
+// Phase 6.9.a — RED tests (T-16, T-16b, T-17, T-19, T-20)
+//
+// NOTE: These tests call cost.Reconcile with the NEW 4-argument signature:
+//   Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.Turn)
+//
+// The existing tests above (T-C1..T-C3) use the old 3-arg form and will need
+// updating by the GREEN agent when the signature changes. Both are intentionally
+// left here; the RED phase means this file does NOT compile until GREEN lands.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// T-16: TestReconcile_WeightedSumEqualsDelta
+// Spec: §2.3 — Σ PerTurnCost of new turns == Δ (exact, within float epsilon)
+//
+// Weight values from design table (relative, not pricing):
+//   opus:  out=75, in=15
+//   haiku: out=4,  in=0.80
+//
+// Scenario: two new turns, delta=2.00
+//   Turn-A: opus,  out=1000  → units_A = 75*1000 = 75000
+//   Turn-B: haiku, out=1000  → units_B = 4*1000  = 4000
+//   Σunits = 79000
+//   cost_A = 2.00 * 75000/79000 ≈ 1.898734...
+//   cost_B = 2.00 *  4000/79000 ≈ 0.101265...
+//   cost_A + cost_B = 2.00 (exact by construction)
+// ---------------------------------------------------------------------------
+
+// TestReconcile_WeightedSumEqualsDelta verifies that the sum of per-turn costs
+// assigned to the new turns in a single Reconcile call equals the delta exactly
+// (within floating-point epsilon). This is the core invariant of the weighted
+// distribution: Σ cost = Δ, regardless of individual weight magnitudes.
+func TestReconcile_WeightedSumEqualsDelta(t *testing.T) {
+	// Given: a fresh session (baseline not yet captured) and two turns with
+	// different models; the only tokens are output tokens to keep the scenario
+	// focused on the out-weight ratio.
+	st := &state.Session{Initialized: false}
+	turns := []parser.Turn{
+		{UUID: "turn-opus-A", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-haiku-B", Model: "claude-haiku-3-5", Tokens: parser.TokenCounts{Output: 1000}},
+	}
+	delta := 2.00
+
+	// When: Reconcile is called for the first time (baseline = 0 → delta = ccTotal).
+	// durMS=1000 — arbitrary non-zero value; establishes baseline.
+	cost.Reconcile(st, delta, int64(1000), turns)
+
+	// Then: the sum of per-turn costs must equal delta exactly (within 1e-9).
+	costA, okA := cost.PerTurn(st, "turn-opus-A")
+	if !okA {
+		t.Fatalf("TestReconcile_WeightedSumEqualsDelta: PerTurn(turn-opus-A) not found")
+	}
+	costB, okB := cost.PerTurn(st, "turn-haiku-B")
+	if !okB {
+		t.Fatalf("TestReconcile_WeightedSumEqualsDelta: PerTurn(turn-haiku-B) not found")
+	}
+	sum := costA + costB
+	if !approxEqual(sum, delta) {
+		t.Errorf("TestReconcile_WeightedSumEqualsDelta: Σ cost = %.9f; want %.9f (delta); diff = %.2e",
+			sum, delta, math.Abs(sum-delta))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-16b: TestReconcile_WeightedShare
+// Spec: §2.3 — when Opus and Haiku turns have equal output tokens, Opus
+// receives a larger cost share (out_opus=75 >> out_haiku=4).
+// ---------------------------------------------------------------------------
+
+// TestReconcile_WeightedShare verifies that, with equal output token counts,
+// an opus turn receives a larger PerTurnCost share than a haiku turn.
+// This confirms the weight table is applied (not output-proportional fallback).
+func TestReconcile_WeightedShare(t *testing.T) {
+	// Given: two turns with identical output tokens but different model families.
+	// opus out-weight=75, haiku out-weight=4 → opus gets ~94.9% of delta.
+	st := &state.Session{Initialized: false}
+	turns := []parser.Turn{
+		{UUID: "turn-opus", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 100}},
+		{UUID: "turn-haiku", Model: "claude-haiku-3-5", Tokens: parser.TokenCounts{Output: 100}},
+	}
+
+	// When: first Reconcile with delta=1.00.
+	cost.Reconcile(st, 1.00, int64(500), turns)
+
+	// Then: opus share > haiku share (weight ratio 75:4).
+	opusCost, okO := cost.PerTurn(st, "turn-opus")
+	if !okO {
+		t.Fatalf("TestReconcile_WeightedShare: PerTurn(turn-opus) not found")
+	}
+	haikuCost, okH := cost.PerTurn(st, "turn-haiku")
+	if !okH {
+		t.Fatalf("TestReconcile_WeightedShare: PerTurn(turn-haiku) not found")
+	}
+	if opusCost <= haikuCost {
+		t.Errorf("TestReconcile_WeightedShare: opus cost (%.6f) must be > haiku cost (%.6f) for equal out tokens",
+			opusCost, haikuCost)
+	}
+	// Sanity: ratio should reflect weight ratio 75:4 ≈ 18.75.
+	// Allow loose check (just > 10x) to be robust to minor table changes.
+	if haikuCost > 0 {
+		ratio := opusCost / haikuCost
+		if ratio < 10 {
+			t.Errorf("TestReconcile_WeightedShare: opus/haiku cost ratio = %.2f; want ≥ 10 (weights 75:4 ≈ 18.75x)", ratio)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-17: TestReconcile_SubagentTurnsInPool
+// Spec: §2.3 — subagent turns (IsSidechain=true) are included in the
+// distribution pool and receive a PerTurnCost entry.
+// ---------------------------------------------------------------------------
+
+// TestReconcile_SubagentTurnsInPool verifies that turns with IsSidechain=true
+// are not skipped during delta distribution; they receive PerTurnCost entries
+// just like orchestrator turns.
+func TestReconcile_SubagentTurnsInPool(t *testing.T) {
+	// Given: one orchestrator turn and one sidechain (subagent) turn.
+	st := &state.Session{Initialized: false}
+	turns := []parser.Turn{
+		{
+			UUID:        "orch-turn-1",
+			Model:       "claude-sonnet-4-6",
+			IsSidechain: false,
+			Tokens:      parser.TokenCounts{Output: 500},
+		},
+		{
+			UUID:        "sub-turn-1",
+			Model:       "claude-haiku-3-5",
+			IsSidechain: true,
+			Tokens:      parser.TokenCounts{Output: 500},
+		},
+	}
+
+	// When: Reconcile distributes delta=3.00 across both turns.
+	cost.Reconcile(st, 3.00, int64(2000), turns)
+
+	// Then: both turns must have a PerTurnCost entry (sidechain is in the pool).
+	_, okOrch := cost.PerTurn(st, "orch-turn-1")
+	if !okOrch {
+		t.Errorf("TestReconcile_SubagentTurnsInPool: PerTurn(orch-turn-1) not found — orchestrator turn missing")
+	}
+	_, okSub := cost.PerTurn(st, "sub-turn-1")
+	if !okSub {
+		t.Errorf("TestReconcile_SubagentTurnsInPool: PerTurn(sub-turn-1) not found — sidechain turn must be in pool")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-19: TestSubagentTotal_SumByUUIDs
+// Spec: §2.2 — SubagentTotal(st, uuids) = Σ PerTurnCost for the given UUIDs
+// ---------------------------------------------------------------------------
+
+// TestSubagentTotal_SumByUUIDs verifies that SubagentTotal returns the exact
+// sum of PerTurnCost values for the given UUID list, ignoring any other turns
+// in the session.
+func TestSubagentTotal_SumByUUIDs(t *testing.T) {
+	tests := []struct {
+		name      string
+		perTurn   map[string]float64
+		uuids     []string
+		wantTotal float64
+	}{
+		{
+			name: "single agent UUID",
+			perTurn: map[string]float64{
+				"sub-uuid-1": 0.50,
+				"sub-uuid-2": 0.30,
+				"orch-uuid":  1.20,
+			},
+			uuids:     []string{"sub-uuid-1"},
+			wantTotal: 0.50,
+		},
+		{
+			name: "multiple agent UUIDs sum",
+			perTurn: map[string]float64{
+				"sub-uuid-1": 0.50,
+				"sub-uuid-2": 0.30,
+				"orch-uuid":  1.20,
+			},
+			uuids:     []string{"sub-uuid-1", "sub-uuid-2"},
+			wantTotal: 0.80,
+		},
+		{
+			name: "unknown UUID returns 0",
+			perTurn: map[string]float64{
+				"sub-uuid-1": 0.50,
+			},
+			uuids:     []string{"nonexistent-uuid"},
+			wantTotal: 0.00,
+		},
+		{
+			name:      "empty UUID list returns 0",
+			perTurn:   map[string]float64{"sub-uuid-1": 0.50},
+			uuids:     []string{},
+			wantTotal: 0.00,
+		},
+		{
+			name:      "nil PerTurnCost returns 0",
+			perTurn:   nil,
+			uuids:     []string{"sub-uuid-1"},
+			wantTotal: 0.00,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given: a session with pre-populated PerTurnCost map.
+			st := &state.Session{
+				Initialized: true,
+				PerTurnCost: tc.perTurn,
+			}
+
+			// When: computing subagent cumulative cost.
+			got := cost.SubagentTotal(st, tc.uuids)
+
+			// Then: result must equal the sum of mapped costs for given UUIDs.
+			if !approxEqual(got, tc.wantTotal) {
+				t.Errorf("SubagentTotal(%v) = %.6f; want %.6f", tc.uuids, got, tc.wantTotal)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T-20: TestReconcile_BaselineDurCapturedAndDelta
+// Spec: §2.3 — first Reconcile sets BaselineDurMS=durMS;
+// SessionDuration = durMS − BaselineDurMS; second call with larger durMS yields
+// positive duration.
+// ---------------------------------------------------------------------------
+
+// TestReconcile_BaselineDurCapturedAndDelta verifies that:
+//  1. The first Reconcile call captures BaselineDurMS from the durMS argument.
+//  2. SessionDuration(st, durMS) returns durMS − BaselineDurMS (zero on first call).
+//  3. A subsequent call with a larger durMS returns a positive duration delta.
+func TestReconcile_BaselineDurCapturedAndDelta(t *testing.T) {
+	// Given: a fresh session and an initial durMS.
+	st := &state.Session{Initialized: false}
+	turns := []parser.Turn{
+		{UUID: "turn-dur-1", Model: "claude-sonnet-4-6", Tokens: parser.TokenCounts{Output: 100}},
+	}
+	const baselineDur = int64(5000) // 5 seconds in ms at session start.
+
+	// When: first Reconcile call.
+	cost.Reconcile(st, 1.00, baselineDur, turns)
+
+	// Then: BaselineDurMS is captured.
+	if st.BaselineDurMS != baselineDur {
+		t.Errorf("TestReconcile_BaselineDurCapturedAndDelta: BaselineDurMS = %d; want %d",
+			st.BaselineDurMS, baselineDur)
+	}
+
+	// Then: SessionDuration at the moment of baseline = 0 (no elapsed time yet).
+	durAtBaseline := cost.SessionDuration(st, baselineDur)
+	if durAtBaseline != 0 {
+		t.Errorf("TestReconcile_BaselineDurCapturedAndDelta: SessionDuration at baseline = %d ms; want 0",
+			durAtBaseline)
+	}
+
+	// When: later, TotalAPIDurationMS has grown (more turns processed).
+	const laterDur = int64(8500) // 3.5 seconds elapsed since baseline.
+	turns2 := []parser.Turn{
+		{UUID: "turn-dur-1", Model: "claude-sonnet-4-6", Tokens: parser.TokenCounts{Output: 100}},
+		{UUID: "turn-dur-2", Model: "claude-sonnet-4-6", Tokens: parser.TokenCounts{Output: 200}},
+	}
+	cost.Reconcile(st, 1.50, laterDur, turns2)
+
+	// Then: BaselineDurMS must remain unchanged (immutable after first capture).
+	if st.BaselineDurMS != baselineDur {
+		t.Errorf("TestReconcile_BaselineDurCapturedAndDelta: BaselineDurMS changed on second call: %d; want %d",
+			st.BaselineDurMS, baselineDur)
+	}
+
+	// Then: SessionDuration returns the positive elapsed delta.
+	wantDelta := laterDur - baselineDur // 3500 ms
+	gotDelta := cost.SessionDuration(st, laterDur)
+	if gotDelta != wantDelta {
+		t.Errorf("TestReconcile_BaselineDurCapturedAndDelta: SessionDuration(laterDur=%d) = %d ms; want %d ms",
+			laterDur, gotDelta, wantDelta)
+	}
+}
