@@ -125,6 +125,8 @@ func TestProject66_Compact(t *testing.T) {
 //
 // RED: Priority() returns 3 (old); Full uses ProgressBar (5 runes) instead of ProgressBar10 (10 runes).
 func TestQuota66_PriorityAndBars(t *testing.T) {
+	// C4: isolate from real quota file.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 	p := &probes.QuotaProbe{}
 	th := renderer.Theme{}
 	cfg := probes.Config{QuotaEnabled: true}
@@ -195,6 +197,8 @@ func TestQuota66_PriorityAndBars(t *testing.T) {
 //
 // RED: current formatDuration produces "↻0h59m" (no space, no colon) and "↻3d12h" (no space, no dot).
 func TestQuota66_ResetFormat(t *testing.T) {
+	// C4: isolate from real quota file.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 	p := &probes.QuotaProbe{}
 	th := renderer.Theme{}
 	cfg := probes.Config{QuotaEnabled: true}

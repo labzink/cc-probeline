@@ -225,6 +225,8 @@ func TestColour_ProgressBar_Thresholds(t *testing.T) {
 		})
 
 		t.Run("quota/"+tc.name, func(t *testing.T) {
+			// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+			t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 			p := &probes.QuotaProbe{}
 			cfg := probes.Config{QuotaEnabled: true}
 			now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
@@ -256,6 +258,8 @@ func TestColour_ProgressBar_Thresholds(t *testing.T) {
 // TestColour_Quota_ResetYellow (T-7) verifies that the ↻ reset countdown is
 // wrapped in yellow (\x1b[33m) when time-to-reset < 30 minutes.
 func TestColour_Quota_ResetYellow(t *testing.T) {
+	// C4: isolate from real quota file.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 	p := &probes.QuotaProbe{}
 	th := colourTheme()
 	cfg := probes.Config{QuotaEnabled: true}
@@ -290,6 +294,8 @@ func TestColour_Quota_ResetYellow(t *testing.T) {
 // TestColour_Quota_ResetNoColour (T-7) verifies that the ↻ reset countdown
 // has NO yellow colour escape when time-to-reset ≥ 30 minutes.
 func TestColour_Quota_ResetNoColour(t *testing.T) {
+	// C4: isolate from real quota file.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 	p := &probes.QuotaProbe{}
 	th := colourTheme()
 	cfg := probes.Config{QuotaEnabled: true}
@@ -516,6 +522,8 @@ func TestColour_Project_Dim(t *testing.T) {
 // AnsiEnabled=false) none of the probes produce \x1b[ escape codes in their
 // rendered+applied output.
 func TestColour_Regression_NoAnsi(t *testing.T) {
+	// C4: isolate from real quota file for the quota probe sub-case.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 	th := renderer.Theme{} // AnsiEnabled=false
 	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
 	resetsAt := json.RawMessage(fmt.Sprintf("%d", now.Add(2*time.Hour).Unix()))

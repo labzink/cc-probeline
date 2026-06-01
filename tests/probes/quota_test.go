@@ -23,6 +23,9 @@ import (
 // TestQuota_Visible_Disabled verifies that QuotaProbe.Visible returns false
 // when Config.QuotaEnabled is false, regardless of other fields.
 func TestQuota_Visible_Disabled(t *testing.T) {
+	// C4: isolate from real quota file so Freshest() always returns false.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	d := probes.Data{Stdin: stdin.Payload{}}
 	cfg := probes.Config{QuotaEnabled: false}
@@ -37,6 +40,9 @@ func TestQuota_Visible_Disabled(t *testing.T) {
 // when Config.QuotaEnabled is true AND RateLimits data is present.
 // Updated in Phase 6.5.b4: real data required; nil RateLimits → false (T-17).
 func TestQuota_Visible_Enabled(t *testing.T) {
+	// C4: isolate from real quota file.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	rl := &stdin.RateLimits{
 		FiveHour: stdin.RateWindow{UsedPercentage: 50},
@@ -57,6 +63,9 @@ func TestQuota_Visible_Enabled(t *testing.T) {
 // 7d=41% → ProgressBar10 floors to 40% → bar "████░░░░░░"
 // 133min → 2h13m → "↻ 2h:13m"; 84h → 3d12h → "↻ 3d.12h"
 func TestQuota_Render_Full(t *testing.T) {
+	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
@@ -87,6 +96,9 @@ func TestQuota_Render_Full(t *testing.T) {
 // 23% → ProgressBar floors to 20% → bar "█░░░░"
 // 41% → ProgressBar floors to 40% → bar "██░░░"
 func TestQuota_Render_Compact(t *testing.T) {
+	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
@@ -115,6 +127,9 @@ func TestQuota_Render_Compact(t *testing.T) {
 // Progress bars and time-to-reset are dropped; only percent values remain.
 // Updated in Phase 6.5.b4: uses real RateLimits data; format is integer %.
 func TestQuota_Render_Minimal(t *testing.T) {
+	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
@@ -138,6 +153,9 @@ func TestQuota_Render_Minimal(t *testing.T) {
 // RED: fails until Visible checks d.Stdin.RateLimits != nil in addition to
 // c.QuotaEnabled.
 func TestQuotaProbe_HiddenWhenNil(t *testing.T) {
+	// C4: isolate from real quota file; with empty dir, Freshest()=false.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	d := probes.Data{Stdin: stdin.Payload{}} // RateLimits not set → nil
 	c := probes.Config{QuotaEnabled: true}
@@ -160,6 +178,9 @@ func TestQuotaProbe_HiddenWhenNil(t *testing.T) {
 //	    Phase 6.6: Full bar ProgressBar10: 60% → "██████░░░░"; Compact ProgressBar: 60% → "███░░"
 //	reset format: "↻ 2h:13m" and "↻ 3d.12h"
 func TestQuotaProbe_RealRender(t *testing.T) {
+	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
@@ -210,6 +231,9 @@ func TestQuotaProbe_RealRender(t *testing.T) {
 //
 // RED: fails until QuotaProbe.Render reads real RateLimits.
 func TestQuotaProbe_Boundary(t *testing.T) {
+	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
 	th := renderer.Theme{}
