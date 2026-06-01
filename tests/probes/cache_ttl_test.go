@@ -79,11 +79,13 @@ func TestTTL_OrchOnly(t *testing.T) {
 		}
 	}
 
-	// Case B: subagent context — SubagentGapMinutes=5 (>0), OrchTTLMinutes=60.
-	// TTL block must be absent at all levels.
+	// Case B: subagent context — IsSubagentContext=true, OrchTTLMinutes=60.
+	// SubagentGapMinutes is the THRESHOLD value, not the "is subagent" flag
+	// (C3 fix). TTL block must be absent at all levels when IsSubagentContext=true.
 	subCfg := cfgAllOn()
 	subCfg.OrchTTLMinutes = 60
-	subCfg.SubagentGapMinutes = 5 // subagent — TTL suppressed
+	subCfg.SubagentGapMinutes = 5   // threshold value (not a flag)
+	subCfg.IsSubagentContext = true // explicit subagent context flag
 
 	for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
 		got := p.Render(d, subCfg, th, level)

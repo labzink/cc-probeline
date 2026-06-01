@@ -457,9 +457,10 @@ func TestColour_Cache_TTL_Colours(t *testing.T) {
 // T-10: TimeProbe / EmailProbe / ProjectProbe — dim wrapper
 // ----------------------------------------------------------------------------
 
-// TestColour_Time_Dim (T-10) verifies that TimeProbe.Render, after Apply,
-// contains the dim escape (\x1b[2m) wrapping the MM:SS value.
-func TestColour_Time_Dim(t *testing.T) {
+// TestColour_Time_NoDim (S1) verifies that TimeProbe.Render, after Apply,
+// does NOT contain the dim escape (\x1b[2m). S1 removed the dim wrapper from
+// TimeProbe to be consistent with CostProbe (neither uses dim).
+func TestColour_Time_NoDim(t *testing.T) {
 	p := &probes.TimeProbe{}
 	th := colourTheme()
 	cfg := probes.Config{TimeEnabled: true}
@@ -468,11 +469,13 @@ func TestColour_Time_Dim(t *testing.T) {
 	raw := p.Render(d, cfg, th, probes.LevelFull)
 	got := renderer.Apply(raw, th)
 
-	if !strings.Contains(got, "\x1b[2m") {
-		t.Errorf("T-10 time dim: want \\x1b[2m in Apply output, got %q", got)
+	// S1: time must NOT be wrapped in dim; should render as plain "time: 02:00".
+	if strings.Contains(got, "\x1b[2m") {
+		t.Errorf("S1 time no-dim: output must NOT contain dim escape \\x1b[2m, got %q", got)
 	}
-	if !strings.Contains(got, "\x1b[0m") {
-		t.Errorf("T-10 time reset: want \\x1b[0m in Apply output, got %q", got)
+	// Value must still appear.
+	if !strings.Contains(got, "02:00") {
+		t.Errorf("S1 time no-dim: output must contain MM:SS value '02:00', got %q", got)
 	}
 }
 

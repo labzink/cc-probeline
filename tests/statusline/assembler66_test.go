@@ -1,12 +1,15 @@
-// Package statusline_test — Phase 6.6.c RED test for assembler subagent passthrough.
+// Package statusline_test — Phase 6.6.c / C1 updated test for assembler subagent passthrough.
 //
-// T-19: perTurnTable must forward d.Subagents to Builder.AddSubagents so that
-// subagent rows appear in Standard-mode output.
+// C1 (Phase 6.8 FIXES): perTurnTable now calls RenderUnified (not Builder.AddSubagents).
+// Subagent turns appear via SubagentStats.Turns (IsSidechain=true) or via
+// sidechain turns in Session.Turns. Aggregate-only SubagentStats (no Turns) do not
+// produce rows in the new table; instead they are conveyed via SubagentProbe (line0).
 package statusline_test
 
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -21,11 +24,11 @@ func makeDataWithSubagents(turnCount int, subs []parser.SubagentStats) probes.Da
 }
 
 // -------------------------------------------------------------------
-// T-19: TestAssembler66_PassesSubagents
+// TestAssembler66_PassesSubagents
 //
-// assembler.perTurnTable with d.Subagents non-empty must produce output
-// containing "↳" (the subagent row indicator). With d.Subagents empty
-// the output must NOT contain "↳".
+// C1: subagent rows appear in the table when SubagentStats.Turns is non-empty.
+// When all Subagents have empty Turns AND Session.Turns has no sidechain turns,
+// no "sub" role rows appear.
 // -------------------------------------------------------------------
 func TestAssembler66_PassesSubagents(t *testing.T) {
 	// Minimal probe registries — just need Standard mode to render a table.
@@ -33,40 +36,67 @@ func TestAssembler66_PassesSubagents(t *testing.T) {
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "sonnet"}})
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "cache:0"}})
 
-	sub := parser.SubagentStats{
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// SubagentStats with a populated Turns slice (sidechain turn).
+	subTurn := parser.Turn{
+		Role:        "code-reviewer",
+		Model:       "sonnet-4",
+		UUID:        "sub-turn-1",
+		GroupID:     1,
+		Timestamp:   base.Add(5 * time.Second),
+		Tokens:      parser.TokenCounts{Output: 200},
+		ToolUse:     "Read",
+		IsSidechain: true,
+	}
+	subWithTurns := parser.SubagentStats{
 		AgentID:   "agent-abc",
 		AgentType: "code-reviewer",
 		Model:     "sonnet-4",
-		Tokens: parser.TokenCounts{
-			CacheRead: 1000,
-			Output:    200,
-		},
-		LastTool: "Read",
+		Tokens:    parser.TokenCounts{CacheRead: 1000, Output: 200},
+		LastTool:  "Read",
+		Turns:     []parser.Turn{subTurn},
 	}
 
-	t.Run("with_subagents_has_arrow", func(t *testing.T) {
-		// Given: 3 turns + 1 subagent.
-		d := makeDataWithSubagents(3, []parser.SubagentStats{sub})
+	t.Run("with_subagent_turns_shows_sub_role", func(t *testing.T) {
+		// Given: 3 orch turns + 1 subagent with 1 Turn.
+		d := makeDataWithSubagents(3, []parser.SubagentStats{subWithTurns})
+		// Timestamp for orch turns (needed to interleave): set base times.
+		for i := range d.Session.Turns {
+			d.Session.Turns[i].Timestamp = base.Add(time.Duration(i*10) * time.Second)
+		}
 
 		a := makeAssembler(mode.Standard)
 		out := a.Render(d)
 
-		// Subagent row must contain "↳" indicator.
-		if !strings.Contains(out, "↳") {
-			t.Errorf("Assembler with non-empty Subagents must produce '↳' in table output;\noutput:\n%s", out)
+		// Subagent turn has role "code-reviewer" which should appear in the table.
+		// The role cell may be truncated (e.g. "code-r…viewe"), so check for a
+		// stable prefix that survives middle-truncation.
+		if !strings.Contains(out, "code-r") {
+			t.Errorf("Assembler with SubagentStats.Turns must include sidechain turn in table;\n"+
+				"  want 'code-r' (prefix of 'code-reviewer' role) in output\noutput:\n%s", out)
 		}
 	})
 
-	t.Run("empty_subagents_no_arrow", func(t *testing.T) {
-		// Given: 3 turns + empty Subagents slice.
-		d := makeDataWithSubagents(3, nil)
+	t.Run("empty_subagent_turns_no_extra_rows", func(t *testing.T) {
+		// Given: 3 orch turns + 1 SubagentStats with no Turns (aggregate only).
+		subNoTurns := parser.SubagentStats{
+			AgentID:   "agent-xyz",
+			AgentType: "code-reviewer",
+			Model:     "sonnet-4",
+		}
+		d := makeDataWithSubagents(3, []parser.SubagentStats{subNoTurns})
 
 		a := makeAssembler(mode.Standard)
 		out := a.Render(d)
 
-		// No subagent rows when Subagents is nil/empty.
+		// Table must render (has orch turns), but no ↳ legacy indicator.
+		if !strings.Contains(out, "┌") {
+			t.Errorf("Table border must appear for 3 orch turns; output:\n%s", out)
+		}
+		// Old ↳ indicator should not appear in RenderUnified output.
 		if strings.Contains(out, "↳") {
-			t.Errorf("Assembler with empty Subagents must NOT produce '↳' in table output;\noutput:\n%s", out)
+			t.Errorf("Assembler with SubagentStats without Turns must NOT produce '↳';\noutput:\n%s", out)
 		}
 	})
 }

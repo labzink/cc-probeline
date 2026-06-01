@@ -5,6 +5,7 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
@@ -62,6 +63,11 @@ type Data struct {
 	// Set by main from state.Session.PerTurnCost via cost.PerTurn.
 	// nil when state not available (graceful degradation: render "—").
 	PerTurnCostFn func(uuid string) (float64, bool)
+
+	// State is the reconciled per-session state. Used by perTurnTable to pass
+	// to renderer.RenderUnified for per-turn cost column (C1). nil means state
+	// not available; renderer degrades gracefully (shows "—" for all turns).
+	State *state.Session
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct
@@ -95,6 +101,12 @@ type Config struct {
 	CtxCriticalRatio   float64
 	OrchTTLMinutes     int
 	SubagentGapMinutes int
+
+	// IsSubagentContext indicates that the probe is being rendered in a subagent
+	// display context (not the main orchestrator line). When true, TTL is
+	// suppressed (T-23). This is a runtime flag, not a config threshold —
+	// SubagentGapMinutes is the detection threshold (C3 fix).
+	IsSubagentContext bool
 }
 
 // Probe is the single interface every status-line block must implement.

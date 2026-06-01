@@ -14,6 +14,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 )
 
 // Assembler joins probes from the Registry into the final multi-line status
@@ -47,11 +48,13 @@ func (a *Assembler) Render(d probes.Data) string {
 	const bulletSep = "{{dim}} • {{reset}}"
 	const pipeSep = " | "
 
-	// T-21: line0/line1 use registry order (no Priority sort).
-	// line2 retains ascending-Priority sort for backwards compatibility
-	// with Phase 4.2 contract (lower number = higher importance = leftmost).
+	// T-21: line0 uses registry order (no Priority sort) so email/project/quota
+	// appear in registration order.
+	// I2: line1 restores Priority-based sort so git (P=2) appears to the right of
+	// ctx/cost/time (P=1). sortByPriority=false was an over-reach of the T-21 fix.
+	// line2 retains ascending-Priority sort (lower number = higher importance = leftmost).
 	l0 := renderer.FitLine(a.buildProbeEntries(probes.Line0Registry, d, false), cols, bulletSep)
-	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d, false), cols, bulletSep)
+	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d, true), cols, bulletSep)
 	l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d, true), cols, pipeSep)
 
 	lines := []string{l0, l1, l2}
@@ -101,42 +104,60 @@ func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data, sortByPr
 	return entries
 }
 
-// perTurnTable builds the box-drawing table for Standard mode.
-// It caps at the last 20 turns (C-6), applies column-drop truncation via
-// Builder.RenderForCols(cols), and returns a slice of non-empty lines.
-// Returns nil when there are no turns (table block is skipped).
+// perTurnTable builds the redesigned per-turn table for Standard mode (C1 / T-15..T-20).
+//
+// It merges orchestrator turns (d.Session.Turns) and sidechain turns from
+// d.Session.Turns (IsSidechain=true) into a single stream sorted by Timestamp DESC
+// (newest-first), then calls renderer.RenderUnified. Cap: last 20 turns (C-6).
+//
+// Returns nil when there are no turns.
 func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	if d.Session == nil || len(d.Session.Turns) == 0 {
 		return nil
 	}
 
-	turns := d.Session.Turns
-	// C-6: cap to last 20 turns.
-	if len(turns) > 20 {
-		turns = turns[len(turns)-20:]
+	// Collect all turns: orchestrator + any sidechain turns already embedded in
+	// d.Session.Turns (IsSidechain=true). Also fold in SubagentStats.Turns when
+	// SubagentStats carries per-turn data (T-15 interleave).
+	all := make([]parser.Turn, 0, len(d.Session.Turns))
+	all = append(all, d.Session.Turns...)
+
+	// Append per-turn entries from SubagentStats (IsSidechain=true).
+	for _, sa := range d.Subagents {
+		for _, t := range sa.Turns {
+			t.IsSidechain = true
+			all = append(all, t)
+		}
+	}
+
+	// Sort by Timestamp DESC (newest first) for RenderUnified.
+	sort.SliceStable(all, func(i, j int) bool {
+		return all[i].Timestamp.After(all[j].Timestamp)
+	})
+
+	// C-6: cap to last 20 turns (newest-first: keep the first 20 after sort).
+	if len(all) > 20 {
+		all = all[:20]
 	}
 
 	b := renderer.NewBuilder(cols)
-	for _, t := range turns {
-		b.Add(t)
+	// C1: use RenderUnified with the reconciled state for per-turn cost column.
+	// d.State is nil when state not yet loaded; cost.PerTurn handles nil gracefully.
+	var st *state.Session
+	if d.State != nil {
+		st = d.State
 	}
-	// Pass subagent rows (§6.6.c): orchestrator tokens stay in aggregates only.
-	if len(d.Subagents) > 0 {
-		b.AddSubagents(d.Subagents)
-	}
-
-	// Use RenderForCols for column-drop truncation (§4.3 T-9).
-	raw := b.RenderForCols(cols)
+	raw := b.RenderUnified(all, st)
 	if raw == "" {
 		return nil
 	}
 
-	// RenderForCols appends a trailing '\n'; split and drop the final empty element.
-	all := strings.Split(raw, "\n")
-	if len(all) > 0 && all[len(all)-1] == "" {
-		all = all[:len(all)-1]
+	// RenderUnified appends a trailing '\n'; split and drop the final empty element.
+	parts := strings.Split(raw, "\n")
+	if len(parts) > 0 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
 	}
-	return all
+	return parts
 }
 
 // hint returns the hint widget text for this session's rotation state.

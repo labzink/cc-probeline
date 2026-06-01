@@ -60,6 +60,23 @@ func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
 		}
 	}
 
+	// I3: record PromptCost[groupID] = cost at the start of each new group.
+	// The start-of-group cost is st.LastSeenTotal (cost before this delta).
+	// Only record groups not yet tracked (first time we see turns from that group).
+	if len(newTurns) > 0 {
+		if st.PromptCost == nil {
+			st.PromptCost = make(map[int]float64)
+		}
+		for _, t := range newTurns {
+			if t.GroupID > 0 {
+				if _, seen := st.PromptCost[t.GroupID]; !seen {
+					// First time seeing this group: record cost snapshot before delta.
+					st.PromptCost[t.GroupID] = st.LastSeenTotal
+				}
+			}
+		}
+	}
+
 	if len(newTurns) > 0 && delta > 0 {
 		if st.PerTurnCost == nil {
 			st.PerTurnCost = make(map[string]float64, len(newTurns))
@@ -84,10 +101,10 @@ func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
 }
 
 // PerTurn returns the finalized cost for the given turn UUID.
-// Returns (0, false) when the UUID is not in st.PerTurnCost (unknown turn).
+// Returns (0, false) when st is nil or the UUID is not in st.PerTurnCost.
 // The caller should render "—" when ok=false.
 func PerTurn(st *state.Session, turnUUID string) (float64, bool) {
-	if st.PerTurnCost == nil {
+	if st == nil || st.PerTurnCost == nil {
 		return 0, false
 	}
 	v, ok := st.PerTurnCost[turnUUID]
@@ -100,7 +117,11 @@ func PerTurn(st *state.Session, turnUUID string) (float64, bool) {
 //
 // Resets naturally on /clear because a new session_id produces a new state
 // file with a fresh BaselineCost equal to the ccTotal at that moment.
+// Returns 0 when st is nil (state not yet loaded).
 func SessionTotal(st *state.Session, ccTotal float64) float64 {
+	if st == nil {
+		return 0
+	}
 	return ccTotal - st.BaselineCost
 }
 

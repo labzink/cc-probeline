@@ -150,9 +150,9 @@ func TestAssembler_SuperCompact_3Lines(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // TestAssembler_Standard_WithTable
-// §4.2 concept line 639-642: Standard mode appends perTurnTable + footer.
-// With 3 turns the table top-border "┌" and footer label "Total for request"
-// must appear in output.
+// §4.2 concept / C1 update: Standard mode appends perTurnTable.
+// With 3 turns the table top-border "┌" must appear. C1 (Phase 6.8 FIXES)
+// replaced the "Total for request" footer with a legend row ("role","model",...).
 // ---------------------------------------------------------------------------
 func TestAssembler_Standard_WithTable(t *testing.T) {
 	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "email@x"}})
@@ -162,14 +162,19 @@ func TestAssembler_Standard_WithTable(t *testing.T) {
 	a := makeAssembler(mode.Standard)
 	out := a.Render(makeData(3))
 
-	// §4.2 concept line 640: perTurnTable rendered for Standard mode.
+	// perTurnTable rendered for Standard mode: top-border must appear.
 	if !strings.Contains(out, "┌") {
 		t.Errorf("Standard+3turns: expected table top-border '┌' in output; got %q", out)
 	}
 
-	// §4.2 concept line 641 + C-5: merged footer must carry "Total for request" label.
-	if !strings.Contains(out, "Total for request") {
-		t.Errorf("Standard+3turns: expected footer label 'Total for request'; got %q", out)
+	// C1: footer is now a legend row (not "Total for request").
+	if strings.Contains(out, "Total for request") {
+		t.Errorf("Standard+3turns: 'Total for request' footer must be absent (C1 redesign); got %q", out)
+	}
+	for _, kw := range []string{"role", "model", "cost"} {
+		if !strings.Contains(out, kw) {
+			t.Errorf("Standard+3turns: legend keyword %q missing from table output; got %q", kw, out)
+		}
 	}
 }
 
@@ -189,6 +194,7 @@ func TestAssembler_Standard_Cap20Turns(t *testing.T) {
 
 	// Count lines that start with "│" (data rows) — excludes top/bottom borders
 	// that start with "┌" / "└" and separators that start with "├".
+	// Also excludes the legend footer row ("# role model cache out cost tool").
 	dataRowCount := 0
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(stripMk(line))
@@ -196,8 +202,12 @@ func TestAssembler_Standard_Cap20Turns(t *testing.T) {
 			!strings.HasPrefix(trimmed, "├") &&
 			!strings.HasPrefix(trimmed, "┌") &&
 			!strings.HasPrefix(trimmed, "└") {
-			// Exclude the footer row itself — it contains "Total for request".
-			if !strings.Contains(line, "Total for request") {
+			// C1: exclude the legend footer row (contains column header labels).
+			// Old footer check: "Total for request" (removed by C1).
+			// New legend row check: contains "role" as a cell label.
+			bareStripped := stripMk(line)
+			if !strings.Contains(bareStripped, "Total for request") &&
+				!(strings.Contains(bareStripped, " role ") && strings.Contains(bareStripped, " model ")) {
 				dataRowCount++
 			}
 		}

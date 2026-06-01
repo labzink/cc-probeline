@@ -12,12 +12,12 @@
 // these fixtures carry no TTL event, so it is absent here (the ⏱-absent cases
 // are pinned by TestCache_NoTTL).
 //
-// Token sources (Phase 4.1):
+// Token sources (Phase 4.1 / C2 update):
 //
 //	cache_read   = Session.Totals.CacheRead
 //	cache_create = Session.Totals.CacheCreate
 //	out          = Session.Totals.Output
-//	cost         = Stdin.Cost.TotalCostUSD
+//	cost         = Data.LastRequestCost  (C2: delta for current prompt group)
 //	time         = Stdin.Cost.TotalAPIDurationMS / 1000  (seconds → MM:SS)
 package probes_test
 
@@ -34,6 +34,7 @@ import (
 
 // newCacheData builds a probes.Data with the given token counts and cost.
 // TotalAPIDurationMS=228000 → 228 s → 3:48.
+// C2: costUSD is stored in LastRequestCost (not Stdin.Cost.TotalCostUSD).
 func newCacheData(cacheRead, cacheCreate, out int, costUSD float64, durationMS int64) probes.Data {
 	return probes.Data{
 		Session: &parser.SessionStats{
@@ -45,10 +46,11 @@ func newCacheData(cacheRead, cacheCreate, out int, costUSD float64, durationMS i
 		},
 		Stdin: stdin.Payload{
 			Cost: stdin.Cost{
-				TotalCostUSD:       costUSD,
 				TotalAPIDurationMS: durationMS,
 			},
 		},
+		// C2: CacheProbe reads LastRequestCost for the cost segment.
+		LastRequestCost: costUSD,
 	}
 }
 
@@ -147,6 +149,7 @@ func TestCache_NoTTL(t *testing.T) {
 // newCacheTTLData builds a probes.Data with token counts, cost, and timing
 // information needed for TTL tests (Phase 6.5.b2).
 // durationMS=60000 → 60 s → "01:00".
+// C2: costUSD is stored in LastRequestCost.
 func newCacheTTLData(cacheRead, cacheCreate, out int, costUSD float64, durationMS int64, now time.Time, lastTS time.Time, turnCount int) probes.Data {
 	return probes.Data{
 		Session: &parser.SessionStats{
@@ -160,11 +163,12 @@ func newCacheTTLData(cacheRead, cacheCreate, out int, costUSD float64, durationM
 		},
 		Stdin: stdin.Payload{
 			Cost: stdin.Cost{
-				TotalCostUSD:       costUSD,
 				TotalAPIDurationMS: durationMS,
 			},
 		},
-		Now: now,
+		// C2: CacheProbe reads LastRequestCost for the cost segment.
+		LastRequestCost: costUSD,
+		Now:             now,
 	}
 }
 

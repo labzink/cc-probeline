@@ -98,11 +98,19 @@ func (p *CacheProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	readK := formatK(d.Session.Totals.CacheRead)
 	createK := formatK(d.Session.Totals.CacheCreate)
 	outK := formatK(d.Session.Totals.Output)
-	cost := fmt.Sprintf("$%.2f", d.Stdin.Cost.TotalCostUSD)
+	// C2: use LastRequestCost (delta for the current prompt group), not raw cumulative total.
+	cost := fmt.Sprintf("$%.2f", d.LastRequestCost)
 	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
 
-	// TTL is computed at all levels; omitted only when conditions not met (see cacheTTL).
-	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes, c.SubagentGapMinutes, t.AnsiEnabled)
+	// C3: use the explicit IsSubagentContext flag to suppress TTL, not the
+	// SubagentGapMinutes threshold. SubagentGapMinutes is a config threshold (minutes),
+	// not a "is subagent" runtime flag. Pass 1 (non-zero) to cacheTTL only when
+	// the probe is explicitly in a subagent render context.
+	subagentArg := 0
+	if c.IsSubagentContext {
+		subagentArg = 1
+	}
+	ttl := cacheTTL(d.Now, d.Session.LastTimestamp, d.Session.TurnCount, c.OrchTTLMinutes, subagentArg, t.AnsiEnabled)
 
 	// ttlInfix returns " ⏱ Nm" when ttl is non-empty, "" otherwise.
 	// Placed right after cache numbers, before the first separator.

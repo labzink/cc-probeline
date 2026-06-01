@@ -1,9 +1,12 @@
 // Package cost — backward-compatibility shims for the old pricing-table API.
 //
 // Compute and ComputeAggregate are retained so that internal/renderer/table.go
-// (Phase 6.8.d scope) compiles without modification.
-// Phase 6.8.d will replace the table renderer with per-turn delta costs from
-// state.Session.PerTurnCost and these functions will be removed.
+// (Builder-based table) continues to compile. Production output now uses
+// RenderUnified (internal/renderer/table_unified.go) which calls cost.PerTurn
+// instead of cost.Compute — so Compute/legacyPricing no longer affect visible output.
+//
+// TODO(BL-28): remove Compute, ComputeAggregate, legacyPricing after migrating
+// Builder-based tests in tests/renderer to RenderUnified. Phase 7 cleanup.
 package cost
 
 import "github.com/labzink/cc-probeline/internal/parser"

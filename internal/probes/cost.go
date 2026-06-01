@@ -22,13 +22,14 @@ func (p *CostProbe) Visible(d Data, c Config) bool {
 	return true
 }
 
-// Render formats the cost:
+// Render formats the cost using d.SessionTotal (delta from session baseline),
+// not the raw cumulative d.Stdin.Cost.TotalCostUSD (C2 / T-6).
 //
 //	Full:              "cost: $<value>"
 //	Compact/Minimal:   "$<value>"
-func (p *CostProbe) Render(d Data, _ Config, t renderer.Theme, level Level) string {
-	cost := d.Stdin.Cost.TotalCostUSD
-	value := fmt.Sprintf("$%.2f", cost)
+func (p *CostProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
+	// C2: use session-delta cost, not raw cumulative total.
+	value := fmt.Sprintf("$%.2f", d.SessionTotal)
 	if level == LevelFull {
 		return "cost: " + value
 	}

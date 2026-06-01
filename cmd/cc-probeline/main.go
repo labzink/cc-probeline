@@ -256,14 +256,20 @@ func runRender(strict bool) int {
 	// Populate delta-cost fields from reconciled state (Phase 6.8.a).
 	if st != nil {
 		d.SessionTotal = cost.SessionTotal(st, ccTotal)
-		// LastRequest: use the highest observed GroupID as the current group.
-		// GroupID tracking requires 6.8.0 Turn.GroupID; use 0 as safe default.
-		d.LastRequestCost = cost.LastRequest(st, ccTotal, 0)
+		// I3: compute curGroupID from the last turn's GroupID (not hardcoded 0).
+		// GroupID is assigned by Aggregate; 0 means no groups yet (safe default).
+		curGroupID := 0
+		if len(session.Turns) > 0 {
+			curGroupID = session.Turns[len(session.Turns)-1].GroupID
+		}
+		d.LastRequestCost = cost.LastRequest(st, ccTotal, curGroupID)
 		// Capture st for per-turn lookup (closure over current st snapshot).
 		captured := st
 		d.PerTurnCostFn = func(uuid string) (float64, bool) {
 			return cost.PerTurn(captured, uuid)
 		}
+		// C1: pass state to assembler for RenderUnified per-turn cost column.
+		d.State = captured
 	}
 
 	// Detect git info for the current working directory.

@@ -61,14 +61,17 @@ func stripMk(s string) string { return format.StripMarkers(s) }
 
 // countDataRows counts the number of per-turn data rows in the Render() output.
 // A data row is a line that starts with '│', contains no '─' (not a separator
-// or border), and does not contain the footer label "Total for request".
+// or border), does not contain the old footer "Total for request", and is not
+// the C1 legend row (which contains " role " and " model " as column labels).
 func countDataRows(out string) int {
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(stripMk(line))
 		if strings.HasPrefix(trimmed, "│") &&
 			!strings.Contains(trimmed, "─") &&
-			!strings.Contains(trimmed, "Total for request") {
+			!strings.Contains(trimmed, "Total for request") &&
+			// C1: exclude the unified-table legend row.
+			!(strings.Contains(trimmed, " role ") && strings.Contains(trimmed, " model ")) {
 			n++
 		}
 	}
