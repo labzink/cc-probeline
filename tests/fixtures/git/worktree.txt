@@ -1,0 +1,6 @@
+# branch.oid 1a2b3c4d5e6f7890abcdef1234567890abcdef12
+# branch.head worktree-branch
+# branch.upstream origin/worktree-branch
+# branch.ab +1 -0
+1 M. N... 100644 100644 100644 aabbcc ddeeff cmd/cc-probeline/main.go
+? some-new-file.txt

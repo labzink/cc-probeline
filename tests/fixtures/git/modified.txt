@@ -1,0 +1,7 @@
+# branch.oid def9876abc5432109876543210987654321fedca
+# branch.head feature/my-feature
+# branch.upstream origin/feature/my-feature
+# branch.ab +2 -0
+1 M. N... 100644 100644 100644 aabbcc ddeeff internal/parser/git.go
+1 .M N... 100644 100644 100644 112233 445566 internal/state/state.go
+? tests/fixtures/git/clean.txt
