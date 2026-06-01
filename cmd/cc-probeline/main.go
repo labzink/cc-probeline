@@ -27,6 +27,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
+	"github.com/labzink/cc-probeline/internal/quota"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/statusline"
@@ -183,6 +184,29 @@ func runRender(strict bool) int {
 		cost.Reconcile(st, ccTotal, session.Turns)
 		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
 			slog.Warn("state.Save failed", "err", saveErr)
+		}
+	}
+
+	// Update global quota snapshot when rate_limits data is available (Phase 6.8.b).
+	// Fail-soft: errors are logged; render continues with whatever Freshest() has.
+	if payload.RateLimits != nil {
+		rl := payload.RateLimits
+		var reset5h, reset7d int64
+		if t5h, ok := stdin.ParseResetsAt(rl.FiveHour.ResetsAt); ok {
+			reset5h = t5h.Unix()
+		}
+		if t7d, ok := stdin.ParseResetsAt(rl.SevenDay.ResetsAt); ok {
+			reset7d = t7d.Unix()
+		}
+		snap := quota.Snapshot{
+			TS:            now.UnixMilli(),
+			FiveHourPct:   rl.FiveHour.UsedPercentage,
+			SevenDayPct:   rl.SevenDay.UsedPercentage,
+			FiveHourReset: reset5h,
+			SevenDayReset: reset7d,
+		}
+		if updateErr := quota.Update(snap); updateErr != nil {
+			slog.Warn("quota.Update failed", "err", updateErr)
 		}
 	}
 

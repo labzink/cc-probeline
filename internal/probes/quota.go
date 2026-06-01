@@ -5,73 +5,133 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/quota"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
+// staleDuration is the threshold beyond which a quota snapshot is considered
+// stale. When the snapshot age exceeds this, an "as of Xm ago" suffix is added.
+const staleDuration = 10 * time.Minute
+
 // QuotaProbe renders quota usage for the 5-hour and 7-day rate-limit windows.
-// Data is sourced from d.Stdin.RateLimits which is populated by the Claude Code
-// statusLine hook payload. When rate_limits is absent the probe is hidden.
+// Data is sourced from quota.Freshest() (cross-session persistent file) with
+// d.Stdin.RateLimits as a fallback when no snapshot has been stored yet.
 //
-// Visible only when Config.QuotaEnabled=true AND d.Stdin.RateLimits != nil.
+// Visible only when Config.QuotaEnabled=true AND either quota.Freshest() returns
+// a snapshot OR d.Stdin.RateLimits != nil.
 type QuotaProbe struct{}
 
 func (p *QuotaProbe) Name() string  { return "quota" }
 func (p *QuotaProbe) Priority() int { return 1 }
 func (p *QuotaProbe) MinWidth() int { return len("0% · 0%") }
 
-// Visible returns true only when QuotaEnabled is true and RateLimits data is
-// available in the payload. Missing rate_limits → graceful hide (not a fake value).
+// Visible returns true only when QuotaEnabled is true and quota data is available
+// (either from the persistent Freshest snapshot or from the current payload).
 func (p *QuotaProbe) Visible(d Data, c Config) bool {
-	return c.QuotaEnabled && d.Stdin.RateLimits != nil
+	if !c.QuotaEnabled {
+		return false
+	}
+	_, hasFresh := quota.Freshest()
+	return hasFresh || d.Stdin.RateLimits != nil
 }
 
-// Render formats the quota blocks using real RateLimits data from d.Stdin.
+// Render formats the quota blocks.
+//
+// Data source priority:
+//  1. quota.Freshest() — cross-session persistent snapshot (account-wide freshest).
+//  2. d.Stdin.RateLimits — current payload fallback when no snapshot exists.
+//
+// When the snapshot is older than staleDuration (10m), an "as of Xm ago" suffix
+// is appended to signal freshness decay.
 //
 // Colour markers applied per B3 §5:
 //   - progress bars wrapped in ProgressBarColor(pct, th) + bar + Reset
 //   - ↻ reset countdown wrapped in {{color:yellow}} when time-to-reset < 30m
+//   - percentage value wrapped in {{color:bold_red}} when pct > 95
 //
 // Display levels:
 //
-//	Full:    "5h: <bar10_5h> <reset5h> · 7d: <bar10_7d> <reset7d>"
-//	Compact: "<bar5_5h> <reset5h> · <bar5_7d> <reset7d>"
-//	Minimal: "<pct5h>% · <pct7d>%"
+//	Full:    "5h: <bar10_5h> <reset5h> · 7d: <bar10_7d> <reset7d>" [+ age suffix]
+//	Compact: "<bar5_5h> <reset5h> · <bar5_7d> <reset7d>" [+ age suffix]
+//	Minimal: "<pct5h>% · <pct7d>%" [+ age suffix]
 func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
-	rl := d.Stdin.RateLimits
-	if rl == nil {
-		slog.Warn("quota.Render: called with nil RateLimits; returning empty")
+	// Resolve data source: freshest-wins cross-session snapshot takes priority.
+	snap, hasFresh := quota.Freshest()
+
+	var pct5h, pct7d float64
+	var rl *stdin.RateLimits
+	var ageSuffix string
+
+	if hasFresh {
+		pct5h = snap.FiveHourPct
+		pct7d = snap.SevenDayPct
+		// Compute age suffix when snapshot is stale.
+		snapTime := time.UnixMilli(snap.TS)
+		age := d.Now.Sub(snapTime)
+		if age > staleDuration {
+			mins := int(age.Minutes())
+			ageSuffix = fmt.Sprintf(" (as of %dm ago)", mins)
+		}
+		// Use current payload rate_limits for reset-countdown times (they are
+		// session-local and not stored in the snapshot).
+		rl = d.Stdin.RateLimits
+	} else if d.Stdin.RateLimits != nil {
+		// Fallback to current payload when no persistent snapshot exists.
+		rl = d.Stdin.RateLimits
+		pct5h = rl.FiveHour.UsedPercentage
+		pct7d = rl.SevenDay.UsedPercentage
+	} else {
+		slog.Warn("quota.Render: called with no snapshot and nil RateLimits; returning empty")
 		return ""
 	}
 
-	reset5h := formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled)
-	reset7d := formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled)
-
-	pct5h := int(rl.FiveHour.UsedPercentage)
-	pct7d := int(rl.SevenDay.UsedPercentage)
-
 	// colourReset returns the reset escape only when AnsiEnabled.
-	// t.Colors.Reset may be non-empty even with AnsiEnabled=false (palette set but gated).
 	colourReset := ""
 	if t.AnsiEnabled {
 		colourReset = t.Colors.Reset
 	}
 
+	// boldRedWrap wraps a value string with {{color:bold_red}}...{{reset}} when
+	// the percentage exceeds 95 and ANSI output is enabled. Markers are gated
+	// on AnsiEnabled so that plain-text callers never receive raw markers.
+	boldRedWrap := func(pct float64, s string) string {
+		if t.AnsiEnabled && pct > 95.0 {
+			return "{{color:bold_red}}" + s + "{{reset}}"
+		}
+		return s
+	}
+
+	var reset5h, reset7d string
+	if rl != nil {
+		reset5h = formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled)
+		reset7d = formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled)
+	}
+
+	pct5hInt := int(pct5h)
+	pct7dInt := int(pct7d)
+
 	switch level {
 	case LevelFull:
-		bar5h := renderer.ProgressBarColor(rl.FiveHour.UsedPercentage, t) +
-			renderer.ProgressBar10(rl.FiveHour.UsedPercentage) + colourReset
-		bar7d := renderer.ProgressBarColor(rl.SevenDay.UsedPercentage, t) +
-			renderer.ProgressBar10(rl.SevenDay.UsedPercentage) + colourReset
-		return fmt.Sprintf("5h: %s %s · 7d: %s %s", bar5h, reset5h, bar7d, reset7d)
+		bar5h := renderer.ProgressBarColor(pct5h, t) +
+			renderer.ProgressBar10(pct5h) + colourReset
+		bar7d := renderer.ProgressBarColor(pct7d, t) +
+			renderer.ProgressBar10(pct7d) + colourReset
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s %s", bar5h, reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s %s", bar7d, reset7d))
+		return fmt.Sprintf("5h: %s · 7d: %s%s", val5h, val7d, ageSuffix)
 	case LevelCompact:
-		bar5h := renderer.ProgressBarColor(rl.FiveHour.UsedPercentage, t) +
-			renderer.ProgressBar(rl.FiveHour.UsedPercentage) + colourReset
-		bar7d := renderer.ProgressBarColor(rl.SevenDay.UsedPercentage, t) +
-			renderer.ProgressBar(rl.SevenDay.UsedPercentage) + colourReset
-		return fmt.Sprintf("%s %s · %s %s", bar5h, reset5h, bar7d, reset7d)
+		bar5h := renderer.ProgressBarColor(pct5h, t) +
+			renderer.ProgressBar(pct5h) + colourReset
+		bar7d := renderer.ProgressBarColor(pct7d, t) +
+			renderer.ProgressBar(pct7d) + colourReset
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s %s", bar5h, reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s %s", bar7d, reset7d))
+		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	default: // LevelMinimal
-		return fmt.Sprintf("%d%% · %d%%", pct5h, pct7d)
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%d%%", pct5hInt))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%d%%", pct7dInt))
+		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	}
 }
 
