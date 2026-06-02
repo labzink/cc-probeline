@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,9 +84,22 @@ type SubagentStats struct {
 	JSONLModTime time.Time
 
 	// Turns holds one Turn per record, in record order. Each Turn has
-	// Role=AgentType, IsSidechain=true, and GroupID=0 (assigned during merge
-	// in Phase 6.8.d). Added in Phase 6.8.0 for interleaved table rendering.
+	// Role=AgentType (fallback "agent"), IsSidechain=true, and GroupID=0
+	// (assigned during merge in Phase 6.8.d). Added in Phase 6.8.0 for
+	// interleaved table rendering.
 	Turns []Turn
+
+	// ActivationStart is the timestamp of the first assistant turn in the
+	// current activation. An activation begins at agent launch or at the
+	// most recent SendMessage boundary (user-text record). Used as the
+	// sort anchor for subagent panel rows (spec-common §2.3).
+	// Fallback (Insurance #1): when no user-text boundary exists, equals
+	// FirstTimestamp (the very first assistant turn).
+	ActivationStart time.Time
+
+	// CurrentTurnNum is the number of assistant turns in the current
+	// activation (1-based count). Used to render "↳N" in the # column.
+	CurrentTurnNum int
 }
 
 // subagentFile pairs a JSONL path with its sibling meta path before aggregation.
@@ -190,6 +205,18 @@ func collectOne(f subagentFile) (SubagentStats, error) {
 		// Continue with zero meta — SubagentStats will have empty AgentType/Description.
 	}
 
+	// Scan for the last user-text boundary before opening for ParseLines.
+	// ParseLines drops all non-assistant records, so boundaries must be found
+	// in a separate raw pass. Error is non-fatal: fallback to zero boundary
+	// (Insurance #1: ActivationStart = first turn).
+	lastBoundary, boundaryErr := scanLastUserBoundary(f.jsonlPath)
+	if boundaryErr != nil {
+		slog.Debug("parser.subagent: boundary scan error",
+			"agentID", f.agentID,
+			"err", boundaryErr,
+		)
+	}
+
 	fh, openErr := os.Open(f.jsonlPath)
 	if openErr != nil {
 		slog.Error("parser.subagent: open failed",
@@ -230,12 +257,28 @@ func collectOne(f subagentFile) (SubagentStats, error) {
 		}
 	}
 
-	stats := aggregateSubagent(records)
+	stats := aggregateSubagent(records, lastBoundary)
 	stats.AgentID = f.agentID
 	stats.AgentType = meta.AgentType
 	stats.Description = meta.Description
 	stats.TranscriptPath = f.jsonlPath
 	stats.JSONLModTime = f.modTime
+
+	// Propagate AgentType into each Turn.Role (fallback "agent" when empty).
+	role := meta.AgentType
+	if role == "" {
+		role = "agent"
+	}
+	for i := range stats.Turns {
+		stats.Turns[i].Role = role
+	}
+
+	slog.Debug("parser.subagent: aggregated",
+		"agentID", f.agentID,
+		"turns", stats.TurnCount,
+		"activationStart", stats.ActivationStart,
+		"currentTurnNum", stats.CurrentTurnNum,
+	)
 
 	return stats, nil
 }
@@ -287,18 +330,16 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 
 		// Skip directories and non-regular files (symlinks, devices, etc.).
 		if e.IsDir() || !e.Type().IsRegular() {
-			slog.Debug("parser.subagent: skip entry",
+			slog.Debug("parser.subagent: skip non-regular",
 				"name", name,
-				"reason", "not-regular-file",
 			)
 			continue
 		}
 
 		m := agentFileRegexp.FindStringSubmatch(name)
 		if m == nil {
-			slog.Debug("parser.subagent: skip entry",
+			slog.Debug("parser.subagent: skip unmatched",
 				"name", name,
-				"reason", "name-not-matched",
 			)
 			continue
 		}
@@ -339,9 +380,15 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 // Role="agent" (IsSidechain=true) and GroupID=0; GroupID is assigned during
 // the merge step in Phase 6.8.d based on timestamp.
 //
+// Phase 6.9.d: lastBoundary is the timestamp of the last user-text record in the
+// agent transcript (scanned separately from ParseLines which drops non-assistant
+// records). When non-zero, ActivationStart and CurrentTurnNum cover only the turns
+// after that boundary. When zero (Insurance #1 fallback): ActivationStart = first
+// turn timestamp, CurrentTurnNum = total turns.
+//
 // Pure function. AgentID, TaskID, AgentType, Description, TranscriptPath, and
 // JSONLModTime are filled by the caller (CollectSubagents / collectOne).
-func aggregateSubagent(records []Record) SubagentStats {
+func aggregateSubagent(records []Record, lastBoundary time.Time) SubagentStats {
 	if len(records) == 0 {
 		return SubagentStats{}
 	}
@@ -381,7 +428,7 @@ func aggregateSubagent(records []Record) SubagentStats {
 		if i > 0 {
 			dur = rec.Timestamp.Sub(prevTimestamp)
 		}
-		// Sidechain turns: Role="agent", IsSidechain=true, GroupID=0 (merge assigns it).
+		// Sidechain turns: Role="agent" (caller overwrites with AgentType), IsSidechain=true, GroupID=0.
 		s.Turns = append(s.Turns, Turn{
 			Index:       i + 1,
 			Role:        "agent",
@@ -400,7 +447,104 @@ func aggregateSubagent(records []Record) SubagentStats {
 
 	s.LastTimestamp = records[len(records)-1].Timestamp
 	s.Model = CanonicalModelKey(records[len(records)-1].Model)
+
+	// Compute ActivationStart and CurrentTurnNum.
+	// When lastBoundary is non-zero, the current activation starts at the first
+	// turn whose Timestamp is strictly after the boundary. Fallback (Insurance #1):
+	// no boundary found → activation covers the entire transcript.
+	activationIdx := 0
+	if !lastBoundary.IsZero() {
+		for i, t := range s.Turns {
+			if t.Timestamp.After(lastBoundary) {
+				activationIdx = i
+				break
+			}
+			// If no turn is after the boundary, activationIdx stays 0 (fallback).
+			activationIdx = len(s.Turns)
+		}
+		// If all turns are at or before the boundary (no turns in new activation),
+		// fall back to the first turn so the anchor is visible.
+		if activationIdx >= len(s.Turns) {
+			activationIdx = 0
+		}
+	}
+	s.ActivationStart = s.Turns[activationIdx].Timestamp
+	s.CurrentTurnNum = len(s.Turns) - activationIdx
+
 	return s
+}
+
+// scanLastUserBoundary performs a raw line-scan of a JSONL file and returns the
+// timestamp of the last user-text record (i.e. a record where type=="user" and
+// content contains no tool_result blocks). This is the SendMessage boundary.
+//
+// ParseLines drops all non-assistant records, so this separate pass is required
+// to detect activation boundaries (spec-common §2.3, Insurance #1).
+//
+// Returns zero time when no user-text record is found or on I/O error.
+func scanLastUserBoundary(path string) (time.Time, error) {
+	fh, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer fh.Close()
+
+	// Minimal struct for boundary detection — only the fields we need.
+	type boundaryContent struct {
+		Type string `json:"type"`
+	}
+	type boundaryMessage struct {
+		Content []boundaryContent `json:"content"`
+	}
+	type boundaryLine struct {
+		Type      string          `json:"type"`
+		Timestamp string          `json:"timestamp"`
+		Message   boundaryMessage `json:"message"`
+	}
+
+	sc := bufio.NewScanner(fh)
+	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	var last time.Time
+
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var bl boundaryLine
+		if err := json.Unmarshal(line, &bl); err != nil {
+			continue
+		}
+		if bl.Type != "user" {
+			continue
+		}
+		// Check for tool_result blocks — those are NOT user-text boundaries.
+		isToolResult := false
+		for _, c := range bl.Message.Content {
+			if c.Type == "tool_result" {
+				isToolResult = true
+				break
+			}
+		}
+		if isToolResult {
+			continue
+		}
+		// Valid user-text boundary: parse timestamp.
+		if bl.Timestamp == "" {
+			continue
+		}
+		ts, parseErr := time.Parse(time.RFC3339Nano, bl.Timestamp)
+		if parseErr != nil {
+			continue
+		}
+		last = ts.UTC()
+	}
+
+	if err := sc.Err(); err != nil {
+		return time.Time{}, err
+	}
+	return last, nil
 }
 
 // parseMeta reads metaPath (a JSON file with {agentType, description}).
