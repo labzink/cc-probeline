@@ -278,10 +278,13 @@ func TestTable_DimHistory(t *testing.T) {
 			}
 		}
 		if strings.Contains(l, "ToolCurrent") {
-			// Current row must NOT contain {{dim}}.
-			if strings.Contains(l, "{{dim}}") {
+			// 6.9.e (T-6): current-group rows use {{dim}}│{{reset}} dividers, so
+			// they DO contain {{dim}}. What distinguishes a current row from a
+			// history row is the absence of a whole-row {{dim}} wrapper, i.e. the
+			// line must NOT start with a {{dim}} prefix (T-4).
+			if strings.HasPrefix(l, "{{dim}}") {
 				currentLineNoDim = false
-				t.Errorf("T-T3: current row (GroupID=2, max) must NOT contain {{dim}}; line:\n%s", l)
+				t.Errorf("T-T3: current row (GroupID=2, max) must NOT be dim-wrapped (no {{dim}} prefix); line:\n%s", l)
 			}
 		}
 	}

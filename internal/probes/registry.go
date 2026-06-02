@@ -29,10 +29,10 @@ var (
 		&TimeProbe{},
 	}
 
-	// Line2Registry holds the cache aggregate row (single probe renders the whole row).
-	Line2Registry = []Probe{
-		&CacheProbe{},
-	}
+	// Line2Registry is empty since Phase 6.9.e: the cache-aggregate row (line 2)
+	// was removed in favour of per-row cache columns + TTL suffix in the table
+	// (T-13). CacheProbe is retained for tests / config but no longer registered.
+	Line2Registry = []Probe{}
 
 	// SubagentRegistry holds the subagent status probe, rendered only in the
 	// subagent status line code-path.

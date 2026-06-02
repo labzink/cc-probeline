@@ -5,10 +5,12 @@
 package statusline
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -52,12 +54,19 @@ func (a *Assembler) Render(d probes.Data) string {
 	// appear in registration order.
 	// I2: line1 restores Priority-based sort so git (P=2) appears to the right of
 	// ctx/cost/time (P=1). sortByPriority=false was an over-reach of the T-21 fix.
-	// line2 retains ascending-Priority sort (lower number = higher importance = leftmost).
 	l0 := renderer.FitLine(a.buildProbeEntries(probes.Line0Registry, d, false), cols, bulletSep)
 	l1 := renderer.FitLine(a.buildProbeEntries(probes.Line1Registry, d, true), cols, bulletSep)
-	l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d, true), cols, pipeSep)
 
-	lines := []string{l0, l1, l2}
+	lines := []string{l0, l1}
+
+	// Phase 6.9.e (T-13): the cache-aggregate row (line 2) is removed from the
+	// Standard (table) output — its data now lives in the per-turn table columns
+	// and the per-row TTL suffix. SuperCompact has no table, so it keeps its
+	// compact cache line.
+	if a.Mode != mode.Standard {
+		l2 := renderer.FitLine(a.buildProbeEntries(probes.Line2Registry, d, true), cols, pipeSep)
+		lines = append(lines, l2)
+	}
 
 	// Standard mode: append per-turn table when there are rows (C-6).
 	if a.Mode == mode.Standard {
@@ -104,11 +113,20 @@ func (a *Assembler) buildProbeEntries(ps []probes.Probe, d probes.Data, sortByPr
 	return entries
 }
 
-// perTurnTable builds the redesigned per-turn table for Standard mode (C1 / T-15..T-20).
-//
-// It merges orchestrator turns (d.Session.Turns) and sidechain turns from
-// d.Session.Turns (IsSidechain=true) into a single stream sorted by Timestamp DESC
-// (newest-first), then calls renderer.RenderUnified. Cap: last 20 turns (C-6).
+// timedRow pairs a built UnifiedRow with the timestamp used to sort it into the
+// merged newest-first stream (orchestrator turn Timestamp, subagent
+// ActivationStart).
+type timedRow struct {
+	row renderer.UnifiedRow
+	ts  time.Time
+}
+
+// perTurnTable builds the redesigned per-turn table for Standard mode (Phase
+// 6.9.e). Orchestrator turns become one row each; every subagent collapses into
+// a single row (last turn data, ↳N, cumulative Σ $ cost). Rows are merged into a
+// single newest-first stream (orch by Timestamp, subagent by ActivationStart),
+// capped to 20, then rendered with per-row TTL suffixes, dim wrapping and red
+// cache-write markers.
 //
 // Returns nil when there are no turns.
 func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
@@ -116,48 +134,258 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 		return nil
 	}
 
-	// Collect all turns: orchestrator + any sidechain turns already embedded in
-	// d.Session.Turns (IsSidechain=true). Also fold in SubagentStats.Turns when
-	// SubagentStats carries per-turn data (T-15 interleave).
-	all := make([]parser.Turn, 0, len(d.Session.Turns))
-	all = append(all, d.Session.Turns...)
-
-	// Append per-turn entries from SubagentStats (IsSidechain=true).
-	for _, sa := range d.Subagents {
-		for _, t := range sa.Turns {
-			t.IsSidechain = true
-			all = append(all, t)
-		}
-	}
-
-	// Sort by Timestamp DESC (newest first) for RenderUnified.
-	sort.SliceStable(all, func(i, j int) bool {
-		return all[i].Timestamp.After(all[j].Timestamp)
-	})
-
-	// C-6: cap to last 20 turns (newest-first: keep the first 20 after sort).
-	if len(all) > 20 {
-		all = all[:20]
-	}
-
-	b := renderer.NewBuilder(cols)
-	// C1: use RenderUnified with the reconciled state for per-turn cost column.
-	// d.State is nil when state not yet loaded; cost.PerTurn handles nil gracefully.
 	var st *state.Session
 	if d.State != nil {
 		st = d.State
 	}
-	raw := b.RenderUnified(all, st)
+
+	timed := a.orchRows(d)
+	timed = append(timed, a.subagentRows(d, st)...)
+
+	// Merge newest-first by sort timestamp (orch Timestamp / sub ActivationStart).
+	sort.SliceStable(timed, func(i, j int) bool {
+		return timed[i].ts.After(timed[j].ts)
+	})
+	if len(timed) > 20 {
+		timed = timed[:20]
+	}
+
+	rows := make([]renderer.UnifiedRow, len(timed))
+	for i := range timed {
+		rows[i] = timed[i].row
+	}
+
+	b := renderer.NewBuilder(cols)
+	raw := b.RenderUnifiedRows(rows)
 	if raw == "" {
 		return nil
 	}
-
-	// RenderUnified appends a trailing '\n'; split and drop the final empty element.
 	parts := strings.Split(raw, "\n")
 	if len(parts) > 0 && parts[len(parts)-1] == "" {
 		parts = parts[:len(parts)-1]
 	}
 	return parts
+}
+
+// orchRows builds the orchestrator UnifiedRows from d.Session.Turns (newest
+// first), computing the freshest-group dim split, per-row TTL suffix (live on
+// the freshest turn, frozen "⏱ 0m" on older expired turns — T-33) and the red
+// cache-write marker (cache collapse / model switch — T-34/T-35).
+func (a *Assembler) orchRows(d probes.Data) []timedRow {
+	var st *state.Session
+	if d.State != nil {
+		st = d.State
+	}
+
+	// Orchestrator turns only, newest-first.
+	orch := make([]parser.Turn, 0, len(d.Session.Turns))
+	for _, t := range d.Session.Turns {
+		if !t.IsSidechain {
+			orch = append(orch, t)
+		}
+	}
+	sort.SliceStable(orch, func(i, j int) bool {
+		return orch[i].Timestamp.After(orch[j].Timestamp)
+	})
+	if len(orch) == 0 {
+		return nil
+	}
+
+	maxOrchGroup := orch[0].GroupID
+	for _, t := range orch {
+		if t.GroupID > maxOrchGroup {
+			maxOrchGroup = t.GroupID
+		}
+	}
+
+	now := d.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	out := make([]timedRow, 0, len(orch))
+	for i, t := range orch {
+		model := strings.TrimPrefix(t.Model, "claude-")
+		costCell := "—"
+		if v, ok := cost.PerTurn(st, t.UUID); ok {
+			costCell = cost.Format(v)
+		}
+		hash := ""
+		if t.Index > 0 {
+			hash = fmt.Sprintf("%d", t.Index)
+		}
+		tool := t.ToolUse
+		if t.Thinking {
+			tool = renderer.ThinkingGlyph
+		}
+
+		// "previous orch turn" = the next (older) entry in newest-first order.
+		var prev *parser.Turn
+		if i+1 < len(orch) {
+			prev = &orch[i+1]
+		}
+		// "next-newer orch turn" = the previous (newer) entry.
+		var next *parser.Turn
+		if i-1 >= 0 {
+			next = &orch[i-1]
+		}
+
+		row := renderer.UnifiedRow{
+			HashCell:      hash,
+			Role:          t.Role,
+			Model:         model,
+			CacheRead:     t.Tokens.CacheRead,
+			CacheCreate:   t.Tokens.CacheCreate,
+			Out:           t.Tokens.Output,
+			CostCell:      costCell,
+			Tool:          tool,
+			IsSidechain:   false,
+			Dim:           t.GroupID < maxOrchGroup,
+			GroupID:       t.GroupID,
+			RedCacheWrite: orchRedCacheWrite(t, prev, a.Config.OrchTTLMinutes),
+			TTLSuffix:     a.orchTTLSuffix(t, next, now, i == 0),
+		}
+		out = append(out, timedRow{row: row, ts: t.Timestamp})
+	}
+	return out
+}
+
+// orchRedCacheWrite reports whether the orchestrator turn t should paint its
+// cache_create (write) sub-token red: the gap from the previous orch turn is
+// ≥ the TTL window (cache expired — T-34) OR the model changed (cold cache —
+// T-35). Returns false when there is no previous orch turn.
+func orchRedCacheWrite(t parser.Turn, prev *parser.Turn, orchTTLMinutes int) bool {
+	if prev == nil {
+		return false
+	}
+	if renderer.CacheExpiredAt(prev.Timestamp, t.Timestamp, orchTTLMinutes) {
+		return true
+	}
+	return t.Model != prev.Model
+}
+
+// orchTTLSuffix returns the TTL suffix for an orchestrator row. The freshest
+// (top) row gets a live TTL from now. An older row gets a frozen "⏱ 0m" only
+// when its cache expired before the next-newer orch turn arrived (gap ≥ window,
+// T-33); otherwise it carries no suffix.
+func (a *Assembler) orchTTLSuffix(t parser.Turn, next *parser.Turn, now time.Time, fresh bool) string {
+	if fresh {
+		return renderer.CacheTTL(now, t.Timestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled)
+	}
+	if next != nil && renderer.CacheExpiredAt(t.Timestamp, next.Timestamp, a.Config.OrchTTLMinutes) {
+		// Frozen: reuse CacheTTL with now = next.Timestamp → remaining ≤ 0 branch.
+		return renderer.CacheTTL(next.Timestamp, t.Timestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled)
+	}
+	return ""
+}
+
+// subagentRows builds one collapsed UnifiedRow per subagent. The row shows the
+// last turn's tokens/tool, "↳N" (N=CurrentTurnNum), a cumulative "Σ $" cost
+// (SubagentTotal over the agent's turn UUIDs) and a live per-agent TTL. The
+// cache_create is painted red when the gap between the last two turns is ≥ the
+// TTL window (collapse — T-36); the TTL is never frozen for subagents. At
+// terminal widths > 100 the tool cell is prefixed with the joined instance name.
+func (a *Assembler) subagentRows(d probes.Data, st *state.Session) []timedRow {
+	if len(d.Subagents) == 0 {
+		return nil
+	}
+
+	now := d.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	out := make([]timedRow, 0, len(d.Subagents))
+	for _, sa := range d.Subagents {
+		if len(sa.Turns) == 0 {
+			continue
+		}
+		last := sa.Turns[len(sa.Turns)-1]
+		model := strings.TrimPrefix(sa.Model, "claude-")
+		if model == "" {
+			model = strings.TrimPrefix(last.Model, "claude-")
+		}
+
+		role := sa.AgentType
+		if role == "" {
+			role = "agent"
+		}
+
+		// Cumulative cost over all of the agent's turn UUIDs.
+		uuids := make([]string, 0, len(sa.Turns))
+		for _, tn := range sa.Turns {
+			uuids = append(uuids, tn.UUID)
+		}
+		costCell := "Σ " + cost.Format(cost.SubagentTotal(st, uuids))
+
+		// Tool cell: last turn's tool; "<name≤16>: <tool>" at wide terminals.
+		tool := last.ToolUse
+		if tool == "" {
+			tool = sa.LastTool
+		}
+		if d.TerminalCols > 100 {
+			name := a.instanceName(d, sa)
+			if name != "" {
+				display := tool
+				if display == "" {
+					display = renderer.ThinkingGlyph
+				}
+				tool = name + ": " + display
+			}
+		}
+
+		row := renderer.UnifiedRow{
+			HashCell:      fmt.Sprintf("↳%d", sa.CurrentTurnNum),
+			Role:          role,
+			Model:         model,
+			CacheRead:     last.Tokens.CacheRead,
+			CacheCreate:   last.Tokens.CacheCreate,
+			Out:           last.Tokens.Output,
+			CostCell:      costCell,
+			Tool:          tool,
+			IsSidechain:   true,
+			Dim:           false,
+			GroupID:       0,
+			SkipSeparator: true,
+			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.OrchTTLMinutes),
+			TTLSuffix:     renderer.CacheTTL(now, sa.LastTimestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled),
+		}
+		out = append(out, timedRow{row: row, ts: sa.ActivationStart})
+	}
+	return out
+}
+
+// subagentRedCacheWrite reports whether the subagent's collapsed row should
+// paint its cache_create red: the gap between its last two turns is ≥ the TTL
+// window (cache collapse — T-36). A model change within a subagent does NOT
+// trigger this (orchestrator-only per spec). Fewer than two turns → false.
+func subagentRedCacheWrite(sa parser.SubagentStats, orchTTLMinutes int) bool {
+	n := len(sa.Turns)
+	if n < 2 {
+		return false
+	}
+	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, orchTTLMinutes)
+}
+
+// instanceName resolves the subagent's display instance name from the stdin
+// Tasks list (join by task.ID == AgentID), truncated to 16 runes. Falls back to
+// AgentType when no matching Task is found.
+func (a *Assembler) instanceName(d probes.Data, sa parser.SubagentStats) string {
+	name := sa.AgentType
+	for _, task := range d.Stdin.Tasks {
+		if task.ID == sa.AgentID {
+			name = task.Name
+			break
+		}
+	}
+	if name == "" {
+		return ""
+	}
+	runes := []rune(name)
+	if len(runes) > 16 {
+		name = string(runes[:16])
+	}
+	return name
 }
 
 // hint returns the hint widget text for this session's rotation state.

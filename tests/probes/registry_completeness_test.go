@@ -18,7 +18,7 @@ func TestRegistry_Complete(t *testing.T) {
 		len(probes.Line2Registry) +
 		len(probes.SubagentRegistry)
 
-	const want = 10
+	const want = 9 // Phase 6.9.e: cache (Line2) probe removed — row 2 dropped (T-13).
 	if total != want {
 		t.Errorf("registry total: want %d probes registered, got %d "+
 			"(Line0=%d Line1=%d Line2=%d Subagent=%d)",
@@ -52,7 +52,6 @@ func TestRegistry_TrivialGetters(t *testing.T) {
 		"time":     1,
 		"quota":    1,
 		"project":  2,
-		"cache":    2,
 		"git":      2,
 		"cost":     1,
 		"email":    2,
@@ -99,7 +98,6 @@ func TestRegistry_PriorityValues(t *testing.T) {
 		{"ctx", 1},
 		{"quota", 1},
 		{"project", 2},
-		{"cache", 2},
 		{"git", 2},
 		{"cost", 1},
 		{"email", 2},

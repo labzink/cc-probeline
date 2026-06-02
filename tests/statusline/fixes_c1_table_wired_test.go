@@ -217,42 +217,10 @@ func TestAssembler_Table_LegendNotTotalFooter(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// C1-c: TestAssembler_Table_SubagentInterleaved
-//
-// Spec T-15: subagent turns woven into the main stream by timestamp.
-// SubTool (sidechain) must appear between ToolB (newer) and ToolA (older)
-// in the output — NOT appended at the end as in the old AddSubagents path.
-//
-// RED: old path appends subagent rows after all orch rows via AddSubagents.
+// C1-c: subagent interleave test REMOVED in Phase 6.9.e.
+// Per-turn interleaving of subagent rows is superseded by the collapsed
+// one-row-per-subagent design (contract tests T-10/T-11 in assembler_test.go).
 // ---------------------------------------------------------------------------
-
-func TestAssembler_Table_SubagentInterleaved(t *testing.T) {
-	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "e@x"}})
-	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "sonnet"}})
-	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "cache:0"}})
-
-	a := makeC1Assembler()
-	out := a.Render(makeC1Data())
-
-	// Find positions of the three tool markers.
-	posToolB := strings.Index(out, "ToolB")
-	posSubTool := strings.Index(out, "SubTool")
-	posToolA := strings.Index(out, "ToolA")
-
-	if posToolB < 0 || posSubTool < 0 || posToolA < 0 {
-		t.Fatalf("C1 T-15: one or more tool markers not found (posToolB=%d, posSubTool=%d, posToolA=%d)\noutput:\n%s",
-			posToolB, posSubTool, posToolA, out)
-	}
-
-	// Newest-first: ToolB (newest) < SubTool (middle) < ToolA (oldest).
-	// If old path: ToolB < ToolA < SubTool (subagent appended last) → test FAILS.
-	if !(posToolB < posSubTool && posSubTool < posToolA) {
-		t.Errorf("C1 T-15: subagent rows must be interleaved by timestamp;\n"+
-			"  want ToolB(%d) < SubTool(%d) < ToolA(%d) — posSubTool must be between orch rows\n"+
-			"  FIX: perTurnTable must merge turns+sidechain by timestamp, not AddSubagents at end\noutput:\n%s",
-			posToolB, posSubTool, posToolA, out)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // C1-d: TestAssembler_Table_ThinkingGlyph
@@ -277,14 +245,12 @@ func TestAssembler_Table_ThinkingGlyph(t *testing.T) {
 	}
 
 	// The thinking turn (Thinking=true, ToolUse="") should produce a non-empty
-	// tool cell — the glyph. We can't know the exact glyph, but we know ToolUse=""
-	// so the old Builder would produce an empty tool cell. New RenderUnified shows 💭.
-	// Detect presence of any multi-byte glyph character that isn't a box-draw char.
-	// Simpler: assert that the output contains "💭" (the thinkingGlyph constant).
-	if !strings.Contains(out, "💭") {
-		t.Errorf("C1 T-19: thinking turn (Thinking=true, ToolUse='') must show thinking glyph '💭' in tool column;\n"+
+	// tool cell. Phase 6.9.e (T-7) replaced the old 💭 glyph with the text
+	// "thinking..." in the tool column; assert the new text is present.
+	if !strings.Contains(out, "thinking...") {
+		t.Errorf("C1 T-19: thinking turn (Thinking=true, ToolUse='') must show 'thinking...' in tool column;\n"+
 			"  not found in Assembler output\n"+
-			"  FIX: perTurnTable must call RenderUnified which renders thinkingGlyph\noutput:\n%s", out)
+			"  FIX: perTurnTable must call RenderUnified which renders the thinking text\noutput:\n%s", out)
 	}
 }
 

@@ -5,7 +5,7 @@
 //
 // Threshold derivation for RenderForCols (§2.4, updated for 6.6.d):
 //
-//	New cols (6.6.d):  {4, 13, 12, 13, 7, 8, 15}
+//	New cols (6.9.e):  {4, 14, 12, 13, 7, 9, 13}
 //	Content sum:        4+13+12+13+7+8+15 = 72
 //	Full table width:   72 + 8 borders = 80
 //
@@ -85,10 +85,10 @@ func TestTable66_Widths(t *testing.T) {
 		t.Fatal("Render() returned empty string; want non-empty table (RED: NewBuilder has old widths {4,7,12,13,7,9,16})")
 	}
 
-	// 6.6.d revised widths: role 7→13, cost 9→8, tool 16→15.
-	wantCols := [7]int{4, 13, 12, 13, 7, 8, 15}
+	// 6.9.e revised widths: role+1 (13→14), cost+1 (8→9), tool−2 (15→13).
+	wantCols := [7]int{4, 14, 12, 13, 7, 9, 13}
 	// Full table: 72 content + 8 borders = 80.
-	const wantWidth = 80 // was 76 in 6.6.c
+	const wantWidth = 80
 
 	lines := splitLines(out)
 	if len(lines) == 0 {
@@ -258,10 +258,10 @@ func TestTable66_DropHashAndCost(t *testing.T) {
 // middle-truncated. Every line must fit in 60 cols.
 // The "…" ellipsis marker must appear in output.
 //
-// Calculation (6.6.d §2.4): fixed5 = role13+model12+cache13+out7 = 45.
-// At cols=60: flex = 60 − 6 borders − 45 = 9 ≥ 1 → trunc step runs.
-// 5-col width = 45 + 9 + 6 = 60. tool inner = 8 → 30-char tool → "…".
-// fiveColMinTotal = 53 (floor: flex=1 → 45+1+6=52+1=53).
+// Calculation (6.9.e): fixed5 = role14+model12+cache13+out7 = 46.
+// At cols=60: flex = 60 − 6 borders − 46 = 8 ≥ 1 → trunc step runs.
+// 5-col width = 46 + 8 + 6 = 60. tool inner = 7 → 30-char tool → "…".
+// fiveColMinTotal = 53 (floor: flex=1 → 46+1+6=53).
 // -------------------------------------------------------------------
 func TestTable66_TruncTool(t *testing.T) {
 	// Use a tool name long enough to require truncation.
@@ -320,8 +320,9 @@ func TestTable66_SubagentRow(t *testing.T) {
 	b := renderer.NewBuilder(80)
 	b.Add(makeTurn(1, "orch", "sonnet-4", "Read", 1000, 200, 0))
 
-	// Build subagent stats manually.
-	sub := makeAgentStats("abc123", "code-reviewer", "opus-4", "Bash", 2000, 500, 300)
+	// Build subagent stats manually. AgentType is 15 runes so it overflows the
+	// 6.9.e role col (width 14, inner 13) and must be middle-truncated.
+	sub := makeAgentStats("abc123", "code-reviewer-x", "opus-4", "Bash", 2000, 500, 300)
 
 	// AddSubagents is the new method (does not exist yet → compile-fail RED).
 	b.AddSubagents([]parser.SubagentStats{sub})
@@ -336,20 +337,16 @@ func TestTable66_SubagentRow(t *testing.T) {
 		t.Errorf("AddSubagents: output must contain '↳' in # column; not found\noutput:\n%s", out)
 	}
 
-	// Verify AgentType appears in output (truncated by padCell to 13-wide col in 6.6.d).
-	// "code-reviewer" is 13 chars → padCell inner=12 → fits exactly without truncation (6.6.d).
-	// The full string "code-reviewer" (13 chars) fits in inner=12? No: 13 > 12 → must be truncated.
-	// padCell inner = col_width - 1 (margin) = 13 - 1 = 12. 13 chars > 12 → truncated.
-	if strings.Contains(out, "code-reviewer") {
-		// 13 chars, inner=12 → must be middle-truncated; full string should NOT appear.
-		t.Errorf("AddSubagents: AgentType 'code-reviewer' (13 chars) must be truncated in 13-wide col (inner=12); full string found\noutput:\n%s", out)
+	// Verify AgentType is truncated by padCell to the 6.9.e role col (width 14,
+	// inner 13). "code-reviewer-x" is 15 runes > 13 → must be middle-truncated.
+	if strings.Contains(out, "code-reviewer-x") {
+		t.Errorf("AddSubagents: AgentType 'code-reviewer-x' (15 chars) must be truncated in 14-wide col (inner=13); full string found\noutput:\n%s", out)
 	}
-	// The truncated form must contain "…" for middle-truncation.
-	// code-reviewer (13) → MiddleTruncate("code-reviewer", 12) → "code-r…iewer" with "…".
-	// The only over-width cell here is role (model "opus-4" and tool "Bash" are short),
+	// The truncated form must contain "…" for middle-truncation. The only
+	// over-width cell here is role (model "opus-4" and tool "Bash" are short),
 	// so "…" must originate from the truncated AgentType.
 	if !strings.Contains(out, "…") {
-		t.Errorf("AddSubagents: truncated AgentType 'code-reviewer' (13>12) must emit '…'; not found\noutput:\n%s", out)
+		t.Errorf("AddSubagents: truncated AgentType 'code-reviewer-x' (15>13) must emit '…'; not found\noutput:\n%s", out)
 	}
 
 	// Verify cost cell is "—" (not a dollar amount).
@@ -461,22 +458,22 @@ func TestTable66_TotalExcludesAgents(t *testing.T) {
 //
 // 6.6.d widens role column to 13 (inner = 12 = col_width - 1 margin).
 //
-//	Case A: AgentType exactly 12 runes → padCell fits without truncation.
-//	        All 12 runes must appear verbatim in the content row.
+//	Case A: AgentType exactly 13 runes → padCell fits without truncation.
+//	        All 13 runes must appear verbatim in the content row.
 //
-//	Case B: AgentType exactly 13 runes → padCell inner=12 → middle-truncated
-//	        to 12 runes total (11 chars + "…"). The full 13-rune string
+//	Case B: AgentType 15 runes → padCell inner=13 → middle-truncated
+//	        (14 runes total incl "…"). The full 15-rune string
 //	        must NOT appear verbatim; "…" must be present.
 //
-// Source: spec-common.md §2.4 (role col 13, inner=12).
+// Source: spec-common.md §2.3 (role col 14, inner=13 — 6.9.e).
 // -------------------------------------------------------------------
 func TestTable66_RoleWidth(t *testing.T) {
-	// Case A: 12-rune AgentType — must fit without truncation.
-	// "code-review." is exactly 12 ASCII runes.
-	roleExact12 := "code-review." // len=12
-	if len([]rune(roleExact12)) != 12 {
+	// Case A: 13-rune AgentType — must fit without truncation (inner=13).
+	// "code-reviewer" is exactly 13 ASCII runes.
+	roleExact12 := "code-reviewer" // len=13
+	if len([]rune(roleExact12)) != 13 {
 		// Sanity: ensure fixture length is correct.
-		t.Fatalf("test fixture roleExact12 has %d runes, want 12", len([]rune(roleExact12)))
+		t.Fatalf("test fixture roleExact12 has %d runes, want 13", len([]rune(roleExact12)))
 	}
 
 	b12 := renderer.NewBuilder(80)
@@ -490,13 +487,13 @@ func TestTable66_RoleWidth(t *testing.T) {
 		t.Fatal("Case A: Render() returned empty string")
 	}
 
-	// The full 12-rune role value must appear verbatim in the output (no truncation).
+	// The full 13-rune role value must appear verbatim in the output (no truncation).
 	if !strings.Contains(out12, roleExact12) {
-		t.Errorf("Case A: role value %q (12 runes) must appear verbatim in 13-wide col (inner=12); not found\noutput:\n%s",
+		t.Errorf("Case A: role value %q (13 runes) must appear verbatim in 14-wide col (inner=13); not found\noutput:\n%s",
 			roleExact12, out12)
 	}
 
-	// "…" must NOT appear in the role cell for a 12-rune value.
+	// "…" must NOT appear in the role cell for a 13-rune value.
 	// Note: "…" may appear in tool/arg cell from other turns, so we check the
 	// content row that carries our subagent (the one containing "↳").
 	var subRow string
@@ -515,7 +512,7 @@ func TestTable66_RoleWidth(t *testing.T) {
 	if len(parts12) >= 3 {
 		roleCell := parts12[2] // col index 1 = role, after "#" and before model
 		if strings.Contains(roleCell, "…") {
-			t.Errorf("Case A: role cell must NOT contain '…' for 12-rune value; got cell=%q\nrow: %s",
+			t.Errorf("Case A: role cell must NOT contain '…' for 13-rune value; got cell=%q\nrow: %s",
 				roleCell, subRow)
 		}
 		// Verify the full value appears in the role cell.
@@ -528,11 +525,11 @@ func TestTable66_RoleWidth(t *testing.T) {
 			len(parts12), subRow)
 	}
 
-	// Case B: 13-rune AgentType — must be middle-truncated.
-	// "code-reviewer" is exactly 13 ASCII runes.
-	roleOver12 := "code-reviewer" // len=13
-	if len([]rune(roleOver12)) != 13 {
-		t.Fatalf("test fixture roleOver12 has %d runes, want 13", len([]rune(roleOver12)))
+	// Case B: 15-rune AgentType — must be middle-truncated (inner=13).
+	// "code-reviewer-x" is exactly 15 ASCII runes.
+	roleOver12 := "code-reviewer-x" // len=15
+	if len([]rune(roleOver12)) != 15 {
+		t.Fatalf("test fixture roleOver12 has %d runes, want 15", len([]rune(roleOver12)))
 	}
 
 	b13 := renderer.NewBuilder(80)
@@ -546,9 +543,9 @@ func TestTable66_RoleWidth(t *testing.T) {
 		t.Fatal("Case B: Render() returned empty string")
 	}
 
-	// The full 13-rune string must NOT appear verbatim (it was truncated).
+	// The full 15-rune string must NOT appear verbatim (it was truncated).
 	if strings.Contains(out13, roleOver12) {
-		t.Errorf("Case B: role value %q (13 runes) must be truncated in 13-wide col (inner=12); full string found\noutput:\n%s",
+		t.Errorf("Case B: role value %q (15 runes) must be truncated in 14-wide col (inner=13); full string found\noutput:\n%s",
 			roleOver12, out13)
 	}
 
@@ -567,13 +564,13 @@ func TestTable66_RoleWidth(t *testing.T) {
 	if len(parts13) >= 3 {
 		roleCell13 := parts13[2] // col index 1 = role
 		if !strings.Contains(roleCell13, "…") {
-			t.Errorf("Case B: role cell must contain '…' (middle-truncation) for 13-rune value; got cell=%q\nrow: %s",
+			t.Errorf("Case B: role cell must contain '…' (middle-truncation) for 15-rune value; got cell=%q\nrow: %s",
 				roleCell13, subRow13)
 		}
-		// The truncated role cell must still be exactly 13 visual runes wide (col width=13).
+		// The truncated role cell must still be exactly 14 visual runes wide (col width=14).
 		cellWidth := format.VisualLen(roleCell13)
-		if cellWidth != 13 {
-			t.Errorf("Case B: role cell visual width = %d; want 13 (6.6.d col width)\ncell: %q",
+		if cellWidth != 14 {
+			t.Errorf("Case B: role cell visual width = %d; want 14 (6.9.e col width)\ncell: %q",
 				cellWidth, roleCell13)
 		}
 	} else {

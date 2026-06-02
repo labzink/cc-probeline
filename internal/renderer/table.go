@@ -83,21 +83,28 @@ const (
 
 // NewBuilder returns a Builder with default layout using the given terminal
 // width (cols). If cols <= 0, defaults to 80.
-// Column widths (Phase 6.6.d): [#=4, role=13, model=12, cache=13, out=7, cost=8, tool/arg=15].
-// Full table width: 4+13+12+13+7+8+15=72 content + 8 borders = 80.
+// Column widths (Phase 6.9.e): [#=4, role=14, model=12, cache=13, out=7, cost=9, tool=13].
+// Full table width: 4+14+12+13+7+9+13=72 content + 8 borders = 80.
+// (Tweak vs 6.8: role+1, cost+1, tool−2.)
 func NewBuilder(cols int) *Builder {
 	if cols <= 0 {
 		cols = 80
 	}
 	return &Builder{
-		cols:         [7]int{4, 13, 12, 13, 7, 8, 15},
+		cols:         [7]int{4, 14, 12, 13, 7, 9, 13},
 		terminalCols: cols,
 	}
 }
 
-// effectiveCols returns the column widths as-is.
+// effectiveCols returns the column widths, widening the tool column from 13 to
+// 33 (+20) when the terminal is wider than 100 columns. The extra room lets the
+// subagent instance-name prefix ("<name≤16>: <tool>") fit (spec §2.3, T-30).
 func (b *Builder) effectiveCols() [7]int {
-	return b.cols
+	cols := b.cols
+	if b.terminalCols > 100 {
+		cols[6] = 33
+	}
+	return cols
 }
 
 // padCell pads s to exactly w visual columns with a 1-space margin:
@@ -308,9 +315,9 @@ func (b *Builder) RenderForCols(cols int) string {
 		return full
 	}
 	// tool/arg is the last column in c5; flex = cols - borders(6) - fixed.
-	// Fixed widths in 5-col: role(13)+model(12)+cache(13)+out(7) = 45.
+	// Fixed widths in 5-col (6.9.e): role(14)+model(12)+cache(13)+out(7) = 46.
 	const borders5 = 6
-	const fixed5 = 45
+	const fixed5 = 46
 	flex := cols - borders5 - fixed5
 	// Rebuild c5 with tool/arg column set to flex width.
 	// cols >= fiveColMinTotal guarantees flex >= 2, so toolInner >= 1.

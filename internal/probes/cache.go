@@ -2,7 +2,6 @@ package probes
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/labzink/cc-probeline/internal/renderer"
@@ -28,18 +27,10 @@ func (p *CacheProbe) Name() string  { return "cache" }
 func (p *CacheProbe) Priority() int { return 2 }
 func (p *CacheProbe) MinWidth() int { return len("0K/0K | 0K | $0.00") }
 
-// cacheTTL computes the ⏱Nm suffix for the cache row, with optional colour markers.
+// cacheTTL computes the ⏱Nm suffix for the cache row, delegating the formula to
+// renderer.CacheTTL (single source of truth, reused by the per-turn table).
 // Returns "" when TTL should be hidden (zero timestamp, zero turns, zero window,
 // or subagent context: subagentGapMinutes > 0).
-// remaining = window − floor((now − lastTimestamp).Minutes()), floor applied.
-// Used at all levels (Full, Compact, Minimal).
-//
-// Colour rules per spec T-24 (applied only when ansiEnabled=true):
-//
-//	>30m remaining  → {{color:green}}⏱ Nm{{reset}}
-//	≤30m remaining  → {{color:yellow}}⏱ Nm{{reset}}
-//	≤10m remaining  → {{color:red}}⏱ Nm{{reset}}
-//	≤0m remaining   → {{color:bold_red}}⏱ 0m{{reset}}  (NOT hidden)
 //
 // T-23: TTL is suppressed entirely when subagentGapMinutes > 0 (subagent context).
 func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinutes int, subagentGapMinutes int, ansiEnabled bool) string {
@@ -47,40 +38,7 @@ func cacheTTL(now time.Time, lastTimestamp time.Time, turnCount int, orchTTLMinu
 	if subagentGapMinutes > 0 {
 		return ""
 	}
-	if orchTTLMinutes <= 0 {
-		return ""
-	}
-	if lastTimestamp.IsZero() {
-		return ""
-	}
-	if turnCount == 0 {
-		return ""
-	}
-	elapsed := now.Sub(lastTimestamp)
-	elapsedMinutes := int(math.Floor(elapsed.Minutes()))
-	remaining := orchTTLMinutes - elapsedMinutes
-
-	// T-24: at remaining ≤ 0, show "0m" with bold_red (not hidden).
-	if remaining <= 0 {
-		if !ansiEnabled {
-			return "⏱ 0m"
-		}
-		return "{{color:bold_red}}⏱ 0m{{reset}}"
-	}
-
-	ttlText := fmt.Sprintf("⏱ %dm", remaining)
-	if !ansiEnabled {
-		return ttlText
-	}
-	switch {
-	case remaining <= 10:
-		return "{{color:red}}" + ttlText + "{{reset}}"
-	case remaining <= 30:
-		return "{{color:yellow}}" + ttlText + "{{reset}}"
-	default:
-		// T-24: > 30m → green.
-		return "{{color:green}}" + ttlText + "{{reset}}"
-	}
+	return renderer.CacheTTL(now, lastTimestamp, turnCount, orchTTLMinutes, ansiEnabled)
 }
 
 // Visible returns false when CacheEnabled is false or Session is nil (no JSONL data parsed yet).

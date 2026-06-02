@@ -11,110 +11,188 @@ import (
 	"github.com/labzink/cc-probeline/internal/state"
 )
 
-// thinkingGlyph is the symbol shown in the tool column when Turn.Thinking=true.
-// The exact glyph is not fixed by spec; tests verify non-empty and not a tool name.
-const thinkingGlyph = "💭"
+// ThinkingGlyph is the text shown in the tool column when a turn is thinking
+// (Turn.Thinking) or has produced no tool_use yet (empty ToolUse). Phase 6.9.e
+// replaced the old emoji glyph with the literal word (T-7 / T-8).
+const ThinkingGlyph = "thinking..."
 
-// RenderUnified renders the redesigned per-turn table (Phase 6.8.d).
+// UnifiedRow is a fully-prepared per-turn table row carrying every piece of
+// presentation state the renderer needs. The assembler builds these (collapsing
+// each subagent into a single row, joining instance names, computing cumulative
+// cost) so RenderUnifiedRows stays a pure layout pass.
+type UnifiedRow struct {
+	// HashCell is the "#" column content: a turn number for orchestrator rows
+	// ("1", "2", …) or "↳N" for subagent rows.
+	HashCell string
+	// Role is the un-coloured role label (orchestrator role or AgentType).
+	Role string
+	// Model is the canonical model name (the "claude-" prefix is trimmed here).
+	Model string
+	// CacheRead / CacheCreate are token counts for the "cache r/w" column.
+	CacheRead, CacheCreate int
+	// Out is the output-token count.
+	Out int
+	// CostCell is the pre-formatted cost cell ("$X.XX" for orch, "Σ $X.XX" for
+	// subagent).
+	CostCell string
+	// Tool is the tool-column content (may already include an instance-name
+	// prefix "<name>: <tool>" for subagent rows at wide terminals).
+	Tool string
+
+	// IsSidechain marks subagent rows (yellow role).
+	IsSidechain bool
+	// Dim wraps the whole row (and its borders) in {{dim}} (older orch groups
+	// and subagents anchored outside the freshest group).
+	Dim bool
+	// GroupID is the orchestrator group used to detect separators. Subagent rows
+	// carry 0 and never trigger a separator (handled by SkipSeparator).
+	GroupID int
+	// SkipSeparator suppresses group-boundary detection for this row (subagents).
+	SkipSeparator bool
+	// RedCacheWrite paints the cache_create (write) sub-token in {{color:red}}
+	// (cache collapse / model switch — T-34/T-35/T-36). read is untouched.
+	RedCacheWrite bool
+	// TTLSuffix, when non-empty, is appended after the right border of this row
+	// (live TTL on the fresh orch row, per-agent TTL on subagent rows, frozen
+	// "⏱ 0m" on expired older orch rows). Already colour-marked.
+	TTLSuffix string
+}
+
+// RenderUnifiedRows renders the redesigned per-turn table from pre-built rows.
 //
 // Layout rules:
-//   - Turns are expected pre-sorted by Timestamp DESC (newest first).
-//   - A group-separator line (├─┼─┤) is inserted before the first row of each
-//     new GroupID encountered scanning top-to-bottom. No separator before the
-//     very first data row (it would produce an unwanted top-of-data separator).
-//   - Rows belonging to the current group (max GroupID) are plain.
-//     Rows from older groups are wrapped in {{dim}}…{{reset}}.
-//   - Footer: legend row ("# role model cache out cost tool") as a content line
-//     (│-bordered) immediately before the bottom border. No totals row.
-//   - tool column: thinkingGlyph when Turn.Thinking; ToolUse name otherwise.
-//   - cost column: "—" for sidechain turns; cost.PerTurn value for orchestrator.
-func (b *Builder) RenderUnified(turns []parser.Turn, st *state.Session) string {
-	slog.Debug("renderer.RenderUnified start", "turns", len(turns))
-	if len(turns) == 0 {
+//   - Rows are pre-sorted newest-first by the caller.
+//   - A group separator (├─┼─┤) is inserted before the first row of each new
+//     orchestrator GroupID scanning top-to-bottom. Rows with SkipSeparator
+//     (subagents) do not participate in boundary detection.
+//   - Dim rows are wrapped in {{dim}}…{{reset}} (whole line, borders included).
+//   - The legend row ("# role model cache r/w out cost tool") is preceded by a
+//     ├─┼─┤ separator and sits immediately before the bottom border.
+//   - TTLSuffix is appended after the right border of each row that carries one.
+func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
+	slog.Debug("renderer.RenderUnifiedRows start", "rows", len(rows))
+	if len(rows) == 0 {
 		return ""
-	}
-
-	// Determine current group = max GroupID across all turns.
-	maxGroupID := 0
-	for _, t := range turns {
-		if t.GroupID > maxGroupID {
-			maxGroupID = t.GroupID
-		}
 	}
 
 	cols := b.effectiveCols()
 	colWidths := cols[:]
 
-	// Build border / separator lines.
 	topBorder := hlineSlice(colWidths, '┌', '┬', '┐', '─', nil)
 	bottomBorder := hlineSlice(colWidths, '└', '┴', '┘', '─', nil)
-	// Group separator: ├─┼─┤ (same fill as top/bottom but with join chars ├/┼/┤).
 	groupSep := hlineSlice(colWidths, '├', '┼', '┤', '─', nil)
+	// The legend separator (T-5) starts ├ and uses ┼ junctions like a group
+	// separator, but its right corner is ┐ so it is distinguishable from a
+	// group-boundary separator (which ends ┤). This lets callers count data
+	// group boundaries without the legend separator inflating the total (T-3).
+	legendSep := hlineSlice(colWidths, '├', '┼', '┐', '─', nil)
 
 	var sb strings.Builder
 	sb.WriteString(topBorder)
 	sb.WriteByte('\n')
 
-	// Scan turns top-to-bottom (already newest-first). Track previous GroupID to
-	// detect group boundaries. prevGroupID is initialised to the first turn's
-	// GroupID so the very first data row does NOT emit a preceding separator.
-	prevGroupID := turns[0].GroupID
-	for _, t := range turns {
-		// Insert group-separator line before the first row of a new group.
-		if t.GroupID != prevGroupID {
-			sb.WriteString(groupSep)
-			sb.WriteByte('\n')
-			prevGroupID = t.GroupID
+	// Track the previous orchestrator GroupID to detect boundaries. Initialise
+	// to the first non-skipped row's group so the very first data row never
+	// emits a preceding separator.
+	prevGroupID := 0
+	havePrev := false
+	for _, r := range rows {
+		if !r.SkipSeparator {
+			if havePrev && r.GroupID != prevGroupID {
+				sb.WriteString(groupSep)
+				sb.WriteByte('\n')
+			}
+			prevGroupID = r.GroupID
+			havePrev = true
 		}
 
-		row := b.buildUnifiedRow(t, st)
-		isHistory := t.GroupID < maxGroupID
-		var line string
-		if isHistory {
-			// History rows use plain │ dividers; the whole line is then wrapped in
-			// {{dim}}…{{reset}} so the entire row (borders included) renders dim.
-			line = "{{dim}}" + renderRowNPlainBar(row, colWidths) + "{{reset}}"
-		} else {
-			// Current-group rows: plain │ dividers, no dim wrapper. The test
-			// asserts the current row must NOT contain {{dim}}.
-			line = renderRowNPlainBar(row, colWidths)
-		}
+		line := b.renderUnifiedDataRow(r, colWidths)
 		sb.WriteString(line)
+		if r.TTLSuffix != "" {
+			sb.WriteByte(' ')
+			sb.WriteString(r.TTLSuffix)
+		}
 		sb.WriteByte('\n')
 	}
 
-	// Legend row: column header labels placed before the bottom border.
+	// Legend: ├─┼─┐ separator immediately before the legend row (T-5).
+	sb.WriteString(legendSep)
+	sb.WriteByte('\n')
 	sb.WriteString(renderUnifiedLegend(colWidths))
 	sb.WriteByte('\n')
 	sb.WriteString(bottomBorder)
 	sb.WriteByte('\n')
 
 	result := sb.String()
-	slog.Debug("renderer.RenderUnified complete", "lines", strings.Count(result, "\n"))
+	slog.Debug("renderer.RenderUnifiedRows complete", "lines", strings.Count(result, "\n"))
 	return result
 }
 
-// renderRowNPlainBar renders one content row using plain │ as cell dividers
-// (no dim markers). Used for rows in RenderUnified where the caller controls
-// the dim wrapper on the whole line.
-func renderRowNPlainBar(row Row, colWidths []int) string {
-	origIndices := []int{0, 1, 2, 3, 4, 5, 6}
+// renderUnifiedDataRow renders one UnifiedRow as a │-bordered content line.
+// Current-group rows use {{dim}}│{{reset}} dividers (T-6); dim rows are wrapped
+// whole in {{dim}}…{{reset}}.
+func (b *Builder) renderUnifiedDataRow(r UnifiedRow, colWidths []int) string {
+	cells := b.unifiedCells(r)
 	var sb strings.Builder
-	sb.WriteRune('│')
-	for i, origIdx := range origIndices {
-		cell := row[origIdx]
-		sb.WriteString(padCell(cell.Content, colWidths[i], cell.Align))
+	if r.Dim {
+		// History/anchored rows: plain │ dividers, whole line wrapped in dim.
 		sb.WriteRune('│')
+		for i := range cells {
+			sb.WriteString(padCell(cells[i].Content, colWidths[i], cells[i].Align))
+			sb.WriteRune('│')
+		}
+		return "{{dim}}" + sb.String() + "{{reset}}"
+	}
+	// Current-group rows: the internal/trailing dividers are {{dim}}│{{reset}} so
+	// the bars render dim while cell content keeps its own colour (T-6). The
+	// leading border is a plain │ so the line does NOT start with a {{dim}}
+	// wrapper — that prefix is reserved for whole-row dim (history) rows (T-4).
+	sb.WriteRune('│')
+	for i := range cells {
+		sb.WriteString(padCell(cells[i].Content, colWidths[i], cells[i].Align))
+		sb.WriteString(dimBar)
 	}
 	return sb.String()
 }
 
+// unifiedCells builds the seven cells of a row from its UnifiedRow fields.
+func (b *Builder) unifiedCells(r UnifiedRow) Row {
+	cacheCell := b.cacheRWCell(r.CacheRead, r.CacheCreate, r.RedCacheWrite)
+	return Row{
+		{Content: r.HashCell, Align: AlignRight},
+		{Content: unifiedRoleColour(r.Role, r.IsSidechain), Align: AlignLeft},
+		{Content: r.Model, Align: AlignLeft},
+		{Content: cacheCell, Align: AlignLeft},
+		{Content: format.FormatK(r.Out), Align: AlignRight},
+		{Content: r.CostCell, Align: AlignRight},
+		{Content: unifiedToolCell(r.Tool), Align: AlignLeft},
+	}
+}
+
+// cacheRWCell formats the "cache r/w" cell as "<read>/<write>". When redWrite is
+// set the write sub-token (cache_create) is wrapped in {{color:red}} so a cache
+// collapse / cold cache is visible without touching the read part (T-34..T-36).
+func (b *Builder) cacheRWCell(read, write int, redWrite bool) string {
+	readStr := format.FormatK(read)
+	writeStr := format.FormatK(write)
+	if redWrite {
+		writeStr = "{{color:red}}" + writeStr + "{{reset}}"
+	}
+	return readStr + "/" + writeStr
+}
+
+// unifiedToolCell renders the tool-column content. Empty tool → "thinking..."
+// (the no-activity / thinking state, T-8).
+func unifiedToolCell(tool string) string {
+	if tool == "" {
+		return ThinkingGlyph
+	}
+	return tool
+}
+
 // unifiedRoleColour wraps a role label with colour markers based on IsSidechain:
-//   - IsSidechain=false (orchestrator) → cyan
-//   - IsSidechain=true  (sidechain agent) → yellow
-//
-// This supersedes the legacy roleColour("orch") string-match approach, which
-// failed because Turn.Role is "orchestrator" (not "orch") in production data.
+//   - orchestrator (IsSidechain=false) → cyan
+//   - sidechain agent (IsSidechain=true) → yellow
 func unifiedRoleColour(role string, isSidechain bool) string {
 	if !isSidechain {
 		return "{{color:cyan}}" + role + "{{reset}}"
@@ -122,55 +200,10 @@ func unifiedRoleColour(role string, isSidechain bool) string {
 	return "{{color:yellow}}" + role + "{{reset}}"
 }
 
-// buildUnifiedRow constructs a Row for a single Turn using the redesigned layout.
-//
-// Column mapping: # / role / model / cache / out / cost / tool
-//   - cost: "—" for sidechain turns; cost.PerTurn formatted (or "—" if !ok) otherwise
-//   - tool: thinkingGlyph when Turn.Thinking; ToolUse name otherwise
-func (b *Builder) buildUnifiedRow(t parser.Turn, st *state.Session) Row {
-	model := t.Model
-	if strings.HasPrefix(model, "claude-") {
-		model = model[len("claude-"):]
-	}
-	cache := fmt.Sprintf("%s/%s",
-		format.FormatK(t.Tokens.CacheRead),
-		format.FormatK(t.Tokens.CacheCreate),
-	)
-
-	// Cost cell: "—" for sidechain; cost.PerTurn for orchestrator.
-	costCell := "—"
-	if !t.IsSidechain {
-		if v, ok := cost.PerTurn(st, t.UUID); ok {
-			costCell = cost.Format(v)
-		}
-	}
-
-	// Tool cell: thinking glyph takes priority over ToolUse name.
-	toolCell := t.ToolUse
-	if t.Thinking {
-		toolCell = thinkingGlyph
-	}
-
-	idxStr := ""
-	if t.Index > 0 {
-		idxStr = fmt.Sprintf("%d", t.Index)
-	}
-
-	return Row{
-		{Content: idxStr, Align: AlignRight},
-		{Content: unifiedRoleColour(t.Role, t.IsSidechain), Align: AlignLeft},
-		{Content: model, Align: AlignLeft},
-		{Content: cache, Align: AlignLeft},
-		{Content: format.FormatK(t.Tokens.Output), Align: AlignRight},
-		{Content: costCell, Align: AlignRight},
-		{Content: toolCell, Align: AlignLeft},
-	}
-}
-
 // renderUnifiedLegend renders the legend content row with column header labels.
-// Uses the standard dimBar ({{dim}}│{{reset}}) separators, identical to data rows.
+// The cache column label is "cache r/w" (T-31). Uses {{dim}}│{{reset}} dividers.
 func renderUnifiedLegend(colWidths []int) string {
-	labels := [7]string{"#", "role", "model", "cache", "out", "cost", "tool"}
+	labels := [7]string{"#", "role", "model", "cache r/w", "out", "cost", "tool"}
 	aligns := [7]Align{AlignRight, AlignLeft, AlignLeft, AlignLeft, AlignRight, AlignRight, AlignLeft}
 
 	var sb strings.Builder
@@ -180,4 +213,63 @@ func renderUnifiedLegend(colWidths []int) string {
 		sb.WriteString(dimBar)
 	}
 	return sb.String()
+}
+
+// RenderUnified renders the redesigned per-turn table directly from turns.
+//
+// It is the backward-compatible entry-point used by structural tests and any
+// caller that does not need the rich assembler-level state (collapsed subagent
+// rows, TTL suffixes, instance names). Each turn becomes one row; subagent turns
+// get the "↳" prefix and a "Σ $" cost cell, orchestrator turns get a per-turn
+// cost cell. Dim is applied to turns from older orchestrator groups.
+func (b *Builder) RenderUnified(turns []parser.Turn, st *state.Session) string {
+	if len(turns) == 0 {
+		return ""
+	}
+
+	maxOrchGroup := 0
+	for _, t := range turns {
+		if !t.IsSidechain && t.GroupID > maxOrchGroup {
+			maxOrchGroup = t.GroupID
+		}
+	}
+
+	rows := make([]UnifiedRow, 0, len(turns))
+	for _, t := range turns {
+		model := strings.TrimPrefix(t.Model, "claude-")
+
+		costCell := "—"
+		hash := ""
+		if t.IsSidechain {
+			hash = "↳"
+		} else if t.Index > 0 {
+			hash = fmt.Sprintf("%d", t.Index)
+		}
+		if !t.IsSidechain {
+			if v, ok := cost.PerTurn(st, t.UUID); ok {
+				costCell = cost.Format(v)
+			}
+		}
+
+		tool := t.ToolUse
+		if t.Thinking {
+			tool = ThinkingGlyph
+		}
+
+		rows = append(rows, UnifiedRow{
+			HashCell:      hash,
+			Role:          t.Role,
+			Model:         model,
+			CacheRead:     t.Tokens.CacheRead,
+			CacheCreate:   t.Tokens.CacheCreate,
+			Out:           t.Tokens.Output,
+			CostCell:      costCell,
+			Tool:          tool,
+			IsSidechain:   t.IsSidechain,
+			Dim:           !t.IsSidechain && t.GroupID < maxOrchGroup,
+			GroupID:       t.GroupID,
+			SkipSeparator: t.IsSidechain,
+		})
+	}
+	return b.RenderUnifiedRows(rows)
 }
