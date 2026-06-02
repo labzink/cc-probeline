@@ -38,9 +38,31 @@ func (p *EffortProbe) Render(d Data, _ Config, t renderer.Theme, level Level) st
 	return effortGlyph(d.Stdin.Effort.Level, t.AnsiEnabled)
 }
 
+// effortColorMarker returns the opening colour marker token for the given effort
+// level when used as a wrapper around a text segment (model name or icon):
+//
+//	low            → "{{dim}}"
+//	high/xhigh/max → "{{color:magenta}}"
+//	medium or ""   → "" (no marker; caller renders text plain)
+//
+// The caller is responsible for appending "{{reset}}" when the marker is non-empty.
+// This is the single source of truth for effort-level colour selection, shared by
+// effortGlyph (icon wrapping) and ModelProbe.Render (model-name wrapping).
+func effortColorMarker(lvl string) string {
+	switch lvl {
+	case "low":
+		return "{{dim}}"
+	case "high", "xhigh", "max":
+		return "{{color:magenta}}"
+	default:
+		// medium, empty, "off", or any unrecognised level — no colour marker.
+		return ""
+	}
+}
+
 // effortGlyph returns the effort icon for lvl, colour-wrapped per B3 §5 when
-// ansiEnabled. It is the single source of truth for effort colouring, shared by
-// EffortProbe.Render and ModelProbe.Render (which appends the glyph inline):
+// ansiEnabled. It delegates colour selection to effortColorMarker so both the
+// icon and the model name share the same colour semantics:
 //
 //	low            → {{dim}}…{{reset}}
 //	medium         → no marker (default colour)
@@ -55,13 +77,10 @@ func effortGlyph(lvl string, ansiEnabled bool) string {
 	if !ansiEnabled {
 		return icon
 	}
-	switch lvl {
-	case "low":
-		return "{{dim}}" + icon + "{{reset}}"
-	case "high", "xhigh", "max":
-		return "{{color:magenta}}" + icon + "{{reset}}"
-	default:
+	marker := effortColorMarker(lvl)
+	if marker == "" {
 		// medium and any future default levels — no colour marker.
 		return icon
 	}
+	return marker + icon + "{{reset}}"
 }

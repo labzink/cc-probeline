@@ -117,11 +117,10 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 	bar := renderer.ProgressBar10(pct)
 
 	if t.AnsiEnabled {
-		// T-22 / I1: colour BOTH the bar and the usedK number using the same
-		// marker token; no percent sign. ctxNumberMarker returns a {{color:X}}
-		// token (processed by renderer.Apply after Render returns).
+		// T-15: colour ONLY the bar; usedK number is rendered plain (no marker).
+		// ctxNumberMarker returns a {{color:X}} token for the bar colour band.
 		marker := ctxNumberMarker(pct, t)
-		return fmt.Sprintf("ctx %s%s{{reset}} %s%s{{reset}}/%s", marker, bar, marker, usedK, sizeK)
+		return fmt.Sprintf("ctx %s%s{{reset}} %s/%s", marker, bar, usedK, sizeK)
 	}
 
 	// Legacy (AnsiEnabled=false): include percentage for existing tests.

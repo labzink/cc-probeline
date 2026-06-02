@@ -33,7 +33,7 @@ func colourTheme() renderer.Theme {
 
 // TestColour_Model_Bold (T-3) verifies that ModelProbe.Render, after Apply,
 // wraps the model name in bold (\x1b[1m … \x1b[0m).
-func TestColour_Model_Bold(t *testing.T) {
+func TestColour_Model_NoBoldWithoutEffort(t *testing.T) {
 	p := &probes.ModelProbe{}
 	th := colourTheme()
 	cfg := probes.Config{ModelEnabled: true}
@@ -42,12 +42,14 @@ func TestColour_Model_Bold(t *testing.T) {
 	raw := p.Render(d, cfg, th, probes.LevelFull)
 	got := renderer.Apply(raw, th)
 
-	// T-3: output must contain bold-on (\x1b[1m) and reset (\x1b[0m).
-	if !strings.Contains(got, "\x1b[1m") {
-		t.Errorf("T-3 model bold: want \\x1b[1m in Apply output, got %q", got)
+	// Phase 6.9 T-14: the model name is no longer {{bold}}; without an effort
+	// level it renders plain (no colour marker). This supersedes the old T-3
+	// "model bold" anchor — bold must NOT appear, and the plain name is shown.
+	if strings.Contains(got, "\x1b[1m") {
+		t.Errorf("model without effort: must NOT contain bold \\x1b[1m, got %q", got)
 	}
-	if !strings.Contains(got, "\x1b[0m") {
-		t.Errorf("T-3 model reset: want \\x1b[0m in Apply output, got %q", got)
+	if !strings.Contains(got, "sonnet-4-6") {
+		t.Errorf("model name: want plain \"sonnet-4-6\" in Apply output, got %q", got)
 	}
 }
 
@@ -256,7 +258,11 @@ func TestColour_ProgressBar_Thresholds(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 // TestColour_Quota_ResetYellow (T-7) verifies that the ↻ reset countdown is
-// wrapped in yellow (\x1b[33m) when time-to-reset < 30 minutes.
+// wrapped in a gradient colour when time-to-reset is within the warning range.
+//
+// Phase 6.9.b update (spec §2.3): the single yellow threshold is replaced by a
+// three-level gradient (green / orange / red). At 20 minutes the expected colour
+// is orange (\x1b[38;5;208m), which falls in the >10m && ≤30m band.
 func TestColour_Quota_ResetYellow(t *testing.T) {
 	// C4: isolate from real quota file.
 	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
@@ -265,7 +271,7 @@ func TestColour_Quota_ResetYellow(t *testing.T) {
 	cfg := probes.Config{QuotaEnabled: true}
 
 	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	// Reset in 20 minutes — below the 30m threshold.
+	// Reset in 20 minutes — in the orange band (>10m && ≤30m).
 	resetsAt := json.RawMessage(fmt.Sprintf("%d", now.Add(20*time.Minute).Unix()))
 	rl := &stdin.RateLimits{
 		FiveHour: stdin.RateWindow{
@@ -282,12 +288,13 @@ func TestColour_Quota_ResetYellow(t *testing.T) {
 	raw := p.Render(d, cfg, th, probes.LevelFull)
 	got := renderer.Apply(raw, th)
 
-	// ↻ must be present and surrounded by yellow.
+	// ↻ must be present and surrounded by a gradient colour (orange at 20m).
 	if !strings.Contains(got, "↻") {
 		t.Errorf("T-7 quota reset <30m: output must contain ↻, got %q", got)
 	}
-	if !strings.Contains(got, "\x1b[33m") {
-		t.Errorf("T-7 quota reset <30m: want \\x1b[33m (yellow) around ↻ in Apply output, got %q", got)
+	// Phase 6.9.b: orange (\x1b[38;5;208m) is the expected colour at 20m.
+	if !strings.Contains(got, "\x1b[38;5;208m") {
+		t.Errorf("T-7 quota reset 20m: want \\x1b[38;5;208m (orange) around ↻ in Apply output, got %q", got)
 	}
 }
 
