@@ -20,13 +20,20 @@ func (p *TimeProbe) Visible(d Data, c Config) bool {
 	return true
 }
 
-// Render formats the elapsed time. Consistent with CostProbe — no dim wrapper (S1).
+// Render formats the elapsed time relative to the session baseline (phase 6.9.a).
+// Uses d.SessionDurMS (TotalAPIDurationMS − BaselineDurMS) so the counter resets
+// on /clear together with the cost counter. Falls back to raw TotalAPIDurationMS
+// when SessionDurMS is zero (state not yet loaded).
 //
 //	Full:    "time: MM:SS"
 //	Compact: "MM:SS"
 //	Minimal: "MM:SS"
 func (p *TimeProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
-	mmss := formatMMSS(d.Stdin.Cost.TotalAPIDurationMS)
+	durMS := d.SessionDurMS
+	if durMS <= 0 {
+		durMS = d.Stdin.Cost.TotalAPIDurationMS
+	}
+	mmss := formatMMSS(durMS)
 	if level == LevelFull {
 		return "time: " + mmss
 	}

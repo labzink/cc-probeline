@@ -178,10 +178,11 @@ func runRender(strict bool) int {
 	// Load per-session state, reconcile delta cost, and persist (Phase 6.8.a).
 	// Fail-soft: errors log and render continues without state.
 	ccTotal := payload.Cost.TotalCostUSD
+	durMS := payload.Cost.TotalAPIDurationMS
 	var st *state.Session
 	if payload.SessionID != "" {
 		st = state.Load(payload.SessionID)
-		cost.Reconcile(st, ccTotal, session.Turns)
+		cost.Reconcile(st, ccTotal, durMS, session.Turns)
 		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
 			slog.Warn("state.Save failed", "err", saveErr)
 		}
@@ -253,9 +254,10 @@ func runRender(strict bool) int {
 		ExtraCacheEvents: configAlerts,
 	}
 
-	// Populate delta-cost fields from reconciled state (Phase 6.8.a).
+	// Populate delta-cost fields from reconciled state (Phase 6.8.a / 6.9.a).
 	if st != nil {
 		d.SessionTotal = cost.SessionTotal(st, ccTotal)
+		d.SessionDurMS = cost.SessionDuration(st, durMS)
 		// I3: compute curGroupID from the last turn's GroupID (not hardcoded 0).
 		// GroupID is assigned by Aggregate; 0 means no groups yet (safe default).
 		curGroupID := 0

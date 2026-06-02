@@ -18,26 +18,27 @@ import (
 
 // Reconcile distributes the new cost delta between the previous LastSeenTotal
 // and the current ccTotal across turns that do not yet have a PerTurnCost entry.
-// Distribution is proportional to each turn's output-token count.
+// Distribution is weighted by model family weights × token counts (see weights.go).
+// All turns (orchestrator and subagent/sidechain) are included in the pool.
 //
-// First call (st.Initialized=false): captures BaselineCost=ccTotal, sets
-// Initialized=true. Delta = ccTotal − st.LastSeenTotal (zero value = 0) is
-// distributed among all turns present. For a fresh session this is ccTotal
-// itself (st.LastSeenTotal starts at 0).
+// First call (st.Initialized=false): captures BaselineCost=ccTotal and
+// BaselineDurMS=durMS, sets Initialized=true. Delta = ccTotal − st.LastSeenTotal
+// (zero value = 0) is distributed among all turns present.
 //
 // Subsequent calls: delta = ccTotal − LastSeenTotal is distributed among turns
 // whose UUID is not yet present in st.PerTurnCost. Already-fixed entries are
 // immutable (idempotent reconciliation).
 //
 // LastSeenTotal is updated to ccTotal after every call.
-func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
-	slog.Debug("cost.Reconcile start", "initialized", st.Initialized, "ccTotal", ccTotal, "turns", len(turns))
+func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.Turn) {
+	slog.Debug("cost.Reconcile start", "initialized", st.Initialized, "ccTotal", ccTotal, "durMS", durMS, "turns", len(turns))
 
 	if !st.Initialized {
-		// First observation for this session_id: capture baseline.
+		// First observation for this session_id: capture baselines.
 		st.BaselineCost = ccTotal
+		st.BaselineDurMS = durMS
 		st.Initialized = true
-		slog.Info("cost.Reconcile baseline captured", "baseline", ccTotal)
+		slog.Info("cost.Reconcile baseline captured", "baseline", ccTotal, "baselineDurMS", durMS)
 		// Fall through to distribute delta = ccTotal - 0 (LastSeenTotal zero value).
 	}
 
@@ -50,17 +51,15 @@ func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
 		delta = 0
 	}
 
-	// Collect turns without a PerTurnCost entry.
+	// Collect turns without a PerTurnCost entry (new turns only).
 	var newTurns []parser.Turn
-	var totalOutput int
 	for _, t := range turns {
 		if _, fixed := st.PerTurnCost[t.UUID]; !fixed {
 			newTurns = append(newTurns, t)
-			totalOutput += t.Tokens.Output
 		}
 	}
 
-	// I3: record PromptCost[groupID] = cost at the start of each new group.
+	// Record PromptCost[groupID] = cost at the start of each new group.
 	// The start-of-group cost is st.LastSeenTotal (cost before this delta).
 	// Only record groups not yet tracked (first time we see turns from that group).
 	if len(newTurns) > 0 {
@@ -70,7 +69,6 @@ func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
 		for _, t := range newTurns {
 			if t.GroupID > 0 {
 				if _, seen := st.PromptCost[t.GroupID]; !seen {
-					// First time seeing this group: record cost snapshot before delta.
 					st.PromptCost[t.GroupID] = st.LastSeenTotal
 				}
 			}
@@ -81,23 +79,69 @@ func Reconcile(st *state.Session, ccTotal float64, turns []parser.Turn) {
 		if st.PerTurnCost == nil {
 			st.PerTurnCost = make(map[string]float64, len(newTurns))
 		}
-		if totalOutput > 0 {
-			// Distribute by output-token share.
-			for _, t := range newTurns {
-				share := float64(t.Tokens.Output) / float64(totalOutput)
-				st.PerTurnCost[t.UUID] = delta * share
+
+		// Compute weighted units for each new turn using model family weights.
+		type weightedTurn struct {
+			turn  parser.Turn
+			units float64
+		}
+		weighted := make([]weightedTurn, len(newTurns))
+		var totalUnits float64
+		for i, t := range newTurns {
+			w := ModelWeights(t.Model)
+			units := float64(t.Tokens.Input)*w.In +
+				float64(t.Tokens.CacheRead)*w.CacheRead +
+				float64(t.Tokens.CacheCreate)*w.CacheCreate +
+				float64(t.Tokens.Output)*w.Out
+			weighted[i] = weightedTurn{turn: t, units: units}
+			totalUnits += units
+		}
+
+		if totalUnits > 0 {
+			// Distribute delta proportionally to weighted units: Σ cost = Δ exactly.
+			for _, wt := range weighted {
+				share := wt.units / totalUnits
+				st.PerTurnCost[wt.turn.UUID] = delta * share
 			}
 		} else {
-			// All new turns have 0 output tokens: distribute equally.
+			// All new turns have zero token counts: distribute equally (spec §2.3 Σunits=0 fallback).
 			perTurn := delta / float64(len(newTurns))
-			for _, t := range newTurns {
-				st.PerTurnCost[t.UUID] = perTurn
+			for _, wt := range weighted {
+				st.PerTurnCost[wt.turn.UUID] = perTurn
 			}
 		}
-		slog.Debug("cost.Reconcile distributed", "delta", delta, "newTurns", len(newTurns), "totalOutput", totalOutput)
+		slog.Debug("cost.Reconcile distributed", "delta", delta, "newTurns", len(newTurns), "totalUnits", totalUnits)
 	}
 
 	st.LastSeenTotal = ccTotal
+}
+
+// SessionDuration returns the API duration elapsed since the baseline was
+// captured on the first Reconcile call:
+//
+//	SessionDuration = durMS − st.BaselineDurMS
+//
+// Resets naturally on /clear because a new session_id produces a fresh state
+// with a new BaselineDurMS. Returns 0 when st is nil or not yet initialized.
+func SessionDuration(st *state.Session, durMS int64) int64 {
+	if st == nil || !st.Initialized {
+		return 0
+	}
+	return durMS - st.BaselineDurMS
+}
+
+// SubagentTotal returns the cumulative PerTurnCost for all turns whose UUID
+// appears in the given list. Turns not present in st.PerTurnCost contribute 0.
+// Returns 0 when st is nil or st.PerTurnCost is nil.
+func SubagentTotal(st *state.Session, turnUUIDs []string) float64 {
+	if st == nil || st.PerTurnCost == nil {
+		return 0
+	}
+	var total float64
+	for _, uuid := range turnUUIDs {
+		total += st.PerTurnCost[uuid]
+	}
+	return total
 }
 
 // PerTurn returns the finalized cost for the given turn UUID.

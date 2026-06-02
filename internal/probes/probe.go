@@ -54,6 +54,11 @@ type Data struct {
 	// Populated by main after cost.Reconcile; zero when state not yet loaded.
 	SessionTotal float64
 
+	// Phase 6.9.a: session duration delta.
+	// SessionDurMS is TotalAPIDurationMS − BaselineDurMS (resets on /clear).
+	// Populated by main via cost.SessionDuration; zero when state not yet loaded.
+	SessionDurMS int64
+
 	// LastRequestCost is the cost of the most recent prompt group
 	// (ccTotal − PromptCost[curGroupID]). Zero when not yet computed.
 	LastRequestCost float64

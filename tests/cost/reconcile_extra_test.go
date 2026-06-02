@@ -19,12 +19,12 @@ func TestReconcile_NegativeDelta(t *testing.T) {
 	st := &state.Session{Initialized: false}
 
 	// First call: baseline=5.0, PerTurnCost[turn-X] = 5.0.
-	cost.Reconcile(st, 5.0, turns)
+	cost.Reconcile(st, 5.0, int64(0), turns)
 	gotFirst, _ := cost.PerTurn(st, "turn-X")
 
 	// Second call: ccTotal goes down (e.g. after session restore bug).
 	// Delta should clamp to 0; existing entries must be unchanged.
-	cost.Reconcile(st, 4.0, turns)
+	cost.Reconcile(st, 4.0, int64(0), turns)
 	gotSecond, _ := cost.PerTurn(st, "turn-X")
 
 	if !approxEqual(gotFirst, gotSecond) {
@@ -41,7 +41,7 @@ func TestReconcile_ZeroOutputTokens(t *testing.T) {
 	}
 	st := &state.Session{Initialized: false}
 	// delta = 2.0 distributed equally between 2 turns → 1.0 each.
-	cost.Reconcile(st, 2.0, turns)
+	cost.Reconcile(st, 2.0, int64(0), turns)
 
 	got1, ok1 := cost.PerTurn(st, "turn-1")
 	got2, ok2 := cost.PerTurn(st, "turn-2")

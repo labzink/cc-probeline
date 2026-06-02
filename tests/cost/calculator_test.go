@@ -42,7 +42,7 @@ func TestReconcile_Baseline(t *testing.T) {
 	}
 
 	// When: first Reconcile call.
-	cost.Reconcile(st, ccTotal, turns)
+	cost.Reconcile(st, ccTotal, int64(0), turns)
 
 	// Then: Session is initialized with BaselineCost set to ccTotal.
 	if !st.Initialized {
@@ -54,7 +54,7 @@ func TestReconcile_Baseline(t *testing.T) {
 
 	// When: second Reconcile with a higher ccTotal.
 	ccTotal2 := 3.00
-	cost.Reconcile(st, ccTotal2, turns)
+	cost.Reconcile(st, ccTotal2, int64(0), turns)
 
 	// Then: BaselineCost must remain unchanged (baseline is immutable after first set).
 	if !approxEqual(st.BaselineCost, 1.50) {
@@ -138,7 +138,7 @@ func TestPerTurn_DeltaStable(t *testing.T) {
 	ccTotal1 := 2.00
 
 	// When: first Reconcile initializes baseline and distributes delta.
-	cost.Reconcile(st, ccTotal1, turns)
+	cost.Reconcile(st, ccTotal1, int64(0), turns)
 
 	// Then: PerTurnCost is populated with output-proportional shares.
 	gotA, okA := cost.PerTurn(st, "turn-A")
@@ -165,7 +165,7 @@ func TestPerTurn_DeltaStable(t *testing.T) {
 		{UUID: "turn-C", Tokens: parser.TokenCounts{Output: 2000}},
 	}
 	ccTotal2 := 3.00
-	cost.Reconcile(st, ccTotal2, turns2)
+	cost.Reconcile(st, ccTotal2, int64(0), turns2)
 
 	// Then: turn-A and turn-B must remain unchanged (immutable once fixed).
 	gotA2, _ := cost.PerTurn(st, "turn-A")
