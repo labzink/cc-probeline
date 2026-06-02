@@ -48,16 +48,17 @@ func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		branch = "-:" + branch
 	}
 
-	// warnSegment returns the ⚠N segment (with colour marker when AnsiEnabled) or empty string.
+	// warnSegment returns the warn segment (with colour marker when AnsiEnabled) or "".
+	// AnsiEnabled=true: "⚠ N" with space (spec §2.3 T-29); plain path keeps no space
+	// for backward compatibility with AnsiEnabled=false callers.
 	warnSegment := func(n int) string {
 		if n <= 0 {
 			return ""
 		}
-		warn := " ⚠" + strconv.Itoa(n)
 		if t.AnsiEnabled {
-			return " {{color:yellow}}⚠" + strconv.Itoa(n) + "{{reset}}"
+			return " {{color:yellow}}⚠ " + strconv.Itoa(n) + "{{reset}}"
 		}
-		return warn
+		return " ⚠" + strconv.Itoa(n)
 	}
 
 	switch level {
