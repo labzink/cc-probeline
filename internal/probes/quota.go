@@ -104,12 +104,35 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 
 	var reset5h, reset7d string
 	if rl != nil {
-		reset5h = formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled)
-		reset7d = formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled)
+		reset5h = formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled, fiveHourThresholds)
+		reset7d = formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled, sevenDayThresholds)
 	}
 
 	pct5hInt := int(pct5h)
 	pct7dInt := int(pct7d)
+
+	// pctSuffix returns " NN%" coloured with ProgressBarColor when pct ≥ 90.
+	// At pct > 95 the existing boldRedWrap handles the bold-red colouring of
+	// the entire block; the suffix itself uses the bar-colour marker.
+	// Spec §2.3: colour = ProgressBarColor(pct,t); >95 → bold_red.
+	pctSuffix := func(pct float64) string {
+		if pct < 90.0 {
+			return ""
+		}
+		pctStr := fmt.Sprintf("%d%%", int(pct))
+		if pct > 95.0 {
+			return " {{color:bold_red}}" + pctStr + "{{reset}}"
+		}
+		// ≥ 90 and ≤ 95: colour matches the progress bar colour (always red at ≥90%).
+		color := renderer.ProgressBarColor(pct, t)
+		if color != "" {
+			// ProgressBarColor returned a raw ANSI code; wrap in text marker instead.
+			// At pct ≥ 90, ProgressBarColor returns Red. Use the text marker form.
+			return " {{color:red}}" + pctStr + "{{reset}}"
+		}
+		// AnsiEnabled=false: emit plain suffix without colour markers.
+		return " " + pctStr
+	}
 
 	switch level {
 	case LevelFull:
@@ -117,16 +140,16 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 			renderer.ProgressBar10(pct5h) + colourReset
 		bar7d := renderer.ProgressBarColor(pct7d, t) +
 			renderer.ProgressBar10(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s %s", bar5h, reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s %s", bar7d, reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
 		return fmt.Sprintf("5h: %s · 7d: %s%s", val5h, val7d, ageSuffix)
 	case LevelCompact:
 		bar5h := renderer.ProgressBarColor(pct5h, t) +
 			renderer.ProgressBar(pct5h) + colourReset
 		bar7d := renderer.ProgressBarColor(pct7d, t) +
 			renderer.ProgressBar(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s %s", bar5h, reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s %s", bar7d, reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
 		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	default: // LevelMinimal
 		val5h := boldRedWrap(pct5h, fmt.Sprintf("%d%%", pct5hInt))
@@ -135,26 +158,62 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	}
 }
 
-// formatReset converts a raw resets_at JSON value and the current time into
-// a reset-countdown string "↻ <h>h:<m>m" (<24h) or "↻ <d>d.<h>h" (≥24h).
-// If parsing fails or the reset time is in the past, returns "↻ 0m".
-func formatReset(raw []byte, now time.Time) string {
-	t, ok := stdin.ParseResetsAt(raw)
-	if !ok {
-		slog.Debug("quota.formatReset: could not parse resets_at; omitting reset label")
-		return "↻ 0m"
-	}
-	dur := t.Sub(now)
-	if dur <= 0 {
-		return "↻ 0m"
-	}
-	return formatDuration(dur)
+// resetThresholds defines the gradient colour thresholds for a reset countdown.
+// Durations are checked in order; the first matching threshold wins.
+// When no threshold matches (remaining > all limits) no marker is applied.
+type resetThresholds struct {
+	red    time.Duration // ≤ this → red
+	orange time.Duration // ≤ this → orange
+	green  time.Duration // ≤ this → green
+	// > green → no marker
 }
 
-// formatResetColoured is like formatReset but wraps the result in
-// {{color:yellow}}…{{reset}} when the time-to-reset is less than 30 minutes
-// and ansiEnabled is true.
-func formatResetColoured(raw []byte, now time.Time, ansiEnabled bool) string {
+// fiveHourThresholds holds the 5-hour reset colour thresholds (spec §2.3):
+//
+//	≤ 10m → red
+//	≤ 30m → orange
+//	≤ 60m → green
+//	> 60m → no marker
+var fiveHourThresholds = resetThresholds{
+	red:    10 * time.Minute,
+	orange: 30 * time.Minute,
+	green:  60 * time.Minute,
+}
+
+// sevenDayThresholds holds the 7-day reset colour thresholds (spec §2.3):
+//
+//	≤ 5h  → red
+//	≤ 24h → orange
+//	≤ 2d  → green
+//	> 2d  → no marker
+var sevenDayThresholds = resetThresholds{
+	red:    5 * time.Hour,
+	orange: 24 * time.Hour,
+	green:  48 * time.Hour,
+}
+
+// resetColourMarker returns the {{color:X}} marker for the given remaining duration
+// using the supplied threshold table. Returns "" when no marker applies.
+// Markers are always returned as text tokens; Apply converts them to ANSI.
+func resetColourMarker(remaining time.Duration, th resetThresholds) string {
+	switch {
+	case remaining <= th.red:
+		return "{{color:red}}"
+	case remaining <= th.orange:
+		return "{{color:orange}}"
+	case remaining <= th.green:
+		return "{{color:green}}"
+	default:
+		return ""
+	}
+}
+
+// formatResetColoured converts a raw resets_at value into a reset-countdown
+// string and applies a gradient colour marker based on the remaining time.
+// The colour thresholds are supplied by the caller (5h vs 7d differ).
+// Markers are always emitted as {{color:X}}…{{reset}} text tokens regardless
+// of ansiEnabled; Apply()/renderer strip them when colour is off.
+func formatResetColoured(raw []byte, now time.Time, _ bool, thresholds resetThresholds) string {
 	t, ok := stdin.ParseResetsAt(raw)
 	if !ok {
 		slog.Debug("quota.formatResetColoured: could not parse resets_at; omitting reset label")
@@ -165,11 +224,11 @@ func formatResetColoured(raw []byte, now time.Time, ansiEnabled bool) string {
 		return "↻ 0m"
 	}
 	text := formatDuration(dur)
-	// Wrap in yellow marker when reset is imminent (< 30 minutes) and colour is on.
-	if ansiEnabled && dur < 30*time.Minute {
-		return "{{color:yellow}}" + text + "{{reset}}"
+	marker := resetColourMarker(dur, thresholds)
+	if marker == "" {
+		return text
 	}
-	return text
+	return marker + text + "{{reset}}"
 }
 
 // formatDuration renders a duration as "↻ <d>d.<h>h" when ≥24h,

@@ -60,11 +60,49 @@ func quotaPath() string {
 	return filepath.Join(dir, "quota.json")
 }
 
-// Update persists s to disk only if s.TS is strictly greater than the TS of
-// any already-stored snapshot. This "freshest-wins" rule ensures that an idle
-// session cannot overwrite a live session's fresher data.
+// fresher reports whether incoming snapshot s carries fresher quota data than
+// the stored snapshot. Freshness is determined by data quality, not by
+// observation timestamp:
 //
-// Write sequence: MkdirAll → lock → read existing TS → compare → write .tmp → rename → unlock.
+//  1. Later reset-window wins (s.FiveHourReset > stored.FiveHourReset).
+//  2. Same reset-window + higher used% wins (equal window, s.FiveHourPct > stored.FiveHourPct).
+//  3. Tie-break by TS when both reset-window and used% are equal (Insurance #3).
+//
+// The 7-day window is evaluated with the same rule; either dimension being
+// fresher is sufficient to accept the incoming snapshot.
+func fresher(s, stored Snapshot) bool {
+	// 5-hour window comparison.
+	if s.FiveHourReset > stored.FiveHourReset {
+		return true
+	}
+	if s.FiveHourReset == stored.FiveHourReset && s.FiveHourPct > stored.FiveHourPct {
+		return true
+	}
+	// 7-day window comparison.
+	if s.SevenDayReset > stored.SevenDayReset {
+		return true
+	}
+	if s.SevenDayReset == stored.SevenDayReset && s.SevenDayPct > stored.SevenDayPct {
+		return true
+	}
+	// Tie-break: newer observation timestamp (Insurance #3 — rollover edge case).
+	if s.FiveHourReset == stored.FiveHourReset &&
+		s.SevenDayReset == stored.SevenDayReset &&
+		s.FiveHourPct == stored.FiveHourPct &&
+		s.SevenDayPct == stored.SevenDayPct &&
+		s.TS > stored.TS {
+		return true
+	}
+	return false
+}
+
+// Update persists s to disk only if s carries fresher quota data than any
+// already-stored snapshot. Freshness is determined by data quality (reset
+// window, then used percentage) rather than observation timestamp alone.
+// This ensures that an idle session with stale data cannot overwrite a live
+// session's fresher snapshot even when the idle observation is more recent.
+//
+// Write sequence: MkdirAll → lock → read existing → compare → write .tmp → rename → unlock.
 func Update(s Snapshot) error {
 	slog.Debug("quota.Update start", "ts", s.TS)
 
@@ -86,17 +124,18 @@ func Update(s Snapshot) error {
 	}
 	defer fl.Unlock() //nolint:errcheck
 
-	// Read existing snapshot to compare TS.
+	// Read existing snapshot to compare freshness.
 	existing, err := readFromPath(p)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		// Log but continue: on any read/decode error we allow the write.
 		slog.Warn("quota.Update: read existing failed; overwriting", "err", err)
 	}
 
-	// Freshest-wins: reject if the incoming TS is not strictly newer.
-	if err == nil && s.TS <= existing.TS {
-		slog.Debug("quota.Update: incoming TS not newer; skipping write",
-			"incoming_ts", s.TS, "stored_ts", existing.TS)
+	// Freshest-by-data: reject if the incoming snapshot is not fresher.
+	if err == nil && !fresher(s, existing) {
+		slog.Debug("quota.Update: incoming snapshot not fresher; skipping write",
+			"incoming_5h_reset", s.FiveHourReset, "stored_5h_reset", existing.FiveHourReset,
+			"incoming_5h_pct", s.FiveHourPct, "stored_5h_pct", existing.FiveHourPct)
 		return nil
 	}
 
