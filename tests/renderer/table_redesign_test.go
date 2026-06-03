@@ -174,14 +174,21 @@ func TestTable_InterleaveByTimestamp(t *testing.T) {
 // ----------------------------------------------------------------------------
 // T-T2: TestTable_GroupSeparator
 //
-// Spec T-16: the first row of each new GroupID (scanning top-to-bottom) must
-// use ├┼┤ as cell dividers instead of plain │. No additional blank lines
-// between groups.
+// Notch redesign contract (N-notch, 2026-06-03):
+//   - The standalone full-line ├─┼─┤ inter-group separator is REMOVED.
+//   - Instead, the anchor row (first row of each new GroupID scanning top-to-bottom)
+//     uses notch glyphs: ├ (leading), ┼ (inner), ┤ (trailing) as its dividers,
+//     all dim. The anchor row still contains cell content (it is a data row).
 //
 // Fixture: 2 orch turns — GroupID=2 (newest, current) and GroupID=1 (older).
 // Output order (newest-first): GroupID=2 row first, then GroupID=1 row.
-// The ├┼┤ separator must appear exactly once: on the first row of GroupID=1
-// (i.e. on the second data row, which is the first row of the old group).
+// The GroupID=1 row is the anchor row and must use notch dividers.
+//
+// After the redesign:
+//   - No standalone full-line ├─┼─┤ line exists BETWEEN data rows.
+//   - The GroupID=1 row (containing "ReadFile") starts with ├ and has spaces
+//     (cell content), distinguishing it from a pure horizontal separator.
+//   - No blank lines between data rows.
 // ----------------------------------------------------------------------------
 func TestTable_GroupSeparator(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -202,28 +209,56 @@ func TestTable_GroupSeparator(t *testing.T) {
 
 	lines := collectLines(out)
 
-	// Count lines that contain ├ followed by ┼ or ┤ — the group separator pattern.
-	// A group separator line starts with ├ and contains ┼ (inner) and ends with ┤.
-	groupSepCount := 0
+	// A. No standalone full-line ├─┼─┤ separator between data rows (old groupSep removed).
+	// A standalone separator: starts with ├, contains ┼, ends with ┤, has NO spaces.
+	standaloneCount := 0
 	for _, l := range lines {
 		bare := stripMk(l)
-		if strings.HasPrefix(bare, "├") && strings.Contains(bare, "┼") && strings.HasSuffix(bare, "┤") {
-			groupSepCount++
+		if strings.HasPrefix(bare, "├") &&
+			strings.Contains(bare, "┼") &&
+			strings.HasSuffix(bare, "┤") &&
+			!strings.Contains(bare, " ") {
+			standaloneCount++
 		}
 	}
-
-	// Exactly one group-separator line (between GroupID=2 and GroupID=1).
-	if groupSepCount != 1 {
-		t.Errorf("T-T2: expected exactly 1 group-separator line (├…┼…┤); got %d\noutput:\n%s",
-			groupSepCount, out)
+	// After notch redesign: 0 standalone inter-group separators.
+	// (The legend separator also matches this pattern but it has no spaces; however
+	// after F2 fix legendSep ends with ┤ — so it is counted here. We allow exactly 1
+	// for the legend separator, but the OLD groupSep must not add another.)
+	//
+	// Per notch contract: no standalone INTER-GROUP separator. The legend separator
+	// (bottom, before the legend row) is the only remaining pure horizontal ├…┼…┤ line.
+	// So standaloneCount must be exactly 1 (legend sep only), not 2.
+	if standaloneCount >= 2 {
+		t.Errorf("T-T2: found %d standalone ├─┼─┤ lines; after notch redesign only the legend\n"+
+			"  separator should remain (standaloneCount must be ≤1).\n"+
+			"  Old code emits a groupSep line between groups — that must be removed.\n"+
+			"  output:\n%s", standaloneCount, out)
 	}
 
-	// No blank lines between data rows (groups are separated by ├┼┤ line, not empty lines).
+	// B. Notch data row for GroupID=1 boundary: the "ReadFile" row must start with ├.
+	anchorFound := false
+	for _, l := range lines {
+		if strings.Contains(l, "ReadFile") {
+			bare := stripMk(l)
+			anchorFound = true
+			if !strings.HasPrefix(bare, "├") {
+				t.Errorf("T-T2: anchor row (GroupID=1, 'ReadFile') must start with '├' (notch leading divider);\n"+
+					"  got bare start: %q — current code still emits plain '│' and a separate groupSep line.\n"+
+					"  Fix: renderUnifiedDataRow must use notch glyphs for boundary rows.\n"+
+					"  line: %s", barePrefix2(bare, 5), l)
+			}
+		}
+	}
+	if !anchorFound {
+		t.Errorf("T-T2: anchor row 'ReadFile' not found in output\noutput:\n%s", out)
+	}
+
+	// C. No blank lines between data rows.
 	dataSection := false
 	blankBetweenRows := false
 	for _, l := range lines {
 		bare := stripMk(l)
-		// Data section: lines that start with │ or ├ (data rows and group separators).
 		if strings.HasPrefix(bare, "│") || strings.HasPrefix(bare, "├") {
 			dataSection = true
 		}
@@ -233,8 +268,17 @@ func TestTable_GroupSeparator(t *testing.T) {
 		}
 	}
 	if blankBetweenRows {
-		t.Errorf("T-T2: blank line found between data rows; groups must be separated by ├┼┤ only\noutput:\n%s", out)
+		t.Errorf("T-T2: blank line found between data rows; groups must be separated by notch rows only\noutput:\n%s", out)
 	}
+}
+
+// barePrefix2 returns the first n bytes of s (or all if shorter).
+// Named barePrefix2 to avoid collision with statusline_test.barePrefix.
+func barePrefix2(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // ----------------------------------------------------------------------------

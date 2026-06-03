@@ -223,12 +223,34 @@ func TestF2_LegendSepEndsWithCornerTee(t *testing.T) {
 	// The group separators (├─┼─┤) already end with ┤ — the legend sep is the
 	// only one with the wrong corner in current code.
 
-	// Sanity: group separator (not the legend sep) must still end with ┤ too.
+	// Sanity (notch contract): after the notch redesign, standalone inter-group
+	// ├─┼─┤ separator lines between data rows are REMOVED. The only remaining
+	// pure horizontal ├…┼…┤ line is the legend separator itself (checked above).
+	// groupSepLines returns lines that start with ├, contain ┼, end with ┤, and
+	// have no spaces (pure horizontal). After the redesign, that set is exactly
+	// {legendSep}. So groupSepLines must return exactly 1 line (the legend sep
+	// we already found), not 2+ (old code emitted groupSep + legendSep).
+	//
+	// NOTE: legendSep currently ends with ┐ (F2 bug), so groupSepLines (which
+	// checks for ┤ suffix) may return 0 until F2 is also fixed. This sanity
+	// check documents the combined F2 + notch contract.
 	groupSeps := groupSepLines(out)
+	// After both F2 and notch are fixed: exactly 1 pure horizontal ├…┼…┤ line
+	// (the legend sep), no standalone inter-group separators.
+	// Before F2: legendSep ends with ┐ so groupSepLines returns 0.
+	// Before notch: groupSepLines returns the inter-group sep count.
+	// Either way, after fix: exactly 1 (legend sep only).
+	if len(groupSeps) > 1 {
+		t.Errorf("F2 sanity (notch contract): found %d standalone ├─┼─┤ lines;\n"+
+			"  after notch redesign only the legend separator should remain (1 line).\n"+
+			"  Old code emits an inter-group separator per boundary — those must be removed.\n"+
+			"  lines:\n%s", len(groupSeps), strings.Join(groupSeps, "\n"))
+	}
+	// Also verify each remaining line ends with ┤ (covers F2 legend corner fix).
 	for _, gs := range groupSeps {
 		bareGs := stripMk(gs)
 		if !strings.HasSuffix(bareGs, "┤") {
-			t.Errorf("F2 sanity: group separator must end with '┤'; got: %s", gs)
+			t.Errorf("F2 sanity: remaining ├…┼…┤ line must end with '┤'; got: %s", gs)
 		}
 	}
 }

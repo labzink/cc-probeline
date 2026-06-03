@@ -140,20 +140,21 @@ func makeC1Data() probes.Data {
 // ---------------------------------------------------------------------------
 // C1-a: TestAssembler_Table_GroupSeparator
 //
-// Spec T-16: the first row of each new GroupID (scanning top-to-bottom) uses
-// ├┼┤ as cell dividers. With GroupID=1 and GroupID=2, exactly one ├┼┤ group-
-// separator line must appear BETWEEN data rows (not only as part of header/footer).
+// Notch redesign contract (N-notch, 2026-06-03):
+//   - The standalone full-line ├─┼─┤ inter-group separator is REMOVED.
+//   - Instead the anchor row (first row of each new GroupID scanning top-to-bottom)
+//     carries notch dividers (├ leading, ┼ inner, ┤ trailing).
+//   - A notch row is a data row: it starts with ├ AND contains cell content (spaces).
 //
-// Distinguishing feature of the new group-separator vs old header line:
-//   - New: starts with ├ and ends with ┤ and contains ┼ (all same rune style, full-width dashes).
-//   - Old: the old Builder header is ├────┬──...──┤ (contains ┬ not ┼).
+// Fixture: makeC1Data() has GroupID=1 (older) and GroupID=2 (current).
+// Output (newest-first): GroupID=2 rows first, GroupID=1 row(s) below.
+// The GroupID=1 row is the anchor and must use notch dividers.
 //
-// Spec says the new separator uses ┼ as inner junction (not ┬).
-//
-// RED: old Builder path emits ├┬┤ (has ┬) not ├┼┤ (all ┼) for its separator row.
-// After fix: exactly one ├┼┤ line exists (the inter-group separator).
+// RED: current code (old Builder path) emits ├──┬──┤ horizontal separator; does
+// not call RenderUnifiedRows at all → no notch rows, no ├ data rows.
+// After fix: ≥1 notch data row (anchor for GroupID=1 boundary); 0 standalone
+// inter-group ├─┼─┤ lines.
 // ---------------------------------------------------------------------------
-
 func TestAssembler_Table_GroupSeparator(t *testing.T) {
 	// Replace registries so only table matters in the output.
 	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "e@x"}})
@@ -163,26 +164,50 @@ func TestAssembler_Table_GroupSeparator(t *testing.T) {
 	a := makeC1Assembler()
 	out := a.Render(makeC1Data())
 
-	// Count lines that match the new group-separator pattern:
-	//   starts with ├, ends with ┤, contains ┼, does NOT contain ┬.
-	// The old Builder separator uses ┬ (not ┼) as inner junction → does not match.
-	newGroupSepCount := 0
-	for _, l := range strings.Split(out, "\n") {
-		bare := strings.TrimSpace(l)
-		// Strip colour/marker tokens for comparison.
-		stripped := strings.NewReplacer(
-			"{{dim}}", "", "{{reset}}", "",
-		).Replace(bare)
-		if strings.HasPrefix(stripped, "├") && strings.HasSuffix(stripped, "┤") &&
-			strings.Contains(stripped, "┼") && !strings.Contains(stripped, "┬") {
-			newGroupSepCount++
-		}
+	// Helper: strip marker tokens (brute-force, avoids importing format).
+	stripTokens := func(s string) string {
+		return strings.NewReplacer("{{dim}}", "", "{{reset}}", "").Replace(s)
 	}
 
-	if newGroupSepCount == 0 {
-		t.Errorf("C1 T-16: expected a group-separator line (├──┼──┤, no ┬) in Assembler output;\n"+
-			"  got 0 — perTurnTable must call RenderUnified which uses ┼ not ┬ as inner junction\n"+
-			"  (Old Builder emits ├──┬──┤ header which does NOT satisfy this check)\noutput:\n%s", out)
+	// A. Notch data rows: lines starting with ├, containing ┼, AND containing spaces
+	// (cell content). The old Builder emits no such lines (only ├──┬──┤ separators).
+	notchCount := 0
+	for _, l := range strings.Split(out, "\n") {
+		bare := stripTokens(strings.TrimSpace(l))
+		if strings.HasPrefix(bare, "├") &&
+			strings.Contains(bare, "┼") &&
+			strings.Contains(bare, " ") {
+			notchCount++
+		}
+	}
+	if notchCount == 0 {
+		t.Errorf("C1 T-16 (notch): expected ≥1 notch data row (├ leading, ┼ inner, spaces present)\n"+
+			"  in Assembler output; got 0.\n"+
+			"  Old Builder path emits ├──┬──┤ header (no spaces, uses ┬) — RenderUnifiedRows\n"+
+			"  must be called and must produce notch rows for group boundaries.\n"+
+			"  output:\n%s", out)
+	}
+
+	// B. No standalone inter-group separator (old groupSep pattern: ├…┼…┤, no spaces).
+	// The legend separator (pure horizontal ├…┼…┤) is the only allowed pure-horizontal
+	// ├ line; additional standalone separators indicate the old groupSep was not removed.
+	standaloneCount := 0
+	for _, l := range strings.Split(out, "\n") {
+		bare := stripTokens(strings.TrimSpace(l))
+		if strings.HasPrefix(bare, "├") &&
+			strings.Contains(bare, "┼") &&
+			strings.HasSuffix(bare, "┤") &&
+			!strings.Contains(bare, " ") {
+			standaloneCount++
+		}
+	}
+	// After fix: standaloneCount == 1 (legend sep only). 0 means legend sep absent
+	// (separate F2 issue). ≥2 means old groupSep still present.
+	if standaloneCount >= 2 {
+		t.Errorf("C1 T-16 (notch): found %d standalone ├─┼─┤ lines;\n"+
+			"  after notch redesign only the legend separator should remain (≤1).\n"+
+			"  Old code emits inter-group ├─┼─┤ lines — those must be removed.\n"+
+			"  output:\n%s", standaloneCount, out)
 	}
 }
 
