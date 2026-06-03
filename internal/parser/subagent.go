@@ -398,7 +398,14 @@ func aggregateSubagent(records []Record, lastBoundary time.Time) SubagentStats {
 	s.Turns = make([]Turn, 0, len(records))
 
 	var prevTimestamp time.Time
-	for i, rec := range records {
+	turnIndex := 0 // 1-based index among assistant records only
+	for _, rec := range records {
+		// User-text records are boundary markers; they do not produce a Turn.
+		// (Same contract as Aggregate in session.go.)
+		if rec.Type != "assistant" {
+			continue
+		}
+
 		s.Tokens.Input += rec.Usage.Input
 		s.Tokens.Output += rec.Usage.Output
 		s.Tokens.CacheRead += rec.Usage.CacheRead
@@ -424,13 +431,14 @@ func aggregateSubagent(records []Record, lastBoundary time.Time) SubagentStats {
 			}
 		}
 
+		turnIndex++
 		var dur time.Duration
-		if i > 0 {
+		if turnIndex > 1 {
 			dur = rec.Timestamp.Sub(prevTimestamp)
 		}
 		// Sidechain turns: Role="agent" (caller overwrites with AgentType), IsSidechain=true, GroupID=0.
 		s.Turns = append(s.Turns, Turn{
-			Index:       i + 1,
+			Index:       turnIndex,
 			Role:        "agent",
 			Model:       CanonicalModelKey(rec.Model),
 			Tokens:      rec.Usage,
@@ -445,28 +453,33 @@ func aggregateSubagent(records []Record, lastBoundary time.Time) SubagentStats {
 		prevTimestamp = rec.Timestamp
 	}
 
-	s.LastTimestamp = records[len(records)-1].Timestamp
-	s.Model = CanonicalModelKey(records[len(records)-1].Model)
+	// Use the last Turn (assistant record) for LastTimestamp and Model.
+	// records may now contain user boundary records at the end, so we cannot
+	// use records[len-1] directly.
+	if len(s.Turns) > 0 {
+		last := s.Turns[len(s.Turns)-1]
+		s.LastTimestamp = last.Timestamp
+		s.Model = last.Model // already canonical from CanonicalModelKey above
+	}
 
 	// Compute ActivationStart and CurrentTurnNum.
 	// When lastBoundary is non-zero, the current activation starts at the first
 	// turn whose Timestamp is strictly after the boundary. Fallback (Insurance #1):
 	// no boundary found → activation covers the entire transcript.
-	activationIdx := 0
+	// Default to sentinel meaning "no post-boundary turn found yet".
+	activationIdx := len(s.Turns)
 	if !lastBoundary.IsZero() {
 		for i, t := range s.Turns {
 			if t.Timestamp.After(lastBoundary) {
 				activationIdx = i
 				break
 			}
-			// If no turn is after the boundary, activationIdx stays 0 (fallback).
-			activationIdx = len(s.Turns)
 		}
-		// If all turns are at or before the boundary (no turns in new activation),
-		// fall back to the first turn so the anchor is visible.
-		if activationIdx >= len(s.Turns) {
-			activationIdx = 0
-		}
+	}
+	// If no turn is strictly after the boundary (or no boundary at all),
+	// fall back to the first turn so the entire transcript is the activation.
+	if activationIdx >= len(s.Turns) {
+		activationIdx = 0
 	}
 	s.ActivationStart = s.Turns[activationIdx].Timestamp
 	s.CurrentTurnNum = len(s.Turns) - activationIdx

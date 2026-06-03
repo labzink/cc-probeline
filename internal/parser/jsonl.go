@@ -29,12 +29,40 @@ type rawUsage struct {
 }
 
 type rawMessage struct {
-	ID          string            `json:"id"`
-	Model       string            `json:"model"`
-	Usage       *rawUsage         `json:"usage"`
-	Content     []rawContentBlock `json:"content"`
-	StopReason  string            `json:"stop_reason"`
-	ServiceTier string            `json:"service_tier"`
+	ID          string          `json:"id"`
+	Model       string          `json:"model"`
+	Usage       *rawUsage       `json:"usage"`
+	Content     json.RawMessage `json:"content"` // may be a JSON array OR a bare string
+	StopReason  string          `json:"stop_reason"`
+	ServiceTier string          `json:"service_tier"`
+}
+
+// decodeContentBlocks decodes rawMessage.Content into []rawContentBlock.
+// If the raw bytes represent a JSON array the blocks are returned; if the value
+// is a bare JSON string (common for user text prompts) zero blocks are returned
+// so the caller can still process the record without aborting the whole line.
+func decodeContentBlocks(raw json.RawMessage) ([]rawContentBlock, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	// Peek at first non-whitespace byte to determine the JSON kind.
+	for _, b := range raw {
+		if b == ' ' || b == '\t' || b == '\n' || b == '\r' {
+			continue
+		}
+		if b == '"' {
+			// Bare string — treat as a single text block with no toolName.
+			// We intentionally return no blocks so isUserTextRecord in session.go
+			// sees an empty Content slice and classifies the record as a text boundary.
+			return nil, nil
+		}
+		break
+	}
+	var blocks []rawContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil, err
+	}
+	return blocks, nil
 }
 
 type rawLine struct {
@@ -80,6 +108,47 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 		if raw.RequestID == "" {
 			raw.RequestID = raw.RequestIDSnake
 		}
+
+		// Decode content blocks tolerantly: bare-string content yields zero blocks
+		// (user text prompts), JSON-array content yields the full block list.
+		contentBlocks, contentErr := decodeContentBlocks(raw.Message.Content)
+		if contentErr != nil {
+			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: contentErr.Error()})
+			continue
+		}
+
+		// User-text records are prompt boundaries for GroupID assignment in Aggregate.
+		// Emit only user records that have NO usage block; user records with usage
+		// (anomalous) are treated the same as other non-assistant records and dropped.
+		// Skip other non-assistant types (system, summary, etc.).
+		if raw.Type == "user" && (raw.Message.Usage == nil || isUsageEmpty(raw.Message.Usage)) {
+			rec := Record{
+				Type:        raw.Type,
+				UUID:        raw.UUID,
+				RequestID:   raw.RequestID,
+				IsSidechain: raw.IsSidechain,
+			}
+			if raw.Timestamp != "" {
+				if ts, err := time.Parse(time.RFC3339Nano, raw.Timestamp); err == nil {
+					rec.Timestamp = ts.UTC()
+				}
+			}
+			// Attach decoded blocks so isUserTextRecord can detect tool_result content.
+			if len(contentBlocks) > 0 {
+				rec.Content = make([]ContentBlock, len(contentBlocks))
+				for i, c := range contentBlocks {
+					rec.Content[i] = ContentBlock{
+						Type:      c.Type,
+						ToolName:  c.Name,
+						ToolInput: c.Input,
+					}
+				}
+			}
+			records = append(records, rec)
+			continue
+		}
+
+		// Drop all non-assistant types (system, summary, etc.).
 		if raw.Type != "assistant" {
 			continue
 		}
@@ -124,9 +193,9 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 			parseErrors = append(parseErrors, ParseError{LineNumber: lineNo, Reason: "cache_create_mismatch"})
 		}
 
-		if len(raw.Message.Content) > 0 {
-			rec.Content = make([]ContentBlock, len(raw.Message.Content))
-			for i, c := range raw.Message.Content {
+		if len(contentBlocks) > 0 {
+			rec.Content = make([]ContentBlock, len(contentBlocks))
+			for i, c := range contentBlocks {
 				rec.Content[i] = ContentBlock{
 					Type:      c.Type,
 					ToolName:  c.Name,
