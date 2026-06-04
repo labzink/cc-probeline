@@ -80,6 +80,37 @@ func TestReconcile_FirstInitNoDistribution(t *testing.T) {
 	}
 }
 
+// TestReconcile_DipRiseNoDoubleCount locks the high-water-mark fix: when ccTotal
+// dips below the last-seen total (transient CC value / wrongly reused session_id)
+// and later rises back, the rise must NOT be re-distributed as a fresh delta.
+// Without it, a dip→rise double-counts already-attributed cost (observed Σ $229
+// vs ccTotal $129, with single turns ballooning to $107).
+func TestReconcile_DipRiseNoDoubleCount(t *testing.T) {
+	turns := []parser.Turn{
+		{UUID: "t1", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "t2", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
+	}
+	st := &state.Session{Initialized: false}
+	cost.Reconcile(st, 100.0, int64(0), turns) // first-init: baseline=100, no distribution
+	cost.Reconcile(st, 110.0, int64(0), turns) // delta=10 distributed across t1,t2
+
+	c1, _ := cost.PerTurn(st, "t1")
+	c2, _ := cost.PerTurn(st, "t2")
+	sumAfterRise := c1 + c2
+
+	cost.Reconcile(st, 20.0, int64(0), turns)  // ccTotal dips → must skip, LastSeen stays 110
+	cost.Reconcile(st, 110.0, int64(0), turns) // back to 110 → delta=0 → must NOT re-distribute
+
+	d1, _ := cost.PerTurn(st, "t1")
+	d2, _ := cost.PerTurn(st, "t2")
+	if !approxEqual(c1+c2, d1+d2) {
+		t.Errorf("dip→rise must not re-distribute: Σ %.4f → %.4f", sumAfterRise, d1+d2)
+	}
+	if !approxEqual(st.LastSeenTotal, 110.0) {
+		t.Errorf("LastSeenTotal must stay at high-water 110 after a dip, got %.4f", st.LastSeenTotal)
+	}
+}
+
 // TestLastRequest_NilPromptCost verifies that LastRequest returns ccTotal
 // when PromptCost is nil (safe default per spec).
 func TestLastRequest_NilPromptCost(t *testing.T) {

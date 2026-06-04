@@ -48,13 +48,16 @@ func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.T
 		return
 	}
 
-	// Compute the cost delta since last reconcile.
+	// Compute the cost delta since last reconcile. LastSeenTotal is a monotonic
+	// high-water mark: if ccTotal dropped below it (a transient CC value, or a
+	// /clear that wrongly reused the session_id), do NOT lower LastSeenTotal and
+	// distribute nothing. Lowering it would make a later rise back to the mark
+	// look like a fresh delta and re-distribute already-attributed cost — the
+	// dip→rise double-count that inflated Σ PerTurnCost to $229 vs ccTotal $129.
 	delta := ccTotal - st.LastSeenTotal
-	if delta < 0 {
-		// Negative delta can occur on /clear (new session_id should have been used
-		// but wasn't); clamp to 0 to avoid corrupting existing entries.
-		slog.Warn("cost.Reconcile negative delta clamped", "delta", delta, "ccTotal", ccTotal, "lastSeen", st.LastSeenTotal)
-		delta = 0
+	if delta <= 0 {
+		slog.Warn("cost.Reconcile ccTotal at/below high-water mark; skipping", "ccTotal", ccTotal, "lastSeen", st.LastSeenTotal)
+		return
 	}
 
 	// Collect turns without a PerTurnCost entry (new turns only).
