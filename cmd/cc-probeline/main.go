@@ -175,14 +175,39 @@ func runRender(strict bool) int {
 	}
 	session := parser.Aggregate(records)
 
+	// Collect subagent stats first: their turns live in separate agent-<id>.jsonl
+	// files and are NOT part of session.Turns, but must enter cost reconciliation
+	// (F4). Fail-soft when sessionDir cannot be determined.
+	var subagents []parser.SubagentStats
+	if payload.SessionID != "" && payload.Cwd != "" {
+		if slug, slugErr := parser.ProjectSlug(payload.Cwd); slugErr == nil {
+			home, _ := os.UserHomeDir()
+			base := home + "/.claude"
+			if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
+				base = cd
+			}
+			sessionDir := base + "/projects/" + slug + "/" + payload.SessionID
+			subs, _ := parser.CollectSubagents(context.Background(), sessionDir)
+			subagents = subs
+		}
+	}
+
 	// Load per-session state, reconcile delta cost, and persist (Phase 6.8.a).
+	// The reconciliation pool is session.Turns PLUS every subagent turn, so each
+	// subagent turn receives a weighted PerTurnCost share; otherwise SubagentTotal
+	// sums over UUIDs absent from PerTurnCost and renders Σ $0.00 (F4).
 	// Fail-soft: errors log and render continues without state.
 	ccTotal := payload.Cost.TotalCostUSD
 	durMS := payload.Cost.TotalAPIDurationMS
 	var st *state.Session
 	if payload.SessionID != "" {
 		st = state.Load(payload.SessionID)
-		cost.Reconcile(st, ccTotal, durMS, session.Turns)
+		allTurns := make([]parser.Turn, len(session.Turns))
+		copy(allTurns, session.Turns)
+		for i := range subagents {
+			allTurns = append(allTurns, subagents[i].Turns...)
+		}
+		cost.Reconcile(st, ccTotal, durMS, allTurns)
 		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
 			slog.Warn("state.Save failed", "err", saveErr)
 		}
@@ -208,21 +233,6 @@ func runRender(strict bool) int {
 		}
 		if updateErr := quota.Update(snap); updateErr != nil {
 			slog.Warn("quota.Update failed", "err", updateErr)
-		}
-	}
-
-	// Collect subagent stats: fail-soft when sessionDir cannot be determined.
-	var subagents []parser.SubagentStats
-	if payload.SessionID != "" && payload.Cwd != "" {
-		if slug, slugErr := parser.ProjectSlug(payload.Cwd); slugErr == nil {
-			home, _ := os.UserHomeDir()
-			base := home + "/.claude"
-			if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
-				base = cd
-			}
-			sessionDir := base + "/projects/" + slug + "/" + payload.SessionID
-			subs, _ := parser.CollectSubagents(context.Background(), sessionDir)
-			subagents = subs
 		}
 	}
 
