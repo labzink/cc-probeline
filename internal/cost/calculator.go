@@ -34,12 +34,18 @@ func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.T
 	slog.Debug("cost.Reconcile start", "initialized", st.Initialized, "ccTotal", ccTotal, "durMS", durMS, "turns", len(turns))
 
 	if !st.Initialized {
-		// First observation for this session_id: capture baselines.
+		// First observation for this session_id: capture baselines and record
+		// LastSeenTotal=ccTotal so the first delta is 0. Distributing ccTotal here
+		// would dump the entire pre-session cost onto whatever turns happen to be
+		// visible at first render — and re-dump it on every re-initialisation —
+		// inflating Σ PerTurnCost far beyond ccTotal (observed $389 vs $116).
+		// Per-turn costs accrue only from subsequent ccTotal deltas.
 		st.BaselineCost = ccTotal
 		st.BaselineDurMS = durMS
+		st.LastSeenTotal = ccTotal
 		st.Initialized = true
 		slog.Info("cost.Reconcile baseline captured", "baseline", ccTotal, "baselineDurMS", durMS)
-		// Fall through to distribute delta = ccTotal - 0 (LastSeenTotal zero value).
+		return
 	}
 
 	// Compute the cost delta since last reconcile.

@@ -72,10 +72,10 @@ func TestReconcile_Baseline(t *testing.T) {
 // /clear-emulation: a new session starts with its own baseline.
 func TestSessionTotal(t *testing.T) {
 	tests := []struct {
-		name         string
-		baseline     float64
-		ccTotal      float64
-		wantDelta    float64
+		name      string
+		baseline  float64
+		ccTotal   float64
+		wantDelta float64
 	}{
 		{
 			name:      "normal session — delta from baseline",
@@ -137,7 +137,9 @@ func TestPerTurn_DeltaStable(t *testing.T) {
 	st := &state.Session{Initialized: false}
 	ccTotal1 := 2.00
 
-	// When: first Reconcile initializes baseline and distributes delta.
+	// Prime: first observation only initialises baseline (delta=0, cost fix).
+	cost.Reconcile(st, 0.0, int64(0), turns)
+	// When: the next Reconcile distributes the delta (ccTotal 0 → 2.00).
 	cost.Reconcile(st, ccTotal1, int64(0), turns)
 
 	// Then: PerTurnCost is populated with output-proportional shares.
@@ -355,8 +357,9 @@ func TestReconcile_WeightedSumEqualsDelta(t *testing.T) {
 	}
 	delta := 2.00
 
-	// When: Reconcile is called for the first time (baseline = 0 → delta = ccTotal).
-	// durMS=1000 — arbitrary non-zero value; establishes baseline.
+	// Prime: first observation only initialises baseline (delta=0, cost fix).
+	cost.Reconcile(st, 0.0, int64(1000), turns)
+	// When: the next Reconcile distributes the full delta from baseline 0.
 	cost.Reconcile(st, delta, int64(1000), turns)
 
 	// Then: the sum of per-turn costs must equal delta exactly (within 1e-9).
@@ -393,7 +396,9 @@ func TestReconcile_WeightedShare(t *testing.T) {
 		{UUID: "turn-haiku", Model: "claude-haiku-3-5", Tokens: parser.TokenCounts{Output: 100}},
 	}
 
-	// When: first Reconcile with delta=1.00.
+	// Prime: first observation only initialises baseline (delta=0, cost fix).
+	cost.Reconcile(st, 0.0, int64(500), turns)
+	// When: the next Reconcile distributes delta=1.00 from baseline 0.
 	cost.Reconcile(st, 1.00, int64(500), turns)
 
 	// Then: opus share > haiku share (weight ratio 75:4).
@@ -446,7 +451,9 @@ func TestReconcile_SubagentTurnsInPool(t *testing.T) {
 		},
 	}
 
-	// When: Reconcile distributes delta=3.00 across both turns.
+	// Prime: first observation only initialises baseline (delta=0, cost fix).
+	cost.Reconcile(st, 0.0, int64(2000), turns)
+	// When: the next Reconcile distributes delta=3.00 across both turns.
 	cost.Reconcile(st, 3.00, int64(2000), turns)
 
 	// Then: both turns must have a PerTurnCost entry (sidechain is in the pool).
