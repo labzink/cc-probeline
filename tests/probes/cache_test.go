@@ -222,8 +222,8 @@ func TestCacheProbe_TTL_Expired(t *testing.T) {
 	if !strings.Contains(fullOut, "⏱ 0m") {
 		t.Errorf("Render(Full): want '⏱ 0m' when TTL expired, got %q", fullOut)
 	}
-	if !strings.Contains(fullOut, "{{color:bold_red}}") && !strings.Contains(fullOut, th.Colors.BoldRed) {
-		t.Errorf("Render(Full): want bold_red colour on expired TTL, got %q", fullOut)
+	if !strings.Contains(fullOut, "{{color:red}}") && !strings.Contains(fullOut, th.Colors.Red) {
+		t.Errorf("Render(Full): want red colour on expired TTL, got %q", fullOut)
 	}
 
 	compactOut := p.Render(d, cfg, th, probes.LevelCompact)

@@ -14,14 +14,14 @@ import (
 // remaining = orchTTLMinutes − floor((now − lastTimestamp).Minutes()).
 //
 // Returns "" when TTL should be hidden (zero timestamp, zero turns, zero
-// window). When remaining ≤ 0 it returns the frozen "⏱ 0m" (bold_red), NOT "".
+// window). When remaining ≤ 0 it returns the frozen "⏱ 0m" (red), NOT "".
 //
 // Colour rules (applied only when ansiEnabled=true):
 //
 //	>30m remaining → {{color:green}}⏱ Nm{{reset}}
 //	≤30m && >10m   → {{color:yellow}}⏱ Nm{{reset}}
 //	≤10m && >0     → {{color:red}}⏱ Nm{{reset}}
-//	≤0m            → {{color:bold_red}}⏱ 0m{{reset}}
+//	≤0m            → {{color:red}}⏱ 0m{{reset}}
 func CacheTTL(now, lastTimestamp time.Time, turnCount, orchTTLMinutes int, ansiEnabled bool) string {
 	if orchTTLMinutes <= 0 || lastTimestamp.IsZero() || turnCount == 0 {
 		return ""
@@ -33,7 +33,7 @@ func CacheTTL(now, lastTimestamp time.Time, turnCount, orchTTLMinutes int, ansiE
 		if !ansiEnabled {
 			return "⏱ 0m"
 		}
-		return "{{color:bold_red}}⏱ 0m{{reset}}"
+		return "{{color:red}}⏱ 0m{{reset}}"
 	}
 
 	ttlText := fmt.Sprintf("⏱ %dm", remaining)

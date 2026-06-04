@@ -148,7 +148,7 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	// and must be rendered dim (F15).
 	freshestGroupStart := freshestGroupStartTime(d)
 
-	timed = append(timed, a.subagentRows(d, st, freshestGroupStart)...)
+	timed = append(timed, a.subagentRows(d, st, freshestGroupStart, cols)...)
 
 	// Merge newest-first by sort timestamp (orch Timestamp / sub ActivationStart).
 	sort.SliceStable(timed, func(i, j int) bool {
@@ -323,7 +323,7 @@ func freshestGroupStartTime(d probes.Data) time.Time {
 // freshestGroupStart is the chronological start of the current orchestrator
 // request; a subagent whose ActivationStart is strictly before this instant
 // belongs to a completed request and must render dim (F15).
-func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroupStart time.Time) []timedRow {
+func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroupStart time.Time, cols int) []timedRow {
 	if len(d.Subagents) == 0 {
 		return nil
 	}
@@ -361,8 +361,8 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 		if tool == "" {
 			tool = sa.LastTool
 		}
-		if d.TerminalCols > 100 {
-			name := a.instanceName(d, sa)
+		if cols > 100 {
+			name := a.instanceName(sa)
 			if name != "" {
 				display := tool
 				if display == "" {
@@ -377,7 +377,7 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 		dim := !freshestGroupStart.IsZero() && sa.ActivationStart.Before(freshestGroupStart)
 
 		row := renderer.UnifiedRow{
-			HashCell:      fmt.Sprintf("↳%d", sa.CurrentTurnNum),
+			HashCell:      "↳" + subscriptInt(sa.CurrentTurnNum),
 			Role:          role,
 			Model:         model,
 			CacheRead:     last.Tokens.CacheRead,
@@ -409,23 +409,34 @@ func subagentRedCacheWrite(sa parser.SubagentStats, orchTTLMinutes int) bool {
 	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, orchTTLMinutes)
 }
 
-// instanceName resolves the subagent's display instance name from the stdin
-// Tasks list (join by task.ID == AgentID), truncated to 16 runes. Falls back to
-// AgentType when no matching Task is found.
-func (a *Assembler) instanceName(d probes.Data, sa parser.SubagentStats) string {
-	name := sa.AgentType
-	for _, task := range d.Stdin.Tasks {
-		if task.ID == sa.AgentID {
-			name = task.Name
-			break
-		}
+// subscriptInt renders a non-negative integer using Unicode subscript digits
+// (U+2080..U+2089), e.g. 5 → "₅", 12 → "₁₂". Each digit is a single-width rune,
+// so table column alignment is preserved (F10).
+func subscriptInt(n int) string {
+	if n < 0 {
+		return fmt.Sprintf("%d", n)
 	}
+	digits := []rune(fmt.Sprintf("%d", n))
+	var b strings.Builder
+	for _, d := range digits {
+		b.WriteRune('₀' + (d - '0'))
+	}
+	return b.String()
+}
+
+// instanceName resolves the subagent's display instance name from meta.json
+// (the "description" field), truncated to 16 runes. Claude Code does not send a
+// tasks[] array to the status line stdin, so there is no live name to join on;
+// the description captured at spawn time is the only human-meaningful label
+// (F7). Returns "" when the subagent has no description.
+func (a *Assembler) instanceName(sa parser.SubagentStats) string {
+	name := sa.Description
 	if name == "" {
 		return ""
 	}
 	runes := []rune(name)
 	if len(runes) > 16 {
-		name = string(runes[:16])
+		name = strings.TrimRight(string(runes[:16]), " ,;:")
 	}
 	return name
 }

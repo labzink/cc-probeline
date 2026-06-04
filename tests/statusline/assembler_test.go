@@ -16,7 +16,6 @@ import (
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/statusline"
-	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
 // fakeProbe is a minimal Probe implementation that returns fixed strings,
@@ -701,6 +700,7 @@ func TestAssemble_SepOnlyOrchBoundary(t *testing.T) {
 //     core row content ends with "{{reset}}".
 //   - Fresh row (per-border dim): starts with "{{dim}}" but does NOT end with
 //     "{{reset}}" — the per-border "{{dim}}├{{reset}}" immediately releases dim.
+//
 // ---------------------------------------------------------------------------
 func TestAssemble_DimOlderGroups(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -830,10 +830,12 @@ func TestAssemble_LegendSeparator(t *testing.T) {
 // Both patterns satisfy "dim borders".
 //
 // Rules after notch redesign:
-//   (a) History rows: whole-row wrapped in {{dim}}…{{reset}} — dividers inside
-//       the wrapper are plain box runes (outer dim applies).
-//   (b) Fresh non-anchor rows: must contain "{{dim}}│{{reset}}" for cell dividers.
-//   (c) Fresh anchor rows: must contain "{{dim}}├{{reset}}" (leading notch dim bar).
+//
+//	(a) History rows: whole-row wrapped in {{dim}}…{{reset}} — dividers inside
+//	    the wrapper are plain box runes (outer dim applies).
+//	(b) Fresh non-anchor rows: must contain "{{dim}}│{{reset}}" for cell dividers.
+//	(c) Fresh anchor rows: must contain "{{dim}}├{{reset}}" (leading notch dim bar).
+//
 // ---------------------------------------------------------------------------
 func TestAssemble_DataBarsDim(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -1163,6 +1165,7 @@ func TestAssemble_SubagentInstanceName(t *testing.T) {
 	subStats := parser.SubagentStats{
 		AgentID:         "task-abc-123",
 		AgentType:       "general-purpose",
+		Description:     "my-red-agent",
 		ActivationStart: base.Add(time.Second),
 		LastTimestamp:   base.Add(time.Second),
 		CurrentTurnNum:  1,
@@ -1172,8 +1175,9 @@ func TestAssemble_SubagentInstanceName(t *testing.T) {
 	}
 
 	t.Run("cols_gt_100_has_name_prefix", func(t *testing.T) {
-		// stdin.Payload.Tasks carries a Task with ID matching AgentID → name "my-red-agent".
-		// At cols>100, assembler must show "<name≤16>: <last-tool>" in tool cell.
+		// meta.json description "my-red-agent" is the instance name (F7: CC sends
+		// no tasks[] to the status line). At cols>100, assembler must show
+		// "<name≤16>: <last-tool>" in tool cell.
 		a := makeStdAssembler(5, 120) // cols > 100
 		d := probes.Data{
 			Session: &parser.SessionStats{
@@ -1183,10 +1187,6 @@ func TestAssemble_SubagentInstanceName(t *testing.T) {
 			Subagents:    []parser.SubagentStats{subStats},
 			Now:          base.Add(2 * time.Minute),
 			TerminalCols: 120,
-		}
-		// Populate stdin Tasks so assembler can join task.Name by AgentID.
-		d.Stdin.Tasks = []stdin.Task{
-			{ID: "task-abc-123", Name: "my-red-agent"},
 		}
 		out := a.Render(d)
 		// Tool cell must contain "my-red-agent: ReadSubFile" (name+colon+tool).

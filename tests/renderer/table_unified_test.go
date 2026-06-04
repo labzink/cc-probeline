@@ -261,32 +261,22 @@ func TestRender_SubagentArrowAndNum(t *testing.T) {
 		t.Fatalf("T-9: no table in output; output:\n%s", out)
 	}
 
-	// The subagent row must show "↳3" (not bare "↳") in the # column.
-	// We check for the pattern in any data row containing the subagent marker.
+	// The subagent # column must show "↳₃" with a Unicode subscript digit
+	// (U+2083), not the ASCII "↳3" (F10).
 	foundArrowNum := false
 	for _, l := range collectDataLines(out) {
 		bare := stripMk(l)
-		// Subagent row identified by "↳" prefix in # cell.
-		if strings.Contains(bare, "↳3") {
+		if strings.Contains(bare, "↳₃") {
 			foundArrowNum = true
 		}
-		// Bare "↳" without digit is the old format — must NOT appear.
-		// We allow "↳3", "↳10" etc. but not a lone "↳ " (↳ followed by space).
-		if strings.Contains(bare, "↳") && !strings.Contains(bare, "↳3") {
-			// Check if it's "↳" followed only by spaces (old bare format).
-			idx := strings.Index(bare, "↳")
-			if idx >= 0 && idx+len("↳") < len(bare) {
-				afterArrow := bare[idx+len("↳"):]
-				trimmed := strings.TrimLeft(afterArrow, " │")
-				if trimmed == "" || trimmed[0] < '0' || trimmed[0] > '9' {
-					t.Errorf("T-9: bare '↳' without activation number found; want '↳N'; row: %s", l)
-				}
-			}
+		// ASCII "↳3" is the old format — must NOT appear.
+		if strings.Contains(bare, "↳3") {
+			t.Errorf("F10: ASCII '↳3' found; want subscript '↳₃'; row: %s", l)
 		}
 	}
 
 	if !foundArrowNum {
-		t.Errorf("T-9: subagent # column must show '↳3' (CurrentTurnNum=3); not found\noutput:\n%s", out)
+		t.Errorf("F10: subagent # column must show '↳₃' (CurrentTurnNum=3); not found\noutput:\n%s", out)
 	}
 }
 

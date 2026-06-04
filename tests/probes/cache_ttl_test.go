@@ -142,19 +142,19 @@ func TestTTL_ZeroRed(t *testing.T) {
 			wantAbsent:     "{{color:yellow}}",
 		},
 		{
-			// remaining = 60 - 60 = 0 → ≤ 0m → bold_red "0m" (NOT hidden)
-			name:           "remaining=0m — bold_red 0m visible",
+			// remaining = 60 - 60 = 0 → ≤ 0m → red "0m" (NOT hidden)
+			name:           "remaining=0m — red 0m visible",
 			orchTTL:        60,
 			elapsedMinutes: 60,
-			wantContains:   "{{color:bold_red}}",
+			wantContains:   "{{color:red}}",
 			wantAbsent:     "",
 		},
 		{
-			// remaining = 60 - 70 = -10 → ≤ 0m → bold_red "0m" (NOT hidden)
-			name:           "remaining=-10m — bold_red 0m visible",
+			// remaining = 60 - 70 = -10 → ≤ 0m → red "0m" (NOT hidden)
+			name:           "remaining=-10m — red 0m visible",
 			orchTTL:        60,
 			elapsedMinutes: 70,
-			wantContains:   "{{color:bold_red}}",
+			wantContains:   "{{color:red}}",
 			wantAbsent:     "",
 		},
 	}
