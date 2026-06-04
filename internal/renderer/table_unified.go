@@ -282,7 +282,10 @@ func (b *Builder) cacheRWCell(read, write int, redWrite bool, colWidth int) stri
 	}
 	readVis := format.VisualLen(readStr)   // visible width of read token
 	writeVis := format.VisualLen(writeStr) // visible width of write token (markers zero-width)
-	gap := inner - readVis - writeVis
+	// Reserve one trailing column so the write token gets one space of padding
+	// before the right border instead of sitting flush against it. padCell
+	// (AlignLeft) fills that reserved column with a trailing space.
+	gap := inner - readVis - writeVis - 1
 	if gap < 0 {
 		gap = 0
 	}
