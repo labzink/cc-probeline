@@ -107,6 +107,13 @@ type Config struct {
 	OrchTTLMinutes     int
 	SubagentGapMinutes int
 
+	// CacheTTLMinutes is the Claude API prompt-cache TTL window (default 5).
+	// This controls the subagent TTL suffix, red-cache-write marker, and orch
+	// TTL freeze threshold. It is intentionally separate from OrchTTLMinutes
+	// (which is the orchestrator idle-warning timeout, default 60).
+	// Zero value → the assembler uses the API default of 5 minutes.
+	CacheTTLMinutes int
+
 	// IsSubagentContext indicates that the probe is being rendered in a subagent
 	// display context (not the main orchestrator line). When true, TTL is
 	// suppressed (T-23). This is a runtime flag, not a config threshold —
