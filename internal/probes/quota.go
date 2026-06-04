@@ -102,17 +102,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		return s
 	}
 
-	// Resolve reset times from the snapshot (single consistent source).
-	// snap.FiveHourReset / snap.SevenDayReset are populated by quota.Update and
-	// represent the same observation as pct5h/pct7d. Using RateLimits for reset
-	// while using the snapshot for pct causes desync after a window reset (F6).
-	// Guard: value == 0 means unknown → formatResetFromUnix returns "".
 	var reset5h, reset7d string
-	if hasFresh {
-		reset5h = formatResetFromUnix(snap.FiveHourReset, d.Now, fiveHourThresholds)
-		reset7d = formatResetFromUnix(snap.SevenDayReset, d.Now, sevenDayThresholds)
-	} else if rl != nil {
-		// Fallback: no snapshot — use session-local payload reset times.
+	if rl != nil {
 		reset5h = formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled, fiveHourThresholds)
 		reset7d = formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled, sevenDayThresholds)
 	}
@@ -228,28 +219,6 @@ func formatResetColoured(raw []byte, now time.Time, _ bool, thresholds resetThre
 		slog.Debug("quota.formatResetColoured: could not parse resets_at; omitting reset label")
 		return "↻ 0m"
 	}
-	dur := t.Sub(now)
-	if dur <= 0 {
-		return "↻ 0m"
-	}
-	text := formatDuration(dur)
-	marker := resetColourMarker(dur, thresholds)
-	if marker == "" {
-		return text
-	}
-	return marker + text + "{{reset}}"
-}
-
-// formatResetFromUnix converts a unix-second timestamp to a reset-countdown
-// string with gradient colour markers. It reads from the snapshot directly
-// (not from a raw JSON field) so pct and reset-time always share the same
-// source (F6 fix). Returns "" when unixSec == 0 (unknown).
-func formatResetFromUnix(unixSec int64, now time.Time, thresholds resetThresholds) string {
-	if unixSec == 0 {
-		slog.Debug("quota.formatResetFromUnix: reset unix == 0; omitting reset label")
-		return ""
-	}
-	t := time.Unix(unixSec, 0)
 	dur := t.Sub(now)
 	if dur <= 0 {
 		return "↻ 0m"

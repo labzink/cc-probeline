@@ -250,7 +250,7 @@ func (a *Assembler) orchRows(d probes.Data) []timedRow {
 			IsSidechain:   false,
 			Dim:           t.GroupID < maxOrchGroup,
 			GroupID:       t.GroupID,
-			RedCacheWrite: orchRedCacheWrite(t, prev, a.cacheTTLMinutes()),
+			RedCacheWrite: orchRedCacheWrite(t, prev, a.Config.OrchTTLMinutes),
 			TTLSuffix:     a.orchTTLSuffix(t, next, now, i == 0),
 		}
 		out = append(out, timedRow{row: row, ts: t.Timestamp})
@@ -260,14 +260,13 @@ func (a *Assembler) orchRows(d probes.Data) []timedRow {
 
 // orchRedCacheWrite reports whether the orchestrator turn t should paint its
 // cache_create (write) sub-token red: the gap from the previous orch turn is
-// ≥ the cache TTL window (cache expired — T-34) OR the model changed (cold
-// cache — T-35). Returns false when there is no previous orch turn.
-// cacheTTLMin is the effective Claude API prompt-cache window (default 5 min).
-func orchRedCacheWrite(t parser.Turn, prev *parser.Turn, cacheTTLMin int) bool {
+// ≥ the TTL window (cache expired — T-34) OR the model changed (cold cache —
+// T-35). Returns false when there is no previous orch turn.
+func orchRedCacheWrite(t parser.Turn, prev *parser.Turn, orchTTLMinutes int) bool {
 	if prev == nil {
 		return false
 	}
-	if renderer.CacheExpiredAt(prev.Timestamp, t.Timestamp, cacheTTLMin) {
+	if renderer.CacheExpiredAt(prev.Timestamp, t.Timestamp, orchTTLMinutes) {
 		return true
 	}
 	return t.Model != prev.Model
@@ -278,13 +277,12 @@ func orchRedCacheWrite(t parser.Turn, prev *parser.Turn, cacheTTLMin int) bool {
 // when its cache expired before the next-newer orch turn arrived (gap ≥ window,
 // T-33); otherwise it carries no suffix.
 func (a *Assembler) orchTTLSuffix(t parser.Turn, next *parser.Turn, now time.Time, fresh bool) string {
-	cacheTTL := a.cacheTTLMinutes()
 	if fresh {
-		return renderer.CacheTTL(now, t.Timestamp, 1, cacheTTL, a.Theme.AnsiEnabled)
+		return renderer.CacheTTL(now, t.Timestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled)
 	}
-	if next != nil && renderer.CacheExpiredAt(t.Timestamp, next.Timestamp, cacheTTL) {
+	if next != nil && renderer.CacheExpiredAt(t.Timestamp, next.Timestamp, a.Config.OrchTTLMinutes) {
 		// Frozen: reuse CacheTTL with now = next.Timestamp → remaining ≤ 0 branch.
-		return renderer.CacheTTL(next.Timestamp, t.Timestamp, 1, cacheTTL, a.Theme.AnsiEnabled)
+		return renderer.CacheTTL(next.Timestamp, t.Timestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled)
 	}
 	return ""
 }
@@ -379,7 +377,7 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 		dim := !freshestGroupStart.IsZero() && sa.ActivationStart.Before(freshestGroupStart)
 
 		row := renderer.UnifiedRow{
-			HashCell:      "↳" + subscriptDigits(sa.CurrentTurnNum),
+			HashCell:      fmt.Sprintf("↳%d", sa.CurrentTurnNum),
 			Role:          role,
 			Model:         model,
 			CacheRead:     last.Tokens.CacheRead,
@@ -391,8 +389,8 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 			Dim:           dim,
 			GroupID:       0,
 			SkipSeparator: true,
-			RedCacheWrite: subagentRedCacheWrite(sa, a.cacheTTLMinutes()),
-			TTLSuffix:     renderer.CacheTTL(now, sa.LastTimestamp, 1, a.cacheTTLMinutes(), a.Theme.AnsiEnabled),
+			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.OrchTTLMinutes),
+			TTLSuffix:     renderer.CacheTTL(now, sa.LastTimestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled),
 		}
 		out = append(out, timedRow{row: row, ts: sa.ActivationStart})
 	}
@@ -400,16 +398,15 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 }
 
 // subagentRedCacheWrite reports whether the subagent's collapsed row should
-// paint its cache_create red: the gap between its last two turns is ≥ the
-// cache TTL window (cache collapse — T-36). A model change within a subagent
-// does NOT trigger this (orchestrator-only per spec). Fewer than two turns →
-// false. cacheTTLMin is the effective Claude API prompt-cache window (default 5).
-func subagentRedCacheWrite(sa parser.SubagentStats, cacheTTLMin int) bool {
+// paint its cache_create red: the gap between its last two turns is ≥ the TTL
+// window (cache collapse — T-36). A model change within a subagent does NOT
+// trigger this (orchestrator-only per spec). Fewer than two turns → false.
+func subagentRedCacheWrite(sa parser.SubagentStats, orchTTLMinutes int) bool {
 	n := len(sa.Turns)
 	if n < 2 {
 		return false
 	}
-	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, cacheTTLMin)
+	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, orchTTLMinutes)
 }
 
 // instanceName resolves the subagent's display instance name from the stdin
@@ -475,34 +472,6 @@ func (a *Assembler) hint(d probes.Data) string {
 		_ = hint.Save(d.SessionID, w.State)
 	}
 	return text
-}
-
-// cacheTTLMinutes returns the effective Claude API prompt-cache window in
-// minutes. When Config.CacheTTLMinutes is set (> 0), that value is used.
-// Otherwise the Claude API default of 5 minutes is returned.
-// Note: Config.OrchTTLMinutes is the orchestrator idle-warning timeout (60 min
-// by default) and is NOT the cache TTL — they have different semantics.
-func (a *Assembler) cacheTTLMinutes() int {
-	if a.Config.CacheTTLMinutes > 0 {
-		return a.Config.CacheTTLMinutes
-	}
-	return 5 // Claude API prompt-cache TTL default
-}
-
-// subscriptDigits converts an integer to a string of Unicode subscript digits
-// (U+2080..U+2089). For example: 5 → "₅", 12 → "₁₂".
-func subscriptDigits(n int) string {
-	const subscripts = "₀₁₂₃₄₅₆₇₈₉"
-	subRunes := []rune(subscripts)
-	if n == 0 {
-		return string(subRunes[0])
-	}
-	digits := []rune{}
-	for n > 0 {
-		digits = append([]rune{subRunes[n%10]}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }
 
 // Compile-time check: Assembler.Render must accept probes.Data.

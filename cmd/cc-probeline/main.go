@@ -175,34 +175,14 @@ func runRender(strict bool) int {
 	}
 	session := parser.Aggregate(records)
 
-	// Collect subagent stats before Reconcile so subagent turn UUIDs enter the
-	// cost pool (F4 fix: subagent Σ cost was always $0.00 when collected after).
-	// Fail-soft when sessionDir cannot be determined.
-	var subagents []parser.SubagentStats
-	if payload.SessionID != "" && payload.Cwd != "" {
-		if slug, slugErr := parser.ProjectSlug(payload.Cwd); slugErr == nil {
-			home, _ := os.UserHomeDir()
-			base := home + "/.claude"
-			if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
-				base = cd
-			}
-			sessionDir := base + "/projects/" + slug + "/" + payload.SessionID
-			subs, _ := parser.CollectSubagents(context.Background(), sessionDir)
-			subagents = subs
-		}
-	}
-
 	// Load per-session state, reconcile delta cost, and persist (Phase 6.8.a).
-	// All turns (orchestrator + subagent) are merged before Reconcile so that
-	// subagent UUIDs receive PerTurnCost entries and SubagentTotal is non-zero.
 	// Fail-soft: errors log and render continues without state.
 	ccTotal := payload.Cost.TotalCostUSD
 	durMS := payload.Cost.TotalAPIDurationMS
 	var st *state.Session
 	if payload.SessionID != "" {
 		st = state.Load(payload.SessionID)
-		allTurns := cost.MergeTurns(session.Turns, subagents)
-		cost.Reconcile(st, ccTotal, durMS, allTurns)
+		cost.Reconcile(st, ccTotal, durMS, session.Turns)
 		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
 			slog.Warn("state.Save failed", "err", saveErr)
 		}
@@ -231,6 +211,21 @@ func runRender(strict bool) int {
 		}
 	}
 
+	// Collect subagent stats: fail-soft when sessionDir cannot be determined.
+	var subagents []parser.SubagentStats
+	if payload.SessionID != "" && payload.Cwd != "" {
+		if slug, slugErr := parser.ProjectSlug(payload.Cwd); slugErr == nil {
+			home, _ := os.UserHomeDir()
+			base := home + "/.claude"
+			if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
+				base = cd
+			}
+			sessionDir := base + "/projects/" + slug + "/" + payload.SessionID
+			subs, _ := parser.CollectSubagents(context.Background(), sessionDir)
+			subagents = subs
+		}
+	}
+
 	// Load config cascade (Phase 6). Always lenient: errors become alerts, not crashes.
 	ccfg, source, configErrs := config.LoadCascade(payload.Cwd)
 	// Apply NO_COLOR from config only when env NO_COLOR is not already set.
@@ -250,7 +245,6 @@ func runRender(strict bool) int {
 
 	modeVal := mode.Load()
 
-	cols := renderer.DetectCols()
 	d := probes.Data{
 		Stdin:            payload,
 		Session:          &session,
@@ -258,7 +252,6 @@ func runRender(strict bool) int {
 		Now:              now,
 		SessionID:        payload.SessionID,
 		ExtraCacheEvents: configAlerts,
-		TerminalCols:     cols, // F7: feed detected width so assembler can show subagent instance name
 	}
 
 	// Populate delta-cost fields from reconciled state (Phase 6.8.a / 6.9.a).
@@ -305,6 +298,7 @@ func runRender(strict bool) int {
 		}
 	}
 
+	cols := renderer.DetectCols()
 	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
 	final := renderer.Apply(raw, theme)
