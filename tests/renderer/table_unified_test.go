@@ -280,6 +280,54 @@ func TestRender_SubagentArrowAndNum(t *testing.T) {
 	}
 }
 
+// TestRender_SubagentArrowFlushLeft verifies the subagent "↳N" arrow always sits
+// flush against the left border (first position) for both single- and multi-digit
+// N — the # column is flush-left for sidechain rows, not right-aligned.
+func TestRender_SubagentArrowFlushLeft(t *testing.T) {
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	orchTurn := parser.Turn{
+		Index: 1, Role: "orch", Model: "claude-sonnet-4-6", UUID: "uuid-orch",
+		GroupID: 1, Timestamp: base, Tokens: parser.TokenCounts{Output: 100}, ToolUse: "Bash",
+	}
+	mkSub := func(id string, num int) parser.SubagentStats {
+		turn := parser.Turn{
+			Role: "agent", Model: "claude-haiku-4-5", UUID: "u-" + id, GroupID: 0,
+			Timestamp: base.Add(time.Second), Tokens: parser.TokenCounts{Output: 50},
+			ToolUse: "Read", IsSidechain: true,
+		}
+		return parser.SubagentStats{
+			AgentID: id, AgentType: "agent", Model: "claude-haiku-4-5",
+			CurrentTurnNum: num, ActivationStart: base.Add(time.Second),
+			LastTimestamp: base.Add(time.Second), TurnCount: num,
+			Turns: []parser.Turn{turn},
+		}
+	}
+	d := probes.Data{
+		Session:      &parser.SessionStats{TurnCount: 1, Turns: []parser.Turn{orchTurn}},
+		Subagents:    []parser.SubagentStats{mkSub("two", 18), mkSub("one", 2)},
+		Now:          base.Add(time.Minute),
+		TerminalCols: 80,
+	}
+	out := makeAssemblerUnified(80).Render(d)
+
+	subRows := 0
+	for _, l := range collectDataLines(out) {
+		bare := stripMk(l)
+		if !strings.Contains(bare, "↳") {
+			continue
+		}
+		subRows++
+		// Flush-left: the row's first border is immediately followed by "↳"
+		// (no leading space), regardless of single- vs multi-digit number.
+		if !strings.HasPrefix(bare, "│↳") {
+			t.Errorf("subagent arrow must be flush against the left bar (│↳…); got: %q", bare)
+		}
+	}
+	if subRows != 2 {
+		t.Errorf("expected 2 subagent rows (↳₁₈ and ↳₂), got %d\noutput:\n%s", subRows, out)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // T-26: TestRender_CostCellFormat
 //

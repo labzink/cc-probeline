@@ -39,6 +39,11 @@ const (
 	AlignLeft Align = iota
 	AlignRight
 	AlignCenter
+	// AlignLeftFlush left-aligns content with NO leading space, flush against the
+	// column's left border, filling the remaining width with trailing spaces.
+	// Used for subagent "↳N" cells so the arrow always sits in the first position
+	// regardless of single- vs multi-digit N (unlike AlignLeft, which indents 1).
+	AlignLeftFlush
 )
 
 // Cell is one slot in the R1 box-drawing table.
@@ -117,6 +122,25 @@ func (b *Builder) effectiveCols() [7]int {
 // of degrading to plain text. Visual width is computed via format.VisualLen so
 // that {{marker}} tokens are treated as zero-width.
 func padCell(s string, w int, a Align) string {
+	if a == AlignLeftFlush {
+		// Flush left: no leading space; content fills the full width w with
+		// trailing spaces. Returns exactly w visual chars so borders stay aligned.
+		if w < 0 {
+			w = 0
+		}
+		vlen := format.VisualLen(s)
+		if vlen > w {
+			prefix, core, suffix := splitWrapMarkers(s)
+			core = format.MiddleTruncate(format.StripMarkers(core), w)
+			if format.VisualLen(core) > w {
+				runes := []rune(core)
+				core = string(runes[:w])
+			}
+			s = prefix + core + suffix
+			vlen = format.VisualLen(s)
+		}
+		return s + strings.Repeat(" ", w-vlen)
+	}
 	inner := w - 1
 	if inner < 0 {
 		inner = 0

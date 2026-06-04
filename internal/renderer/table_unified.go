@@ -242,8 +242,15 @@ func (b *Builder) unifiedCells(r UnifiedRow, colWidths []int) Row {
 		cacheColWidth = colWidths[3]
 	}
 	cacheCell := b.cacheRWCell(r.CacheRead, r.CacheCreate, r.RedCacheWrite, cacheColWidth)
+	// Orchestrator "#" cells are turn numbers (right-aligned). Subagent cells are
+	// "↳N": flush-left so the "↳" arrow always sits in the first column position
+	// regardless of single- vs multi-digit N (consistent across all agent rows).
+	hashAlign := AlignRight
+	if r.IsSidechain {
+		hashAlign = AlignLeftFlush
+	}
 	return Row{
-		{Content: r.HashCell, Align: AlignRight},
+		{Content: r.HashCell, Align: hashAlign},
 		{Content: unifiedRoleColour(r.Role, r.IsSidechain), Align: AlignLeft},
 		{Content: r.Model, Align: AlignLeft},
 		{Content: cacheCell, Align: AlignLeft},
