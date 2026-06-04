@@ -464,7 +464,7 @@ func makeStdAssembler(orchTTLMinutes int, cols int) *statusline.Assembler {
 		Mode:   mode.Standard,
 		Theme:  renderer.Theme{AnsiEnabled: false},
 		Cols:   cols,
-		Config: probes.Config{OrchTTLMinutes: orchTTLMinutes},
+		Config: probes.Config{OrchTTLMinutes: orchTTLMinutes, SubagentGapMinutes: 5},
 	}
 }
 
@@ -1216,6 +1216,73 @@ func TestAssemble_SubagentInstanceName(t *testing.T) {
 			t.Errorf("T-30 cols≤100: tool name 'ReadSubFile' must be present; got:\n%s", out)
 		}
 	})
+}
+
+// TestAssemble_SubagentTTLWindow verifies F3: the subagent TTL uses the 5-minute
+// SubagentGapMinutes window (not the 60-minute orchestrator window), holds the
+// expired "⏱ 0m" for an extra 5 minutes, then drops the suffix entirely.
+func TestAssemble_SubagentTTLWindow(t *testing.T) {
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	orchT := orchTurn(1, "orch1", 1, base, "BashOrch", "")
+
+	render := func(elapsed time.Duration) string {
+		subTurn := parser.Turn{
+			Role:        "agent",
+			UUID:        "sub-ttl",
+			GroupID:     0,
+			Timestamp:   base,
+			Tokens:      parser.TokenCounts{Output: 50},
+			ToolUse:     "ReadSubFile",
+			IsSidechain: true,
+		}
+		sa := parser.SubagentStats{
+			AgentID:         "agent-ttl",
+			AgentType:       "general-purpose",
+			ActivationStart: base,
+			LastTimestamp:   base,
+			CurrentTurnNum:  1,
+			TurnCount:       1,
+			Turns:           []parser.Turn{subTurn},
+			LastTool:        "ReadSubFile",
+		}
+		a := &statusline.Assembler{
+			Mode:   mode.Standard,
+			Theme:  renderer.Theme{AnsiEnabled: false},
+			Cols:   80,
+			Config: probes.Config{OrchTTLMinutes: 60, SubagentGapMinutes: 5},
+		}
+		d := probes.Data{
+			Session:   &parser.SessionStats{TurnCount: 1, Turns: []parser.Turn{orchT}},
+			Subagents: []parser.SubagentStats{sa},
+			Now:       base.Add(elapsed),
+		}
+		return a.Render(d)
+	}
+
+	// subagentLine returns the single rendered row carrying the "↳" subagent
+	// marker (the orchestrator row carries its own independent TTL, so the
+	// assertion must be scoped to the subagent's line).
+	subagentLine := func(out string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "↳") {
+				return l
+			}
+		}
+		return ""
+	}
+
+	// elapsed 2m < window(5) → live countdown "⏱ 3m".
+	if line := subagentLine(render(2 * time.Minute)); !strings.Contains(line, "⏱ 3m") {
+		t.Errorf("F3 elapsed=2m: want subagent countdown '⏱ 3m'; got row:\n%s", line)
+	}
+	// window(5) < elapsed 7m < window+hold(10) → expired "⏱ 0m" held.
+	if line := subagentLine(render(7 * time.Minute)); !strings.Contains(line, "⏱ 0m") {
+		t.Errorf("F3 elapsed=7m: want held '⏱ 0m'; got row:\n%s", line)
+	}
+	// elapsed 12m > window+hold(10) → suffix dropped, no "⏱" on the subagent row.
+	if line := subagentLine(render(12 * time.Minute)); strings.Contains(line, "⏱") {
+		t.Errorf("F3 elapsed=12m: subagent TTL must be dropped (no ⏱); got row:\n%s", line)
+	}
 }
 
 // ---------------------------------------------------------------------------

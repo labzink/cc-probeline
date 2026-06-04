@@ -389,24 +389,45 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 			Dim:           dim,
 			GroupID:       0,
 			SkipSeparator: true,
-			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.OrchTTLMinutes),
-			TTLSuffix:     renderer.CacheTTL(now, sa.LastTimestamp, 1, a.Config.OrchTTLMinutes, a.Theme.AnsiEnabled),
+			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.SubagentGapMinutes),
+			TTLSuffix:     subagentTTLSuffix(now, sa.LastTimestamp, a.Config.SubagentGapMinutes, a.Theme.AnsiEnabled),
 		}
 		out = append(out, timedRow{row: row, ts: sa.ActivationStart})
 	}
 	return out
 }
 
+// subagentTTLHoldMinutes is how long a subagent row keeps showing "⏱ 0m" after
+// its cache window has expired, before the TTL suffix is dropped entirely. Unlike
+// the orchestrator (whose expired "⏱ 0m" stays forever as a cache-rebuild marker),
+// a subagent is short-lived: once it has been silent for window+hold minutes the
+// suffix disappears (F3).
+const subagentTTLHoldMinutes = 5
+
+// subagentTTLSuffix renders the subagent row's TTL suffix using the subagent
+// cache window (SubagentGapMinutes, default 5). While elapsed ≤ window it counts
+// down; between window and window+hold it shows the expired "⏱ 0m"; past
+// window+hold it returns "" so the suffix is dropped (F3).
+func subagentTTLSuffix(now, lastTS time.Time, window int, ansi bool) string {
+	if window <= 0 || lastTS.IsZero() {
+		return ""
+	}
+	if now.Sub(lastTS) > time.Duration(window+subagentTTLHoldMinutes)*time.Minute {
+		return ""
+	}
+	return renderer.CacheTTL(now, lastTS, 1, window, ansi)
+}
+
 // subagentRedCacheWrite reports whether the subagent's collapsed row should
-// paint its cache_create red: the gap between its last two turns is ≥ the TTL
-// window (cache collapse — T-36). A model change within a subagent does NOT
-// trigger this (orchestrator-only per spec). Fewer than two turns → false.
-func subagentRedCacheWrite(sa parser.SubagentStats, orchTTLMinutes int) bool {
+// paint its cache_create red: the gap between its last two turns is ≥ the
+// subagent cache window (cache collapse — T-36). A model change within a subagent
+// does NOT trigger this (orchestrator-only per spec). Fewer than two turns → false.
+func subagentRedCacheWrite(sa parser.SubagentStats, windowMinutes int) bool {
 	n := len(sa.Turns)
 	if n < 2 {
 		return false
 	}
-	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, orchTTLMinutes)
+	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, windowMinutes)
 }
 
 // subscriptInt renders a non-negative integer using Unicode subscript digits
