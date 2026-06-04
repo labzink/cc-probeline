@@ -77,11 +77,21 @@ func notchDataRows(out string) []string {
 }
 
 // standaloneSepLines returns lines that are pure full-line ├─┼─┤ separators
-// (not the legend separator, not a notch data row). These are the old groupSep
-// style that should be ABSENT between data rows after the notch redesign.
+// BETWEEN DATA ROWS (not the legend separator, not a notch data row). These are
+// the old groupSep style that should be ABSENT between data rows after the notch
+// redesign.
 //
 // A standalone separator: starts with ├, contains ┼, ends with ┤, has NO spaces.
+// The legend separator (the pure horizontal ├─┼─┄ immediately before the legend
+// row) is EXCLUDED — that separator is intentional and part of the table footer.
 func standaloneSepLines(out string) []string {
+	// Identify the legend separator line so it can be excluded.
+	legSep := legendSepLine(out)
+	legSepBare := ""
+	if legSep != "" {
+		legSepBare = stripMkA(legSep)
+	}
+
 	var seps []string
 	for _, l := range strings.Split(out, "\n") {
 		bare := stripMkA(l)
@@ -95,9 +105,14 @@ func standaloneSepLines(out string) []string {
 			continue
 		}
 		// Standalone separator: no spaces (only ─ and junction runes).
-		if !strings.Contains(bare, " ") {
-			seps = append(seps, l)
+		if strings.Contains(bare, " ") {
+			continue
 		}
+		// Exclude the legend separator (intentional footer line, not inter-group).
+		if legSepBare != "" && bare == legSepBare {
+			continue
+		}
+		seps = append(seps, l)
 	}
 	return seps
 }
@@ -185,9 +200,11 @@ func TestNotch_AnchorRowCarriesNotchDividers(t *testing.T) {
 			if !strings.Contains(bare, "┼") {
 				t.Errorf("Notch-anchor: anchor row (%q) must contain '┼';\n  raw line: %s", tool, l)
 			}
-			bareRTrimmed := strings.TrimRight(bare, " ")
-			if !strings.HasSuffix(bareRTrimmed, "┤") {
-				t.Errorf("Notch-anchor: anchor row (%q) must end with '┤';\n  bare (rtrimmed): %q", tool, bareRTrimmed)
+			// The anchor row's trailing border is '┤'. A TTL suffix (e.g. " ⏱ 4m")
+			// may appear after the '┤' in the line, so HasSuffix would fail.
+			// We verify by checking that the bare form CONTAINS '┤'.
+			if !strings.Contains(bare, "┤") {
+				t.Errorf("Notch-anchor: anchor row (%q) must contain trailing '┤';\n  bare: %q", tool, barePrefix(bare, 60))
 			}
 		}
 		if !found {

@@ -75,19 +75,27 @@ func assembleStdOutput(t *testing.T, turns []parser.Turn, st *state.Session, now
 }
 
 // collectDataLines returns lines from the table output that are data rows
-// (start with │ after stripping markers, don't contain ─, not border/legend).
-// It excludes the legend row (contains " role " and " model ").
+// (notch redesign aware).
+//
+// A data row is a line whose bare (marker-stripped) form satisfies:
+//   - starts with │ (regular data row) OR starts with ├ (notch anchor row), AND
+//   - contains no ─ (excludes pure horizontal separator/border lines), AND
+//   - is not the legend row (identified by " role " and " model " labels).
+//
+// Notch anchor rows start with ├ and carry cell content (spaces present),
+// unlike pure horizontal lines (├─┼─┤) which have no spaces and contain ─.
 func collectDataLines(out string) []string {
 	var rows []string
 	for _, l := range strings.Split(out, "\n") {
 		bare := stripMk(l)
-		if !strings.HasPrefix(bare, "│") {
+		// Accept both regular rows (│) and notch anchor rows (├).
+		if !strings.HasPrefix(bare, "│") && !strings.HasPrefix(bare, "├") {
 			continue
 		}
 		if strings.Contains(bare, "─") {
-			continue // horizontal border line
+			continue // horizontal border line or pure separator
 		}
-		// Exclude legend row
+		// Exclude legend row.
 		if strings.Contains(bare, " role ") && strings.Contains(bare, " model ") {
 			continue
 		}

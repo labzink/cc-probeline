@@ -193,25 +193,34 @@ func TestAssembler_Standard_Cap20Turns(t *testing.T) {
 	a := makeAssembler(mode.Standard)
 	out := a.Render(makeData(30))
 
-	// Count lines that start with "│" (data rows) — excludes top/bottom borders
-	// that start with "┌" / "└" and separators that start with "├".
-	// Also excludes the legend footer row ("# role model cache out cost tool").
+	// Count data rows: lines that start with "│" OR "├" (notch anchor rows),
+	// excluding pure horizontal separator lines (contain "─"), excluding the
+	// legend row, and excluding top/bottom borders ("┌"/"└").
+	// Notch redesign: anchor rows start with "├" and contain cell content
+	// (spaces present, no "─"), so they are data rows, not separators.
 	dataRowCount := 0
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(stripMk(line))
-		if strings.HasPrefix(trimmed, "│") &&
-			!strings.HasPrefix(trimmed, "├") &&
-			!strings.HasPrefix(trimmed, "┌") &&
-			!strings.HasPrefix(trimmed, "└") {
-			// C1: exclude the legend footer row (contains column header labels).
-			// Old footer check: "Total for request" (removed by C1).
-			// New legend row check: contains "role" as a cell label.
-			bareStripped := stripMk(line)
-			if !strings.Contains(bareStripped, "Total for request") &&
-				!(strings.Contains(bareStripped, " role ") && strings.Contains(bareStripped, " model ")) {
-				dataRowCount++
-			}
+		// Accept rows starting with │ (regular) or ├ (notch anchor data rows).
+		isDataRow := strings.HasPrefix(trimmed, "│") || strings.HasPrefix(trimmed, "├")
+		if !isDataRow {
+			continue
 		}
+		// Exclude pure horizontal lines (separators, borders): contain "─".
+		if strings.Contains(trimmed, "─") {
+			continue
+		}
+		// Exclude top/bottom borders.
+		if strings.HasPrefix(trimmed, "┌") || strings.HasPrefix(trimmed, "└") {
+			continue
+		}
+		// C1: exclude the legend footer row (contains column header labels).
+		bareStripped := stripMk(line)
+		if strings.Contains(bareStripped, "Total for request") ||
+			(strings.Contains(bareStripped, " role ") && strings.Contains(bareStripped, " model ")) {
+			continue
+		}
+		dataRowCount++
 	}
 
 	// §4.2 concept C-6: cap is 20, so data rows must equal 20.
@@ -505,15 +514,24 @@ func stripMkA(s string) string {
 	return result
 }
 
-// dataRows returns lines that are data rows (start with │ after stripping,
-// no ─, not legend, not top/bottom border).
+// dataRows returns lines that are data rows (notch redesign aware).
+//
+// A data row is a line whose bare (marker-stripped) form satisfies:
+//   - starts with │ (regular data row) OR starts with ├ (notch anchor row), AND
+//   - contains no ─ (excludes pure horizontal separator/border lines), AND
+//   - is not the legend row (identified by containing " role " and " model ").
+//
+// Notch anchor rows start with ├ and contain cell content (spaces), unlike
+// pure horizontal lines (├─┼─┤) which have no spaces.
 func dataRows(out string) []string {
 	var rows []string
 	for _, l := range strings.Split(out, "\n") {
 		bare := stripMkA(l)
-		if !strings.HasPrefix(bare, "│") {
+		// Accept both regular rows (│) and notch anchor rows (├).
+		if !strings.HasPrefix(bare, "│") && !strings.HasPrefix(bare, "├") {
 			continue
 		}
+		// Pure horizontal lines (separators, borders) contain ─.
 		if strings.Contains(bare, "─") {
 			continue
 		}
@@ -526,12 +544,34 @@ func dataRows(out string) []string {
 	return rows
 }
 
-// groupSepLines returns lines that are ├─┼─┤ separators (not top/bottom border).
+// groupSepLines returns lines that are STANDALONE pure full-line ├─┼─┄ separators.
+//
+// After the notch redesign, inter-group boundaries are expressed as notch anchor
+// data rows (├ + spaces + content) rather than standalone separator lines. The only
+// remaining pure horizontal ├…┼…┤ lines are the legend separator and (if any)
+// legacy inter-group separators. A standalone separator has no spaces (only ─ and
+// junction runes). Notch data rows (which have spaces) are NOT returned.
+//
+// Callers that counted standalone separators to detect group boundaries should now
+// assert on anchor notch rows via dataRows() or standaloneSepLines() from
+// fixes_notch_dim_test.go. This helper's return value should be exactly 0
+// between data rows and exactly 1 for the legend separator after the notch redesign.
 func groupSepLines(out string) []string {
 	var seps []string
 	for _, l := range strings.Split(out, "\n") {
 		bare := stripMkA(l)
-		if strings.HasPrefix(bare, "├") && strings.Contains(bare, "┼") && strings.HasSuffix(bare, "┤") {
+		if !strings.HasPrefix(bare, "├") {
+			continue
+		}
+		if !strings.Contains(bare, "┼") {
+			continue
+		}
+		if !strings.HasSuffix(bare, "┤") {
+			continue
+		}
+		// Standalone separator: no spaces (only ─ and junction runes).
+		// Notch data rows contain spaces (padded cells) and are excluded.
+		if !strings.Contains(bare, " ") {
 			seps = append(seps, l)
 		}
 	}
@@ -541,46 +581,51 @@ func groupSepLines(out string) []string {
 // ---------------------------------------------------------------------------
 // T-3: TestAssemble_SepOnlyOrchBoundary
 //
-// Spec §2.3 (separators): ├─┼─┤ only on orchestrator GroupID boundaries.
-// A sidechain turn (GroupID=0) must NOT cause a separator.
-// Two orch turns with different GroupIDs → exactly 1 separator.
-// Adding a sidechain turn between groups → still exactly 1 separator.
+// Notch redesign contract (replaces old "exactly 1 standalone sep per boundary"):
+//   - ZERO standalone full-line ├─┼─┄ separators appear between data rows.
+//     (The legend separator above the legend row is the only remaining pure
+//     horizontal line and is excluded from the count below.)
+//   - Instead, each orchestrator group has exactly one anchor notch row
+//     (its chronologically earliest turn). Sidechain turns never become anchors.
+//
+// Table: wantStdSep = 0 always. wantAnchors = number of distinct orch groups.
 // ---------------------------------------------------------------------------
 func TestAssemble_SepOnlyOrchBoundary(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name    string
-		turns   []parser.Turn
-		wantSep int
+		name        string
+		turns       []parser.Turn
+		wantAnchors int // one notch anchor row per orch group
 	}{
 		{
-			// Two orch groups → 1 separator.
+			// Two orch groups, one turn each → 2 anchor rows, 0 standalone seps.
 			name: "two_orch_groups_one_sep",
 			turns: []parser.Turn{
 				orchTurn(2, "g2", 2, base.Add(10*time.Second), "Edit", ""),
 				orchTurn(1, "g1", 1, base, "Read", ""),
 			},
-			wantSep: 1,
+			wantAnchors: 2,
 		},
 		{
-			// Sidechain between two orch groups must NOT add extra separator.
-			// Turns sorted newest-first: g2 orch, sidechain, g1 orch.
+			// Sidechain between two orch groups: 2 anchor rows, 0 standalone seps.
+			// Sidechain rows carry SkipSeparator=true — never become anchors.
 			name: "sidechain_between_orch_no_extra_sep",
 			turns: []parser.Turn{
 				orchTurn(2, "g2", 2, base.Add(10*time.Second), "Edit", ""),
 				sidechainTurn("sc1", base.Add(5*time.Second), "BashSub"),
 				orchTurn(1, "g1", 1, base, "Read", ""),
 			},
-			wantSep: 1,
+			wantAnchors: 2,
 		},
 		{
-			// Single orch group → no separator (no boundary).
+			// Single orch group, 1 turn: 1 anchor row (the single turn is the
+			// anchor for G1), 0 standalone seps.
 			name: "single_orch_group_no_sep",
 			turns: []parser.Turn{
 				orchTurn(1, "g1", 1, base, "Bash", ""),
 			},
-			wantSep: 0,
+			wantAnchors: 1,
 		},
 	}
 
@@ -588,10 +633,51 @@ func TestAssemble_SepOnlyOrchBoundary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Turns are already newest-first as perTurnTable sorts them.
 			out := renderWithTurns(t, tc.turns, nil, base.Add(time.Minute), 5)
-			seps := groupSepLines(out)
-			if len(seps) != tc.wantSep {
-				t.Errorf("T-3 %s: got %d group separators, want %d\noutput:\n%s",
-					tc.name, len(seps), tc.wantSep, out)
+
+			// Verify zero standalone ├─┼─┄ separators between data rows.
+			// groupSepLines now only finds pure horizontal lines (no spaces).
+			// After the notch redesign the legend separator is the only such line,
+			// so we only count lines that are NOT immediately before the legend row.
+			lines := strings.Split(out, "\n")
+			standaloneSeps := 0
+			for i, l := range lines {
+				bare := stripMkA(l)
+				if !strings.HasPrefix(bare, "├") || !strings.Contains(bare, "┼") ||
+					strings.Contains(bare, " ") {
+					continue
+				}
+				// Pure horizontal line. Skip the legend separator (next content line
+				// is the legend row).
+				isLegendSep := false
+				for j := i + 1; j < len(lines); j++ {
+					nb := stripMkA(lines[j])
+					if nb == "" {
+						continue
+					}
+					if strings.Contains(nb, " role ") && strings.Contains(nb, " model ") {
+						isLegendSep = true
+					}
+					break
+				}
+				if !isLegendSep {
+					standaloneSeps++
+				}
+			}
+			if standaloneSeps != 0 {
+				t.Errorf("T-3 %s: got %d standalone inter-group separators (want 0);\n"+
+					"  notch redesign: inter-group boundaries are notch anchor rows, not ├─┼─┄ lines.\n"+
+					"  output:\n%s",
+					tc.name, standaloneSeps, out)
+			}
+
+			// Verify expected notch anchor row count.
+			notchRows := notchDataRows(out)
+			if len(notchRows) != tc.wantAnchors {
+				t.Errorf("T-3 %s: got %d notch anchor rows (want %d);\n"+
+					"  each orch group must have exactly one anchor row with ├/┼/┤ dividers.\n"+
+					"  notch rows:\n%s\n  output:\n%s",
+					tc.name, len(notchRows), tc.wantAnchors,
+					strings.Join(notchRows, "\n"), out)
 			}
 		})
 	}
@@ -600,8 +686,21 @@ func TestAssemble_SepOnlyOrchBoundary(t *testing.T) {
 // ---------------------------------------------------------------------------
 // T-4: TestAssemble_DimOlderGroups
 //
-// Spec §2.3 «Dim»: freshest orch group (maxGroupID) → no {{dim}} wrapper.
-// All turns from older groups → wrapped in {{dim}}…{{reset}}.
+// Spec §2.3 «Dim»: freshest orch group (maxGroupID) → no whole-row {{dim}} wrapper.
+// All turns from older groups → wrapped in {{dim}}…{{reset}} (whole-row dim).
+//
+// Notch anchor rows (├/┼/┤) of fresh groups start with per-border dim markers
+// like "{{dim}}├{{reset}}" but NOT with a whole-row dim that wraps the entire
+// content. A whole-row dim row has pattern "{{dim}}<box-rune><content>{{reset}}"
+// where the content is NOT interspersed with early {{reset}} markers — the row
+// ends with {{reset}}.
+//
+// Detection heuristic:
+//   - History row (whole-row dim): starts with "{{dim}}" AND ends with "{{reset}}"
+//     (the outer closing reset). May have a TTL suffix after "{{reset}}", but the
+//     core row content ends with "{{reset}}".
+//   - Fresh row (per-border dim): starts with "{{dim}}" but does NOT end with
+//     "{{reset}}" — the per-border "{{dim}}├{{reset}}" immediately releases dim.
 // ---------------------------------------------------------------------------
 func TestAssemble_DimOlderGroups(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -617,28 +716,66 @@ func TestAssemble_DimOlderGroups(t *testing.T) {
 		t.Fatalf("T-4: no table in output; output:\n%s", out)
 	}
 
-	curDimFound := false
-	histNoDim := true
+	histRowFound := false
+	curRowFound := false
 
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "ToolHistory") {
-			// History row must be wrapped in {{dim}}.
-			if !strings.Contains(l, "{{dim}}") {
-				t.Errorf("T-4: history row (GroupID=1) must be wrapped in {{dim}}; line:\n%s", l)
+			histRowFound = true
+			// History row (GroupID=1 < maxGroupID=2) must be whole-row dim.
+			// A whole-row dim row starts with "{{dim}}" AND ends with "{{reset}}"
+			// (the outer closing wrapper — possibly with trailing TTL suffix that
+			// we strip to check the base row).
+			baseRow := strings.TrimSpace(l)
+			// Strip trailing TTL suffix (e.g. " ⏱ 0m") after the closing {{reset}}.
+			closeIdx := strings.LastIndex(baseRow, "{{reset}}")
+			if closeIdx < 0 || !strings.HasPrefix(baseRow, "{{dim}}") {
+				t.Errorf("T-4: history row (GroupID=1) must be whole-row dim-wrapped\n"+
+					"  (starts with '{{dim}}' and ends with '{{reset}}');\n"+
+					"  line:\n%s", l)
 			}
-			histNoDim = false
 		}
 		if strings.Contains(l, "ToolCurrent") {
-			// Current row (maxGroupID) must NOT start with {{dim}} wrapper.
+			curRowFound = true
+			// Current row (maxGroupID=2) uses per-border dim, NOT whole-row dim.
+			// It must NOT be whole-row wrapped: it may start with "{{dim}}├{{reset}}"
+			// (notch border) but must NOT follow the pattern {{dim}}<all content>{{reset}}.
+			// Detection: if the line starts with "{{dim}}" AND the very last marker is
+			// "{{reset}}" at the very end (ignoring TTL suffix), it is a whole-row wrap.
+			// Fresh notch rows start with "{{dim}}├{{reset}}" — the ├{{reset}} releases
+			// dim early, so the row has many individual resets, not one final outer reset.
+			//
+			// Simplified check: a fresh row must NOT start with "{{dim}}" followed by
+			// a box-drawing char that is NOT immediately followed by "{{reset}}" at position 0.
+			// Equivalently: if line starts with "{{dim}}" check that after stripping
+			// the very first "{{dim}}├{{reset}}" or "{{dim}}│{{reset}}" prefix, the
+			// remainder does NOT start with "{{reset}}" (which would close a whole-row wrap).
+			//
+			// In practice: whole-row dim always starts "{{dim}}├<content without {{reset}}>…{{reset}}"
+			// (the ├ or │ is NOT wrapped in its own reset); per-border dim starts
+			// "{{dim}}├{{reset}}" (the ├ is enclosed in its own dim block).
+			// So: a whole-row dim row starts "{{dim}}├" where ├ is NOT followed by "{{reset}}".
+			// A per-border fresh row starts "{{dim}}├{{reset}}" (├ immediately followed by {{reset}}).
 			if strings.HasPrefix(l, "{{dim}}") {
-				curDimFound = true
-				t.Errorf("T-4: current row (GroupID=2=max) must NOT have {{dim}} wrapper; line:\n%s", l)
+				// Accept only if the first box-rune is immediately followed by {{reset}}.
+				// i.e. starts with "{{dim}}├{{reset}}" or "{{dim}}│{{reset}}".
+				isPerBorderDim := strings.HasPrefix(l, "{{dim}}├{{reset}}") ||
+					strings.HasPrefix(l, "{{dim}}│{{reset}}")
+				if !isPerBorderDim {
+					t.Errorf("T-4: current row (GroupID=2=max) must NOT be whole-row dim;\n"+
+						"  expected per-border dim ({{dim}}├{{reset}}…) not whole-row wrap.\n"+
+						"  line:\n%s", l)
+				}
 			}
 		}
 	}
 
-	_ = curDimFound
-	_ = histNoDim
+	if !histRowFound {
+		t.Errorf("T-4: history row 'ToolHistory' not found in output\noutput:\n%s", out)
+	}
+	if !curRowFound {
+		t.Errorf("T-4: current row 'ToolCurrent' not found in output\noutput:\n%s", out)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -684,9 +821,19 @@ func TestAssemble_LegendSeparator(t *testing.T) {
 // ---------------------------------------------------------------------------
 // T-6: TestAssemble_DataBarsDim
 //
-// Spec §2.3: all vertical bars of data rows use {{dim}}│{{reset}} pattern.
+// Spec §2.3: all vertical bars of data rows use a dim-bar pattern.
 // (Borders are dim, not plain │.)
-// This applies to ALL data rows — both current-group and history.
+// This applies to ALL data rows — both fresh-group and history.
+//
+// Notch redesign: anchor rows use dim notch glyphs ({{dim}}├{{reset}},
+// {{dim}}┼{{reset}}, {{dim}}┤{{reset}}) instead of {{dim}}│{{reset}}.
+// Both patterns satisfy "dim borders".
+//
+// Rules after notch redesign:
+//   (a) History rows: whole-row wrapped in {{dim}}…{{reset}} — dividers inside
+//       the wrapper are plain box runes (outer dim applies).
+//   (b) Fresh non-anchor rows: must contain "{{dim}}│{{reset}}" for cell dividers.
+//   (c) Fresh anchor rows: must contain "{{dim}}├{{reset}}" (leading notch dim bar).
 // ---------------------------------------------------------------------------
 func TestAssemble_DataBarsDim(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -701,21 +848,34 @@ func TestAssemble_DataBarsDim(t *testing.T) {
 
 	for _, row := range rows {
 		bare := stripMkA(row)
-		// The row must not use plain "│" bars (not wrapped in dim).
-		// After stripping markers, the bare row still has │ for structure.
-		// But the original must contain "{{dim}}│{{reset}}" or the row must be
-		// fully wrapped in {{dim}} (history rows).
-		//
-		// Rule: data row bars must be dim. Either:
-		//   (a) row is wrapped "{{dim}}..{{reset}}" (history rows), OR
-		//   (b) row contains "{{dim}}│{{reset}}" for each cell divider (current-group rows).
-		isHistoryRow := strings.HasPrefix(row, "{{dim}}")
-		hasPlainBar := strings.Contains(row, "│") && !strings.Contains(row, "{{dim}}│{{reset}}")
-
-		if !isHistoryRow && hasPlainBar {
-			t.Errorf("T-6: data row must use {{dim}}│{{reset}} bars (or be history-wrapped); got: %s", row)
-		}
 		_ = bare
+
+		// History rows: whole-row dim wrapper (starts "{{dim}}" and ends "{{reset}}").
+		// Their internal dividers are plain box runes inside the outer dim — OK.
+		isHistoryRow := strings.HasPrefix(row, "{{dim}}") &&
+			!strings.HasPrefix(row, "{{dim}}├{{reset}}") &&
+			!strings.HasPrefix(row, "{{dim}}│{{reset}}")
+		if isHistoryRow {
+			continue
+		}
+
+		// Fresh anchor rows (notch): must use dim notch glyphs ({{dim}}├{{reset}}).
+		isAnchorRow := strings.HasPrefix(row, "{{dim}}├{{reset}}")
+		if isAnchorRow {
+			// Anchor rows must contain dim notch inner junction ({{dim}}┼{{reset}}).
+			if !strings.Contains(row, "{{dim}}┼{{reset}}") {
+				t.Errorf("T-6: anchor (notch) data row must contain '{{dim}}┼{{reset}}' inner junction;\n"+
+					"  Fix: notch inner dividers must use dim pattern.\n  row: %s", row)
+			}
+			continue
+		}
+
+		// Fresh regular rows (non-anchor, start with {{dim}}│{{reset}}):
+		// must contain "{{dim}}│{{reset}}" for all cell dividers.
+		if strings.Contains(row, "│") && !strings.Contains(row, "{{dim}}│{{reset}}") {
+			t.Errorf("T-6: fresh data row must use '{{dim}}│{{reset}}' dim bars (or be history-wrapped or anchor);\n"+
+				"  Found plain '│' not enclosed in dim markers.\n  row: %s", row)
+		}
 	}
 }
 

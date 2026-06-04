@@ -60,14 +60,18 @@ type UnifiedRow struct {
 
 // RenderUnifiedRows renders the redesigned per-turn table from pre-built rows.
 //
-// Layout rules:
+// Layout rules (N-notch redesign, 2026-06-03):
 //   - Rows are pre-sorted newest-first by the caller.
-//   - A group separator (├─┼─┤) is inserted before the first row of each new
-//     orchestrator GroupID scanning top-to-bottom. Rows with SkipSeparator
-//     (subagents) do not participate in boundary detection.
+//   - No standalone full-line inter-group separator is emitted between data rows.
+//     Instead, the anchor row of each orchestrator group (the chronologically
+//     earliest turn = bottom row of the group's block in newest-first order)
+//     carries notch dividers: leading │→├, inner │→┼, trailing │→┤ (all dim).
+//     Every group, including the freshest, gets exactly one anchor notch row.
 //   - Dim rows are wrapped in {{dim}}…{{reset}} (whole line, borders included).
+//     Inner {{reset}} tokens are re-dimmed ({{reset}}{{dim}}) so dim stays
+//     active across the full visible line — F14 fix.
 //   - The legend row ("# role model cache r/w out cost tool") is preceded by a
-//     ├─┼─┤ separator and sits immediately before the bottom border.
+//     full-line ├─┼─┤ separator and sits immediately before the bottom border.
 //   - TTLSuffix is appended after the right border of each row that carries one.
 func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
 	slog.Debug("renderer.RenderUnifiedRows start", "rows", len(rows))
@@ -80,33 +84,23 @@ func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
 
 	topBorder := hlineSlice(colWidths, '┌', '┬', '┐', '─', nil)
 	bottomBorder := hlineSlice(colWidths, '└', '┴', '┘', '─', nil)
-	groupSep := hlineSlice(colWidths, '├', '┼', '┤', '─', nil)
-	// The legend separator (T-5) starts ├ and uses ┼ junctions like a group
-	// separator, but its right corner is ┐ so it is distinguishable from a
-	// group-boundary separator (which ends ┤). This lets callers count data
-	// group boundaries without the legend separator inflating the total (T-3).
-	legendSep := hlineSlice(colWidths, '├', '┼', '┐', '─', nil)
+	// Legend separator (T-5): full-line ├─┼─┤ above the legend row.
+	// F2 fix: right corner is ┤ (continuous border), not ┐.
+	legendSep := hlineSlice(colWidths, '├', '┼', '┤', '─', nil)
+
+	// Pre-compute which rows are anchor rows (notch boundary).
+	// An orch row at index i is an anchor iff the next orch row (j > i, not
+	// SkipSeparator) belongs to a different GroupID, or no next orch row exists.
+	// This identifies the chronologically earliest turn per group in the
+	// newest-first slice (bottom row of each group's block).
+	isAnchor := computeAnchorRows(rows)
 
 	var sb strings.Builder
 	sb.WriteString(topBorder)
 	sb.WriteByte('\n')
 
-	// Track the previous orchestrator GroupID to detect boundaries. Initialise
-	// to the first non-skipped row's group so the very first data row never
-	// emits a preceding separator.
-	prevGroupID := 0
-	havePrev := false
-	for _, r := range rows {
-		if !r.SkipSeparator {
-			if havePrev && r.GroupID != prevGroupID {
-				sb.WriteString(groupSep)
-				sb.WriteByte('\n')
-			}
-			prevGroupID = r.GroupID
-			havePrev = true
-		}
-
-		line := b.renderUnifiedDataRow(r, colWidths)
+	for i, r := range rows {
+		line := b.renderUnifiedDataRow(r, colWidths, isAnchor[i])
 		sb.WriteString(line)
 		if r.TTLSuffix != "" {
 			sb.WriteByte(' ')
@@ -115,7 +109,7 @@ func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
 		sb.WriteByte('\n')
 	}
 
-	// Legend: ├─┼─┐ separator immediately before the legend row (T-5).
+	// Legend: full-line ├─┼─┤ separator immediately before the legend row (T-5).
 	sb.WriteString(legendSep)
 	sb.WriteByte('\n')
 	sb.WriteString(renderUnifiedLegend(colWidths))
@@ -128,36 +122,126 @@ func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
 	return result
 }
 
-// renderUnifiedDataRow renders one UnifiedRow as a │-bordered content line.
-// Current-group rows use {{dim}}│{{reset}} dividers (T-6); dim rows are wrapped
-// whole in {{dim}}…{{reset}}.
-func (b *Builder) renderUnifiedDataRow(r UnifiedRow, colWidths []int) string {
-	cells := b.unifiedCells(r)
-	var sb strings.Builder
+// computeAnchorRows returns a boolean slice (same length as rows) indicating
+// whether each row is an anchor row for the notch boundary redesign.
+//
+// An orch row (not SkipSeparator) is an anchor iff there is no subsequent orch
+// row with the same GroupID — i.e. it is the last (chronologically earliest)
+// turn of its group in the newest-first slice.
+func computeAnchorRows(rows []UnifiedRow) []bool {
+	anchors := make([]bool, len(rows))
+
+	// For each orch row, check whether any later orch row shares its GroupID.
+	// If not → it is the anchor (lowest timestamp, bottom of group's block).
+	for i, r := range rows {
+		if r.SkipSeparator {
+			// Subagent rows never carry notch dividers.
+			continue
+		}
+		// Scan forward for another orch row with the same GroupID.
+		sameGroupAfter := false
+		for j := i + 1; j < len(rows); j++ {
+			if rows[j].SkipSeparator {
+				continue
+			}
+			if rows[j].GroupID == r.GroupID {
+				sameGroupAfter = true
+				break
+			}
+		}
+		if !sameGroupAfter {
+			anchors[i] = true
+		}
+	}
+	return anchors
+}
+
+// dimNotchLeading is the notch leading border (├) wrapped in dim markers.
+const dimNotchLeading = "{{dim}}├{{reset}}"
+
+// dimNotchInner is the notch inner junction (┼) wrapped in dim markers.
+const dimNotchInner = "{{dim}}┼{{reset}}"
+
+// dimNotchTrailing is the notch trailing border (┤) wrapped in dim markers.
+const dimNotchTrailing = "{{dim}}┤{{reset}}"
+
+// renderUnifiedDataRow renders one UnifiedRow as a bordered content line.
+//
+// isAnchor marks the row as a notch-boundary anchor: all vertical dividers
+// use notch glyphs (├/┼/┤) instead of │.
+//
+// Dim rows (r.Dim=true) wrap the whole line in {{dim}}…{{reset}}. To prevent
+// inner cell {{reset}} tokens from killing the outer dim (F14), every inner
+// {{reset}} is replaced with {{reset}}{{dim}} before the outer wrap is applied.
+//
+// Fresh (non-dim) rows use dimBar ({{dim}}│{{reset}}) for ALL dividers including
+// the leading border (F1 fix). Notch rows likewise use dimBar-style notch glyphs.
+func (b *Builder) renderUnifiedDataRow(r UnifiedRow, colWidths []int, isAnchor bool) string {
+	cells := b.unifiedCells(r, colWidths)
+	n := len(cells)
+
 	if r.Dim {
-		// History/anchored rows: plain │ dividers, whole line wrapped in dim.
-		sb.WriteRune('│')
-		for i := range cells {
-			sb.WriteString(padCell(cells[i].Content, colWidths[i], cells[i].Align))
+		// History rows: whole line wrapped in {{dim}}…{{reset}}.
+		// F14: replace inner {{reset}} with {{reset}}{{dim}} so dim survives
+		// across coloured cells (e.g. {{color:cyan}}role{{reset}} → dim killed).
+		// Inside the dim wrapper, use plain box-drawing runes (the outer dim
+		// already applies). Notch anchor rows use ├/┼/┤ instead of │.
+		var sb strings.Builder
+		if isAnchor {
+			sb.WriteRune('├')
+		} else {
 			sb.WriteRune('│')
 		}
-		return "{{dim}}" + sb.String() + "{{reset}}"
+		for i := range cells {
+			sb.WriteString(padCell(cells[i].Content, colWidths[i], cells[i].Align))
+			if isAnchor {
+				if i < n-1 {
+					sb.WriteRune('┼')
+				} else {
+					sb.WriteRune('┤')
+				}
+			} else {
+				sb.WriteRune('│')
+			}
+		}
+		// F14: re-dim after every inner {{reset}} so dim survives coloured cells.
+		content := strings.ReplaceAll(sb.String(), "{{reset}}", "{{reset}}{{dim}}")
+		return "{{dim}}" + content + "{{reset}}"
 	}
-	// Current-group rows: the internal/trailing dividers are {{dim}}│{{reset}} so
-	// the bars render dim while cell content keeps its own colour (T-6). The
-	// leading border is a plain │ so the line does NOT start with a {{dim}}
-	// wrapper — that prefix is reserved for whole-row dim (history) rows (T-4).
-	sb.WriteRune('│')
+
+	// Fresh (non-dim) rows: F1 fix — ALL dividers use dimBar pattern, including
+	// the leading border. Notch anchor rows use notch glyphs instead of │.
+	leading := dimBar
+	inner := dimBar
+	trailing := dimBar
+	if isAnchor {
+		leading = dimNotchLeading
+		inner = dimNotchInner
+		trailing = dimNotchTrailing
+	}
+
+	var sb strings.Builder
+	sb.WriteString(leading)
 	for i := range cells {
 		sb.WriteString(padCell(cells[i].Content, colWidths[i], cells[i].Align))
-		sb.WriteString(dimBar)
+		if i < n-1 {
+			sb.WriteString(inner)
+		} else {
+			sb.WriteString(trailing)
+		}
 	}
 	return sb.String()
 }
 
 // unifiedCells builds the seven cells of a row from its UnifiedRow fields.
-func (b *Builder) unifiedCells(r UnifiedRow) Row {
-	cacheCell := b.cacheRWCell(r.CacheRead, r.CacheCreate, r.RedCacheWrite)
+// colWidths is passed so the cache cell can right-pin the write sub-token (F9).
+func (b *Builder) unifiedCells(r UnifiedRow, colWidths []int) Row {
+	// Cache column is index 3; inner width = colWidths[3] - 1.
+	cacheColWidth := 13 // default matches base column layout
+	if len(colWidths) > 3 {
+		cacheColWidth = colWidths[3]
+	}
+	cacheCell := b.cacheRWCell(r.CacheRead, r.CacheCreate, r.RedCacheWrite, cacheColWidth)
 	return Row{
 		{Content: r.HashCell, Align: AlignRight},
 		{Content: unifiedRoleColour(r.Role, r.IsSidechain), Align: AlignLeft},
@@ -169,16 +253,33 @@ func (b *Builder) unifiedCells(r UnifiedRow) Row {
 	}
 }
 
-// cacheRWCell formats the "cache r/w" cell as "<read>/<write>". When redWrite is
-// set the write sub-token (cache_create) is wrapped in {{color:red}} so a cache
-// collapse / cold cache is visible without touching the read part (T-34..T-36).
-func (b *Builder) cacheRWCell(read, write int, redWrite bool) string {
+// cacheRWCell formats the "cache r/w" cell with read pinned left and write
+// pinned right within the column's inner width (F9 fix).
+//
+// The write sub-token is right-justified: visible padding fills the space
+// between read and write so they sit at opposing edges of the column.
+// When redWrite is set the write token is wrapped in {{color:red}} (T-34..T-36);
+// visible width is measured via format.VisualLen so the marker is zero-width.
+//
+// The returned content is passed to padCell(AlignLeft, colWidth) which prepends
+// one leading space and does not add trailing padding when content fills inner.
+func (b *Builder) cacheRWCell(read, write int, redWrite bool, colWidth int) string {
 	readStr := format.FormatK(read)
 	writeStr := format.FormatK(write)
 	if redWrite {
 		writeStr = "{{color:red}}" + writeStr + "{{reset}}"
 	}
-	return readStr + "/" + writeStr
+	inner := colWidth - 1 // padCell uses inner = colWidth-1 as usable width
+	if inner < 0 {
+		inner = 0
+	}
+	readVis := format.VisualLen(readStr)   // visible width of read token
+	writeVis := format.VisualLen(writeStr) // visible width of write token (markers zero-width)
+	gap := inner - readVis - writeVis
+	if gap < 0 {
+		gap = 0
+	}
+	return readStr + strings.Repeat(" ", gap) + writeStr
 }
 
 // unifiedToolCell renders the tool-column content. Empty tool → "thinking..."

@@ -140,7 +140,15 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	}
 
 	timed := a.orchRows(d)
-	timed = append(timed, a.subagentRows(d, st)...)
+
+	// Compute freshestGroupStart: the minimum Timestamp among orchestrator turns
+	// whose GroupID equals the highest group seen (maxOrchGroup). This marks the
+	// chronological beginning of the current (freshest) orchestrator request.
+	// Subagents activated strictly before this instant belong to an older request
+	// and must be rendered dim (F15).
+	freshestGroupStart := freshestGroupStartTime(d)
+
+	timed = append(timed, a.subagentRows(d, st, freshestGroupStart)...)
 
 	// Merge newest-first by sort timestamp (orch Timestamp / sub ActivationStart).
 	sort.SliceStable(timed, func(i, j int) bool {
@@ -279,13 +287,43 @@ func (a *Assembler) orchTTLSuffix(t parser.Turn, next *parser.Turn, now time.Tim
 	return ""
 }
 
+// freshestGroupStartTime returns the minimum Timestamp among all orchestrator
+// turns (non-sidechain) whose GroupID equals the maximum GroupID seen. This is
+// the chronological start of the current (freshest) request. Returns the zero
+// time when there are no orchestrator turns (callers treat zero as "no boundary"
+// — Before(zero) is always false, so subagents are never dim).
+func freshestGroupStartTime(d probes.Data) time.Time {
+	if d.Session == nil {
+		return time.Time{}
+	}
+	var maxGroup int
+	for _, t := range d.Session.Turns {
+		if !t.IsSidechain && t.GroupID > maxGroup {
+			maxGroup = t.GroupID
+		}
+	}
+	var minTS time.Time
+	for _, t := range d.Session.Turns {
+		if t.IsSidechain || t.GroupID != maxGroup {
+			continue
+		}
+		if minTS.IsZero() || t.Timestamp.Before(minTS) {
+			minTS = t.Timestamp
+		}
+	}
+	return minTS
+}
+
 // subagentRows builds one collapsed UnifiedRow per subagent. The row shows the
 // last turn's tokens/tool, "↳N" (N=CurrentTurnNum), a cumulative "Σ $" cost
 // (SubagentTotal over the agent's turn UUIDs) and a live per-agent TTL. The
 // cache_create is painted red when the gap between the last two turns is ≥ the
 // TTL window (collapse — T-36); the TTL is never frozen for subagents. At
 // terminal widths > 100 the tool cell is prefixed with the joined instance name.
-func (a *Assembler) subagentRows(d probes.Data, st *state.Session) []timedRow {
+// freshestGroupStart is the chronological start of the current orchestrator
+// request; a subagent whose ActivationStart is strictly before this instant
+// belongs to a completed request and must render dim (F15).
+func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroupStart time.Time) []timedRow {
 	if len(d.Subagents) == 0 {
 		return nil
 	}
@@ -334,6 +372,10 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session) []timedRow {
 			}
 		}
 
+		// Dim when the subagent was activated before the current (freshest) orch
+		// request started — it belongs to a completed request (F15).
+		dim := !freshestGroupStart.IsZero() && sa.ActivationStart.Before(freshestGroupStart)
+
 		row := renderer.UnifiedRow{
 			HashCell:      fmt.Sprintf("↳%d", sa.CurrentTurnNum),
 			Role:          role,
@@ -344,7 +386,7 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session) []timedRow {
 			CostCell:      costCell,
 			Tool:          tool,
 			IsSidechain:   true,
-			Dim:           false,
+			Dim:           dim,
 			GroupID:       0,
 			SkipSeparator: true,
 			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.OrchTTLMinutes),

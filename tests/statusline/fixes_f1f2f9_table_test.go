@@ -62,31 +62,49 @@ func TestF1_FreshRowLeadingBarIsDim(t *testing.T) {
 		t.Fatalf("F1: no data rows in output\noutput:\n%s", out)
 	}
 
-	// Identify the fresh (non-dim) row. A dim/history row starts with "{{dim}}".
-	// The fresh row must NOT start with "{{dim}}" at the row level.
+	// Identify the fresh (non-whole-row-dim) row.
+	// Notch redesign: fresh anchor rows start with "{{dim}}├{{reset}}" (per-border dim,
+	// the ├ is immediately followed by {{reset}}). History rows start with "{{dim}}"
+	// followed by a box-char NOT immediately closed with "{{reset}}" (whole-row wrapper).
+	// isFreshRow returns true for per-border-dim rows (not history-wrapped).
+	isFreshRow := func(row string) bool {
+		if strings.HasPrefix(row, "{{dim}}├{{reset}}") ||
+			strings.HasPrefix(row, "{{dim}}│{{reset}}") {
+			return true
+		}
+		// Plain leading border (no dim prefix at all) is also fresh.
+		if !strings.HasPrefix(row, "{{dim}}") {
+			return true
+		}
+		// Starts with "{{dim}}" but not per-border → whole-row dim = history.
+		return false
+	}
+
 	freshRowFound := false
 	for _, row := range rows {
-		if strings.HasPrefix(row, "{{dim}}") {
-			// History/whole-dim row — skip (its leading │ is inside the dim wrapper,
-			// which is the correct treatment for history rows).
+		if !isFreshRow(row) {
+			// History/whole-dim row — skip.
 			continue
 		}
 		freshRowFound = true
 
-		// F1 contract: the leading border of a fresh data row must be
-		// {{dim}}│{{reset}}, not a bare │.
-		// A bare │ at position 0 means the leading border is un-dimmed.
-		if strings.HasPrefix(row, "│") {
-			t.Errorf("F1: fresh data row starts with plain '│' (leading border not dim);\n"+
-				"  expected the row to begin with '{{dim}}│{{reset}}' (dimBar).\n"+
+		// F1 contract: the leading border of a fresh data row must be a dim bar
+		// ({{dim}}├{{reset}} for notch anchor rows, or {{dim}}│{{reset}} for
+		// regular fresh rows), not a bare box-drawing rune.
+		// After the notch redesign, fresh anchor rows start with "{{dim}}├{{reset}}"
+		// and regular fresh rows start with "{{dim}}│{{reset}}". Both are correct.
+		if strings.HasPrefix(row, "│") || strings.HasPrefix(row, "├") {
+			t.Errorf("F1: fresh data row starts with a plain box-rune (leading border not dim);\n"+
+				"  expected '{{dim}}├{{reset}}' (anchor) or '{{dim}}│{{reset}}' (regular).\n"+
 				"  Fix: renderUnifiedDataRow must write dimBar for the leading border.\n"+
 				"  row: %s", row)
 		}
 
-		// Additionally verify that the row DOES contain "{{dim}}│{{reset}}" somewhere
-		// (inner bars are already dim per existing GREEN).
-		if !strings.Contains(row, "{{dim}}│{{reset}}") {
-			t.Errorf("F1: fresh data row contains no {{dim}}│{{reset}} bar at all;\n"+
+		// Additionally verify that the row DOES contain at least one dimBar pattern.
+		hasDimBar := strings.Contains(row, "{{dim}}│{{reset}}") ||
+			strings.Contains(row, "{{dim}}├{{reset}}")
+		if !hasDimBar {
+			t.Errorf("F1: fresh data row contains no dim bar at all (no {{dim}}│{{reset}} or {{dim}}├{{reset}});\n"+
 				"  row: %s", row)
 		}
 	}
@@ -96,15 +114,26 @@ func TestF1_FreshRowLeadingBarIsDim(t *testing.T) {
 	}
 }
 
-// f1MultiGroupFreshRow returns the fresh (topmost, non-dim) data row from a
-// two-group output. The second group is the fresh one (maxGroupID=2).
+// f1MultiGroupFreshRow returns the fresh (topmost, non-whole-row-dim) data row
+// from a two-group output. The second group is the fresh one (maxGroupID=2).
+//
+// Notch redesign: fresh anchor rows start with "{{dim}}├{{reset}}" (per-border dim)
+// and are NOT whole-row dim-wrapped. History rows start with "{{dim}}" followed by
+// a box-char not immediately closed with "{{reset}}" (whole-row wrapper).
 func f1MultiGroupFreshRow(t *testing.T, out string) string {
 	t.Helper()
 	rows := dataRows(out)
 	for _, row := range rows {
+		// Per-border dim (fresh anchor) starts "{{dim}}├{{reset}}" or "{{dim}}│{{reset}}".
+		if strings.HasPrefix(row, "{{dim}}├{{reset}}") ||
+			strings.HasPrefix(row, "{{dim}}│{{reset}}") {
+			return row
+		}
+		// Plain box-rune start (no dim prefix) is also fresh.
 		if !strings.HasPrefix(row, "{{dim}}") {
 			return row
 		}
+		// Whole-row dim → skip (history row).
 	}
 	return ""
 }
@@ -335,10 +364,14 @@ func TestF9_CacheRWColumnAlignment(t *testing.T) {
 		t.Fatalf("F9: no data rows in output\noutput:\n%s", out)
 	}
 
-	// Find the fresh row (non-dim).
+	// Find the fresh row (non-whole-row-dim). Notch redesign: anchor rows start
+	// with "{{dim}}├{{reset}}" (per-border dim, not whole-row). History rows
+	// start with "{{dim}}" + box-char NOT immediately followed by "{{reset}}".
 	freshRow := ""
 	for _, row := range rows {
-		if !strings.HasPrefix(row, "{{dim}}") {
+		if strings.HasPrefix(row, "{{dim}}├{{reset}}") ||
+			strings.HasPrefix(row, "{{dim}}│{{reset}}") ||
+			!strings.HasPrefix(row, "{{dim}}") {
 			freshRow = row
 			break
 		}
@@ -347,14 +380,15 @@ func TestF9_CacheRWColumnAlignment(t *testing.T) {
 		t.Fatalf("F9: no fresh data row found\noutput:\n%s", out)
 	}
 
-	// Extract the cache cell. The row format (stripped) is:
-	//   │ hashCell │ roleCell │ modelCell │ cacheCell │ outCell │ costCell │ toolCell │
-	// Split bare row on │ to get individual cells (index 3 = cache cell, 0-based after
-	// leading │).
+	// Extract the cache cell. The row format varies by row type:
+	//   Regular rows: │ hashCell │ roleCell │ modelCell │ cacheCell │ ...
+	//   Notch anchor rows: ├ hashCell ┼ roleCell ┼ modelCell ┼ cacheCell ┼ ...
+	// Normalize: replace notch dividers (┼/┤/├) with │ before splitting,
+	// so cells can be extracted uniformly for both row types.
 	bareRow := stripMk(freshRow)
-	// Remove any dim/reset wrappers first (fresh rows shouldn't have row-level dim,
-	// but guard anyway).
-	cells := strings.Split(bareRow, "│")
+	// Normalize notch junction chars to │ for uniform cell splitting.
+	bareRowNorm := strings.NewReplacer("├", "│", "┼", "│", "┤", "│").Replace(bareRow)
+	cells := strings.Split(bareRowNorm, "│")
 	// cells[0] is empty (before leading │), cells[1]=hash, [2]=role, [3]=model,
 	// [4]=cache, [5]=out, [6]=cost, [7]=tool, [8]=empty (after trailing │).
 	if len(cells) < 5 {
@@ -464,9 +498,11 @@ func TestF9_CacheRWColumnAlignment_WithRedWrite(t *testing.T) {
 		t.Fatalf("F9-redwrite: cur row 'ToolCurF9' not found\noutput:\n%s", out)
 	}
 
-	// Extract bare row to get cache cell.
+	// Extract bare row to get cache cell. Notch anchor rows use ┼/┤ instead of │
+	// as dividers. Normalize to │ before splitting for uniform cell extraction.
 	bareRow := stripMk(curRowRaw)
-	cells := strings.Split(bareRow, "│")
+	bareRowNorm := strings.NewReplacer("├", "│", "┼", "│", "┤", "│").Replace(bareRow)
+	cells := strings.Split(bareRowNorm, "│")
 	if len(cells) < 5 {
 		t.Fatalf("F9-redwrite: expected ≥5 │-segments, got %d; bare row: %q", len(cells), bareRow)
 	}

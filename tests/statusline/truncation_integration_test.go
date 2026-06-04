@@ -60,20 +60,35 @@ func statusLines(out string) (line0, line1, line2 string) {
 func stripMk(s string) string { return format.StripMarkers(s) }
 
 // countDataRows counts the number of per-turn data rows in the Render() output.
-// A data row is a line that starts with '│', contains no '─' (not a separator
-// or border), does not contain the old footer "Total for request", and is not
-// the C1 legend row (which contains " role " and " model " as column labels).
+//
+// A data row satisfies all of:
+//   - starts with '│' (regular row) OR '├' (notch anchor row, notch redesign),
+//   - contains no '─' (excludes pure horizontal separator/border lines),
+//   - does not contain the old footer "Total for request",
+//   - is not the C1 legend row (identified by " role " and " model " labels).
+//
+// Notch anchor rows start with '├' and carry cell content (spaces present),
+// unlike pure horizontal lines (├─┼─┤) which have no spaces and contain '─'.
 func countDataRows(out string) int {
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(stripMk(line))
-		if strings.HasPrefix(trimmed, "│") &&
-			!strings.Contains(trimmed, "─") &&
-			!strings.Contains(trimmed, "Total for request") &&
-			// C1: exclude the unified-table legend row.
-			!(strings.Contains(trimmed, " role ") && strings.Contains(trimmed, " model ")) {
-			n++
+		// Accept both regular rows (│) and notch anchor rows (├).
+		if !strings.HasPrefix(trimmed, "│") && !strings.HasPrefix(trimmed, "├") {
+			continue
 		}
+		// Exclude pure horizontal lines (separators, borders).
+		if strings.Contains(trimmed, "─") {
+			continue
+		}
+		// Exclude old footer and C1 legend row.
+		if strings.Contains(trimmed, "Total for request") {
+			continue
+		}
+		if strings.Contains(trimmed, " role ") && strings.Contains(trimmed, " model ") {
+			continue
+		}
+		n++
 	}
 	return n
 }

@@ -314,7 +314,8 @@ func TestTable_DimHistory(t *testing.T) {
 	currentLineNoDim := true
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "ToolHistory") {
-			// History row must contain {{dim}}.
+			// History row must be whole-row dim wrapped: starts "{{dim}}" and
+			// contains "{{reset}}" near the end (outer closing reset).
 			if strings.Contains(l, "{{dim}}") {
 				historyLineDim = true
 			} else {
@@ -322,13 +323,22 @@ func TestTable_DimHistory(t *testing.T) {
 			}
 		}
 		if strings.Contains(l, "ToolCurrent") {
-			// 6.9.e (T-6): current-group rows use {{dim}}│{{reset}} dividers, so
-			// they DO contain {{dim}}. What distinguishes a current row from a
-			// history row is the absence of a whole-row {{dim}} wrapper, i.e. the
-			// line must NOT start with a {{dim}} prefix (T-4).
-			if strings.HasPrefix(l, "{{dim}}") {
+			// Notch redesign: current-group rows use per-border dim markers
+			// ("{{dim}}├{{reset}}" or "{{dim}}│{{reset}}"), so they DO start with
+			// "{{dim}}". What distinguishes current from history is the pattern:
+			//   - History (whole-row dim): "{{dim}}" + box-char (NOT followed by
+			//     "{{reset}}") — the entire row is inside the outer dim wrapper.
+			//   - Current (per-border dim): "{{dim}}├{{reset}}" or "{{dim}}│{{reset}}"
+			//     — the dim wrapper closes immediately after the border character.
+			// A whole-row dim row starts "{{dim}}" and does NOT have "{{reset}}"
+			// immediately after the first box character.
+			isPerBorderDim := strings.HasPrefix(l, "{{dim}}├{{reset}}") ||
+				strings.HasPrefix(l, "{{dim}}│{{reset}}")
+			if strings.HasPrefix(l, "{{dim}}") && !isPerBorderDim {
 				currentLineNoDim = false
-				t.Errorf("T-T3: current row (GroupID=2, max) must NOT be dim-wrapped (no {{dim}} prefix); line:\n%s", l)
+				t.Errorf("T-T3: current row (GroupID=2, max) must NOT be whole-row dim-wrapped;\n"+
+					"  expected per-border dim ({{dim}}├{{reset}}… or {{dim}}│{{reset}}…), not whole-row.\n"+
+					"  line:\n%s", l)
 			}
 		}
 	}
@@ -460,8 +470,10 @@ func TestTable_ThinkingGlyph(t *testing.T) {
 	var thinkingRowLine, toolRowLine string
 	for _, l := range lines {
 		bare := stripMk(l)
-		if !strings.HasPrefix(bare, "│") || strings.Contains(bare, "─") {
-			continue // skip borders
+		// Notch redesign: accept data rows starting with │ (regular) or ├ (anchor).
+		isDataRow := strings.HasPrefix(bare, "│") || strings.HasPrefix(bare, "├")
+		if !isDataRow || strings.Contains(bare, "─") {
+			continue // skip borders and pure horizontal lines
 		}
 		if strings.Contains(bare, "WriteFile") {
 			toolRowLine = l
@@ -473,10 +485,13 @@ func TestTable_ThinkingGlyph(t *testing.T) {
 	}
 
 	// Find both data rows by their position: thinkingTurn (index 1 of data rows) and toolTurn.
+	// Notch redesign: anchor rows start with "├", regular rows start with "│".
+	// Both qualify as data rows when they have no "─" and are not the legend row.
 	dataRows := []string{}
 	for _, l := range lines {
 		bare := stripMk(l)
-		if strings.HasPrefix(bare, "│") && !strings.Contains(bare, "─") &&
+		isDataRow := strings.HasPrefix(bare, "│") || strings.HasPrefix(bare, "├")
+		if isDataRow && !strings.Contains(bare, "─") &&
 			!strings.Contains(bare, "role") { // exclude legend row
 			dataRows = append(dataRows, l)
 		}
@@ -512,13 +527,23 @@ func TestTable_ThinkingGlyph(t *testing.T) {
 	}
 }
 
-// extractLastCell returns the content of the last cell in a │-delimited row.
+// extractLastCell returns the content of the last cell in a table row.
+// Handles both regular rows (│-delimited) and notch anchor rows (┼/┤-delimited).
+// Normalizes notch dividers (├, ┼, ┤) to │ before splitting.
 func extractLastCell(row string) string {
-	parts := strings.Split(row, "│")
+	// Normalize notch anchor row dividers to │ for uniform splitting.
+	normalized := strings.NewReplacer("├", "│", "┼", "│", "┤", "│").Replace(row)
+	parts := strings.Split(normalized, "│")
 	if len(parts) < 2 {
 		return ""
 	}
-	return parts[len(parts)-2] // last non-empty segment before trailing │
+	// Find the last non-empty segment (before the trailing │).
+	for i := len(parts) - 1; i >= 0; i-- {
+		if strings.TrimSpace(parts[i]) != "" {
+			return parts[i]
+		}
+	}
+	return ""
 }
 
 // ----------------------------------------------------------------------------
@@ -591,7 +616,9 @@ func TestTable_SubagentDash(t *testing.T) {
 
 	for _, l := range strings.Split(out, "\n") {
 		bare := stripMk(l)
-		if !strings.HasPrefix(bare, "│") || strings.Contains(bare, "─") {
+		// Notch redesign: accept data rows starting with │ (regular) or ├ (anchor).
+		isDataRow := strings.HasPrefix(bare, "│") || strings.HasPrefix(bare, "├")
+		if !isDataRow || strings.Contains(bare, "─") {
 			continue
 		}
 		if strings.Contains(bare, "BashOrch") {
