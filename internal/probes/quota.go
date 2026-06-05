@@ -102,11 +102,22 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		return s
 	}
 
-	var reset5h, reset7d string
+	// Reset countdown resolution: live stdin resets_at first, then the persisted
+	// snapshot's reset unix (cross-session — lets an idle session show the countdown
+	// once an active session has observed the new window), then "↻ ??m" when neither
+	// is known (window just reset, next one not ticking yet).
+	var live5h, live7d []byte
 	if rl != nil {
-		reset5h = formatResetColoured(rl.FiveHour.ResetsAt, d.Now, t.AnsiEnabled, fiveHourThresholds)
-		reset7d = formatResetColoured(rl.SevenDay.ResetsAt, d.Now, t.AnsiEnabled, sevenDayThresholds)
+		live5h = rl.FiveHour.ResetsAt
+		live7d = rl.SevenDay.ResetsAt
 	}
+	var snap5hReset, snap7dReset int64
+	if hasFresh {
+		snap5hReset = snap.FiveHourReset
+		snap7dReset = snap.SevenDayReset
+	}
+	reset5h := formatReset(live5h, snap5hReset, d.Now, fiveHourThresholds)
+	reset7d := formatReset(live7d, snap7dReset, d.Now, sevenDayThresholds)
 
 	pct5hInt := int(pct5h)
 	pct7dInt := int(pct7d)
@@ -208,18 +219,31 @@ func resetColourMarker(remaining time.Duration, th resetThresholds) string {
 	}
 }
 
-// formatResetColoured converts a raw resets_at value into a reset-countdown
-// string and applies a gradient colour marker based on the remaining time.
-// The colour thresholds are supplied by the caller (5h vs 7d differ).
-// Markers are always emitted as {{color:X}}…{{reset}} text tokens regardless
-// of ansiEnabled; Apply()/renderer strip them when colour is off.
-func formatResetColoured(raw []byte, now time.Time, _ bool, thresholds resetThresholds) string {
-	t, ok := stdin.ParseResetsAt(raw)
-	if !ok {
-		slog.Debug("quota.formatResetColoured: could not parse resets_at; omitting reset label")
-		return "↻ 0m"
+// formatReset resolves a reset countdown from the freshest known source and
+// applies a gradient colour marker based on the remaining time. Resolution order:
+//
+//  1. live stdin resets_at (liveRaw) — session-local, most precise;
+//  2. persisted snapshot reset unix (snapUnix > 0) — cross-session fallback so an
+//     idle session can still show the countdown an active session has observed;
+//  3. neither known → "↻ ??m" plain (no colour): the window just reset and the
+//     next one has not started ticking, so the time is genuinely unknown.
+//
+// A parseable-but-past reset (dur <= 0) renders "↻ 0m" — distinct from the
+// unknown "↻ ??m" case. Colour markers are emitted as {{color:X}}…{{reset}} text
+// tokens; Apply()/renderer strip them when colour is off.
+func formatReset(liveRaw []byte, snapUnix int64, now time.Time, thresholds resetThresholds) string {
+	var resetTime time.Time
+	var known bool
+	if t, ok := stdin.ParseResetsAt(liveRaw); ok {
+		resetTime, known = t, true
+	} else if snapUnix > 0 {
+		resetTime, known = time.Unix(snapUnix, 0), true
 	}
-	dur := t.Sub(now)
+	if !known {
+		slog.Debug("quota.formatReset: reset time unknown (live + snapshot both absent); rendering ??m")
+		return "↻ ??m"
+	}
+	dur := resetTime.Sub(now)
 	if dur <= 0 {
 		return "↻ 0m"
 	}

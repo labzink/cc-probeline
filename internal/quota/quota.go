@@ -85,6 +85,21 @@ func fresher(s, stored Snapshot) bool {
 	if s.SevenDayReset == stored.SevenDayReset && s.SevenDayPct > stored.SevenDayPct {
 		return true
 	}
+	// Window-reset rule: a known reset-window becoming unknown (stored reset > 0,
+	// incoming reset == 0) together with a used% drop is a genuine rollover — at the
+	// moment a window resets, CC sends used%≈0 with a null resets_at (the next window
+	// has not started ticking), so the incoming reset is 0. Accept it so the stale
+	// high percentage clears to ~0. Deliberately narrow: it requires the incoming
+	// window to be explicitly unknown (== 0), so an idle session carrying an OLD
+	// non-zero reset window with a low used% cannot clobber an active snapshot
+	// (that path stays governed by the reset-window/used% comparisons above) —
+	// preventing the idle-mirage regression that freshest-by-data was built to avoid.
+	if stored.FiveHourReset > 0 && s.FiveHourReset == 0 && s.FiveHourPct < stored.FiveHourPct {
+		return true
+	}
+	if stored.SevenDayReset > 0 && s.SevenDayReset == 0 && s.SevenDayPct < stored.SevenDayPct {
+		return true
+	}
 	// Tie-break: newer observation timestamp (Insurance #3 — rollover edge case).
 	if s.FiveHourReset == stored.FiveHourReset &&
 		s.SevenDayReset == stored.SevenDayReset &&

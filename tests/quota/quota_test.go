@@ -76,8 +76,9 @@ func TestQuota_UpdateNewerOnly(t *testing.T) {
 // an older reset-window does NOT overwrite even when its TS is strictly newer.
 //
 // Scenario:
-//   stored: FiveHourReset=100, FiveHourPct=60, TS=now
-//   incoming: FiveHourReset=90 (older window), FiveHourPct=70, TS=now+1s (newer TS)
+//
+//	stored: FiveHourReset=100, FiveHourPct=60, TS=now
+//	incoming: FiveHourReset=90 (older window), FiveHourPct=70, TS=now+1s (newer TS)
 //
 // New contract (§2.3 freshest-by-data): accept only if reset-window is later
 // OR (equal reset-window AND higher used%). A newer TS alone is not sufficient.
@@ -133,8 +134,9 @@ func TestQuotaUpdate_StaleDoesNotOverwrite(t *testing.T) {
 // later FiveHourReset (newer reset-window) is accepted even when its TS is older.
 //
 // Scenario:
-//   stored: FiveHourReset=100, TS=now+5s
-//   incoming: FiveHourReset=200 (later window), TS=now (older TS)
+//
+//	stored: FiveHourReset=100, TS=now+5s
+//	incoming: FiveHourReset=200 (later window), TS=now (older TS)
 //
 // New contract: later reset-window wins regardless of TS.
 // Current behaviour (TS-only): would reject because TS is older → test is RED.
@@ -185,8 +187,9 @@ func TestQuotaUpdate_FresherWindowWins(t *testing.T) {
 // snapshots have equal FiveHourReset, the one with higher FiveHourPct wins.
 //
 // Scenario:
-//   stored: FiveHourReset=500, FiveHourPct=40, TS=now+2s
-//   incoming: FiveHourReset=500 (equal window), FiveHourPct=75, TS=now (older TS)
+//
+//	stored: FiveHourReset=500, FiveHourPct=40, TS=now+2s
+//	incoming: FiveHourReset=500 (equal window), FiveHourPct=75, TS=now (older TS)
 //
 // New contract: equal reset-window + higher used% → accept.
 // Current behaviour (TS-only): would reject because TS is older → test is RED.
@@ -288,4 +291,74 @@ func TestQuota_Freshest(t *testing.T) {
 			t.Errorf("Freshest.SevenDayReset: want %d, got %d", want.SevenDayReset, got.SevenDayReset)
 		}
 	})
+}
+
+// TestQuotaUpdate_WindowResetAccepted (R1) verifies that when a 5h window resets
+// — incoming reset becomes 0 (null resets_at, next window not ticking) and used%
+// drops — the fresh near-zero snapshot is accepted, clearing the stale high pct.
+// The 7d window, unchanged in the same payload, is preserved.
+func TestQuotaUpdate_WindowResetAccepted(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+	now := time.Now().UnixMilli()
+
+	stored := quota.Snapshot{
+		TS: now, FiveHourPct: 100.0, SevenDayPct: 30.0,
+		FiveHourReset: 1000, SevenDayReset: 9000,
+	}
+	if err := quota.Update(stored); err != nil {
+		t.Fatalf("Update(stored): %v", err)
+	}
+
+	// 5h just reset: pct→0, reset→0 (unknown). 7d unchanged in same payload.
+	reset := quota.Snapshot{
+		TS: now + 1000, FiveHourPct: 0.0, SevenDayPct: 30.0,
+		FiveHourReset: 0, SevenDayReset: 9000,
+	}
+	if err := quota.Update(reset); err != nil {
+		t.Fatalf("Update(reset): %v", err)
+	}
+
+	got, ok := quota.Freshest()
+	if !ok {
+		t.Fatal("Freshest: want (snapshot,true)")
+	}
+	if got.FiveHourPct != 0.0 {
+		t.Errorf("R1: FiveHourPct: want 0 (window reset accepted), got %.1f — stale high pct must clear", got.FiveHourPct)
+	}
+	if got.SevenDayPct != 30.0 {
+		t.Errorf("R1: SevenDayPct: want 30 (unchanged window preserved), got %.1f", got.SevenDayPct)
+	}
+}
+
+// TestQuotaUpdate_IdleLowPctOldWindowRejected (R1 guard) verifies the reset rule
+// is narrow: an idle session carrying an OLD non-zero reset window with a LOWER
+// used% must NOT clobber an active snapshot. Only an explicitly-unknown (==0)
+// incoming reset signals a genuine rollover — this prevents the idle-mirage
+// regression that freshest-by-data was built to avoid.
+func TestQuotaUpdate_IdleLowPctOldWindowRejected(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+	now := time.Now().UnixMilli()
+
+	stored := quota.Snapshot{
+		TS: now, FiveHourPct: 80.0, SevenDayPct: 50.0,
+		FiveHourReset: 1000, SevenDayReset: 9000,
+	}
+	if err := quota.Update(stored); err != nil {
+		t.Fatalf("Update(stored): %v", err)
+	}
+
+	// Idle session: newer TS, lower pct, but reset-window is an OLD non-zero value
+	// (not 0) — this is stale data, not a reset. Must be rejected.
+	idle := quota.Snapshot{
+		TS: now + 5000, FiveHourPct: 10.0, SevenDayPct: 20.0,
+		FiveHourReset: 500, SevenDayReset: 4000,
+	}
+	if err := quota.Update(idle); err != nil {
+		t.Fatalf("Update(idle): %v", err)
+	}
+
+	got, _ := quota.Freshest()
+	if got.FiveHourPct != 80.0 {
+		t.Errorf("R1 guard: FiveHourPct: want 80 (idle stale rejected), got %.1f — old non-zero window must NOT clobber", got.FiveHourPct)
+	}
 }
