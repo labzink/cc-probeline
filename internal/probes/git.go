@@ -61,8 +61,22 @@ func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 		return " ⚠" + strconv.Itoa(n)
 	}
 
+	// commitSegment renders the transient "✓ N committed" badge (Phase 6.95.a),
+	// shown for one refresh after the working tree's modified count drops to 0.
+	// Green, appended after the branch like warnSegment. Full/Compact only.
+	commitSegment := func(n int) string {
+		if n <= 0 {
+			return ""
+		}
+		if t.AnsiEnabled {
+			return " {{color:green}}✓ " + strconv.Itoa(n) + " committed{{reset}}"
+		}
+		return " ✓" + strconv.Itoa(n) + " committed"
+	}
+
 	switch level {
 	case LevelMinimal:
+		// Minimal drops both ⚠N and the commit badge (degrades synchronously).
 		branchText := "⎇ " + middleTruncate(branch, 8)
 		if t.AnsiEnabled {
 			return "{{color:cyan}}" + branchText + "{{reset}}"
@@ -71,14 +85,14 @@ func (p *GitProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 	case LevelCompact:
 		branchText := "⎇ " + middleTruncate(branch, 12)
 		if t.AnsiEnabled {
-			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount)
+			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount) + commitSegment(d.CommitBadgeCount)
 		}
-		return branchText + warnSegment(d.Git.ModifiedCount)
+		return branchText + warnSegment(d.Git.ModifiedCount) + commitSegment(d.CommitBadgeCount)
 	default: // LevelFull
 		branchText := "⎇ " + branch
 		if t.AnsiEnabled {
-			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount)
+			return "{{color:cyan}}" + branchText + "{{reset}}" + warnSegment(d.Git.ModifiedCount) + commitSegment(d.CommitBadgeCount)
 		}
-		return branchText + warnSegment(d.Git.ModifiedCount)
+		return branchText + warnSegment(d.Git.ModifiedCount) + commitSegment(d.CommitBadgeCount)
 	}
 }

@@ -60,6 +60,40 @@ type Session struct {
 	// this here, retiring the separate ~/.cache/cc-probeline/hint-<sid>.json.
 	// Disposable: loss only resets the hint rotation, never costs/quota data.
 	HintRotation hint.State `json:"hint_rotation"`
+
+	// CommitBadge tracks the transient "✓ N committed" git badge (Phase 6.95.a).
+	// Set when the working tree's modified-file count drops from N>0 to 0; shown
+	// for exactly one refresh, then cleared. See CommitBadgeTick.
+	CommitBadge CommitBadge `json:"commit_badge"`
+}
+
+// CommitBadge is the transient post-commit indicator state. Count is the number
+// of files that were just committed; Shown records whether the badge has already
+// been rendered (so it appears for a single refresh and then disappears).
+type CommitBadge struct {
+	Count int  `json:"count"`
+	Shown bool `json:"shown"`
+}
+
+// CommitBadgeTick advances the commit-badge state for one refresh and returns
+// the badge count to display now (0 = render nothing).
+//
+// Trigger: a prevModified>0 → currModified==0 transition (only when gitOK, i.e.
+// the current git status was detected successfully). On trigger the badge is
+// armed with Count=prevModified. The badge is shown for exactly one refresh
+// (the call that first sees Count>0 && !Shown) and cleared on the following tick.
+func (s *Session) CommitBadgeTick(prevModified, currModified int, gitOK bool) int {
+	if gitOK && prevModified > 0 && currModified == 0 {
+		s.CommitBadge = CommitBadge{Count: prevModified, Shown: false}
+	}
+	if s.CommitBadge.Count > 0 && !s.CommitBadge.Shown {
+		s.CommitBadge.Shown = true
+		return s.CommitBadge.Count
+	}
+	if s.CommitBadge.Shown {
+		s.CommitBadge = CommitBadge{}
+	}
+	return 0
 }
 
 // stateDir resolves the directory used to store state files.

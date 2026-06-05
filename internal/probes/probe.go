@@ -73,6 +73,11 @@ type Data struct {
 	// to renderer.RenderUnified for per-turn cost column (C1). nil means state
 	// not available; renderer degrades gracefully (shows "—" for all turns).
 	State *state.Session
+
+	// CommitBadgeCount is the "✓ N committed" badge count to render this refresh
+	// (Phase 6.95.a). Zero means no badge. Set by main via state.CommitBadgeTick;
+	// GitProbe renders it (green) in Full/Compact, never in Minimal.
+	CommitBadgeCount int
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

@@ -327,6 +327,22 @@ func runRender(strict bool) int {
 		resolved := parser.ResolveGitStatus(freshGit, gitErr, lastGoodGit)
 		d.Git = resolved
 
+		// Commit-badge (Phase 6.95.a): detect the modified-count N>0 → 0 transition
+		// between the previous good status and this refresh, and decide whether to
+		// render "✓ N committed" now. lastGoodGit is the prev snapshot (captured
+		// before the overwrite below); freshGit is curr (valid only when gitErr==nil).
+		if st != nil {
+			prevN := 0
+			if lastGoodGit != nil {
+				prevN = lastGoodGit.ModifiedCount
+			}
+			currN := 0
+			if freshGit != nil {
+				currN = freshGit.ModifiedCount
+			}
+			d.CommitBadgeCount = st.CommitBadgeTick(prevN, currN, gitErr == nil && freshGit != nil)
+		}
+
 		// Persist the new successful result so the next invocation can use it.
 		if gitErr == nil && st != nil && payload.SessionID != "" {
 			st.LastGoodGit = freshGit
