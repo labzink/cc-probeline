@@ -11,6 +11,7 @@ package cost
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/state"
@@ -84,7 +85,7 @@ func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.T
 		}
 	}
 
-	if len(newTurns) > 0 && delta > 0 {
+	if len(newTurns) > 0 {
 		if st.PerTurnCost == nil {
 			st.PerTurnCost = make(map[string]float64, len(newTurns))
 		}
@@ -120,9 +121,41 @@ func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.T
 			}
 		}
 		slog.Debug("cost.Reconcile distributed", "delta", delta, "newTurns", len(newTurns), "totalUnits", totalUnits)
+	} else {
+		// Residual delta with no new turns (variant A): the cost accrued on an
+		// already-fixed turn — its streaming cost landed after we first recorded it.
+		// Attribute the whole delta to the most recent turn so Σ PerTurnCost stays
+		// equal to SessionTotal (= LastSeenTotal − BaselineCost). Without this the
+		// delta was silently dropped while LastSeenTotal still advanced, leaking the
+		// table-vs-cost gap (observed ~$0.40 across 90 turns).
+		if uuid := latestTurnUUID(turns); uuid != "" {
+			if st.PerTurnCost == nil {
+				st.PerTurnCost = make(map[string]float64, 1)
+			}
+			st.PerTurnCost[uuid] += delta
+			slog.Debug("cost.Reconcile residual delta to latest turn", "delta", delta, "uuid", uuid)
+		}
 	}
 
 	st.LastSeenTotal = ccTotal
+}
+
+// latestTurnUUID returns the UUID of the turn with the greatest Timestamp.
+// Used to attribute a residual cost delta (no new turns this cycle) to the turn
+// still accruing cost. Returns "" when turns is empty or all UUIDs are blank.
+func latestTurnUUID(turns []parser.Turn) string {
+	var uuid string
+	var latest time.Time
+	for _, t := range turns {
+		if t.UUID == "" {
+			continue
+		}
+		if uuid == "" || t.Timestamp.After(latest) {
+			uuid = t.UUID
+			latest = t.Timestamp
+		}
+	}
+	return uuid
 }
 
 // SessionDuration returns the API duration elapsed since the baseline was
