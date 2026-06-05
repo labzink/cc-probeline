@@ -155,20 +155,21 @@ func TestAssembler_HintShowsConfigErrorOnEmptySession(t *testing.T) {
 
 // TestAssembler_HintMergesAllSources verifies that when Turns is non-empty and
 // all three sources (session events, subagent events, ExtraCacheEvents) are
-// present, hint.BuildAlert receives a merged slice and returns the highest
-// priority event (OrchTTL > ConfigError in criticalTypes order).
+// present, hint.BuildAlert receives a merged slice. The session OrchTTL (zero
+// Timestamp, treated as live by the recency filter) is a transient event and
+// wins over the ConfigError fallback (newest-wins: transient beats persistent).
 func TestAssembler_HintMergesAllSources(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
-	// Subagent with SendMessageGap trigger (TurnCount>=2, span>5m).
+	// Subagent present but without Turns; DetectSubagentCacheEvents produces no event.
+	// The test verifies that the session-level OrchTTL (zero Timestamp, passes recency
+	// filter as "live") takes priority over the ExtraCacheEvents ConfigError fallback.
 	sa := parser.SubagentStats{
-		AgentID:        "sub-merge",
-		TurnCount:      2,
-		FirstTimestamp: now.Add(-7 * time.Minute),
-		LastTimestamp:  now,
+		AgentID:   "sub-merge",
+		TurnCount: 2,
 	}
 
 	a := configAssembler()
@@ -176,7 +177,7 @@ func TestAssembler_HintMergesAllSources(t *testing.T) {
 		Session: &parser.SessionStats{
 			Turns: []parser.Turn{oneTurn}, // non-empty — D1 does not fire
 			CacheEvents: []parser.CacheEvent{
-				{Type: parser.OrchTTL}, // highest priority in criticalTypes
+				{Type: parser.OrchTTL}, // transient, zero Timestamp → passes recency filter
 			},
 		},
 		Subagents: []parser.SubagentStats{sa},

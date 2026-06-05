@@ -22,6 +22,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/statusline"
+	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
 // ---------------------------------------------------------------------------
@@ -224,8 +225,8 @@ func TestAssembler_Render_HintAlert_OverridesRotation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestAssembler_Render_HintAlert_OnSubagentCacheEvent (C-1 wire)
-// Subagents with SendMessageGap-triggering span → alert text must appear.
+// TestAssembler_Render_HintAlert_OnSubagentCacheEvent (Phase 6.95.d)
+// Subagent with inter-turn gap ≥ 5 min → SubagentCacheExpired alert appears.
 // ---------------------------------------------------------------------------
 
 func TestAssembler_Render_HintAlert_OnSubagentCacheEvent(t *testing.T) {
@@ -237,12 +238,18 @@ func TestAssembler_Render_HintAlert_OnSubagentCacheEvent(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", cacheHome)
 
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	// Subagent with TurnCount>=2 and span >5 min → DetectSubagentCacheEvents fires SendMessageGap.
+	// Subagent with an inter-turn gap of 7 min (> 5 min threshold) → SubagentCacheExpired.
+	// Turns[1].Timestamp is within 2 min of now → passes the recency filter.
+	t0 := now.Add(-7 * time.Minute)
+	t1 := now.Add(-1 * time.Minute) // 1 min ago → recent (< 2 min window)
 	sa := parser.SubagentStats{
-		AgentID:        "sub-abc",
-		TurnCount:      2,
-		FirstTimestamp: now.Add(-7 * time.Minute),
-		LastTimestamp:  now,
+		AgentID:       "sub-abc",
+		AgentType:     "test-writer",
+		TurnCount:     2,
+		Turns: []parser.Turn{
+			{Timestamp: t0},
+			{Timestamp: t1},
+		},
 	}
 
 	a := makeHintAssembler()
@@ -255,14 +262,120 @@ func TestAssembler_Render_HintAlert_OnSubagentCacheEvent(t *testing.T) {
 	}
 
 	out := a.Render(d)
-	wantAlert := hint.AlertTexts[parser.SendMessageGap]
-	// AlertTexts[SendMessageGap] = "⚠ Subagent#%s cache lost · 5-min SendMessage gap"
-	// After interpolation contains "sub-abc".
-	if !strings.Contains(out, "sub-abc") {
-		t.Errorf("expected subagent ID 'sub-abc' in output from alert; got: %q", out)
+	// SubagentCacheExpired alert must appear; Detail = "test-writer" (no task name, role-only fallback).
+	if !strings.Contains(out, "cache expired") {
+		t.Errorf("expected SubagentCacheExpired alert text in output; got: %q", out)
 	}
-	if !strings.Contains(out, "SendMessage gap") {
-		t.Errorf("expected SendMessageGap alert text %q in output; got: %q (full template: %q)", "SendMessage gap", out, wantAlert)
+	if !strings.Contains(out, "test-writer") {
+		t.Errorf("expected subagent role 'test-writer' in alert output; got: %q", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestAssembler_Render_Alert_OldEventNotSurfaced (Phase 6.95.d)
+// Contract: transient event older than 2 min is NOT surfaced (recency filter).
+// A SubagentCacheExpired event with Timestamp = now - 3 min must be dropped.
+// ---------------------------------------------------------------------------
+
+func TestAssembler_Render_Alert_OldEventNotSurfaced(t *testing.T) {
+	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "e"}})
+	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "m"}})
+	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "c"}})
+
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	// Subagent with inter-turn gap ≥ 5 min, but the event's Timestamp is 3 min ago.
+	// 3 min > 2 min window → recency filter must drop this event.
+	t0 := now.Add(-10 * time.Minute) // turn 0: 10 min ago
+	t1 := now.Add(-3 * time.Minute)  // turn 1: 3 min ago (gap = 7 min ≥ 5 min)
+	sa := parser.SubagentStats{
+		AgentID:   "sub-old",
+		AgentType: "test-writer",
+		TurnCount: 2,
+		Turns: []parser.Turn{
+			{Timestamp: t0},
+			{Timestamp: t1}, // event Timestamp = t1 = 3 min ago > 2 min window
+		},
+	}
+
+	// Pre-set all hints shown so any alert is the only way to add a hint line.
+	shown := make([]int, len(hint.DefaultHints))
+	for i := range shown {
+		shown[i] = i
+	}
+	state := hint.State{ShownIndices: shown, CurrentIndex: len(hint.DefaultHints) - 1, LastSwitch: now}
+	const sid = "test-session-old-event"
+	if err := hint.Save(sid, state); err != nil {
+		t.Fatalf("hint.Save: %v", err)
+	}
+
+	a := makeHintAssembler()
+	d := probes.Data{
+		Session:      &parser.SessionStats{},
+		Subagents:    []parser.SubagentStats{sa},
+		SessionID:    sid,
+		Now:          now,
+		TerminalCols: 80,
+	}
+
+	out := a.Render(d)
+	// Old event (3 min ago) must be filtered; no alert must appear.
+	// With all hints shown and no live events, the hint row must be absent.
+	if strings.Contains(out, "cache expired") {
+		t.Errorf("expected old SubagentCacheExpired (3 min ago) to be filtered; got alert in: %q", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestAssembler_Render_Alert_SubagentDetail_RoleColonName (Phase 6.95.d)
+// Contract: Detail == "<role>:<name>" when Tasks[] join succeeds.
+// Verifies: subagentAlertDetail produces "test-writer:RED-6-9c" when
+// Stdin.Tasks contains task.ID == sa.AgentID with Name == "RED-6-9c".
+// ---------------------------------------------------------------------------
+
+func TestAssembler_Render_Alert_SubagentDetail_RoleColonName(t *testing.T) {
+	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "e"}})
+	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "m"}})
+	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "c"}})
+
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	// Subagent "sub-tw" with AgentType="test-writer" and an inter-turn gap of 7 min.
+	// Turns[1].Timestamp is 1 min ago → passes the 2-min recency filter.
+	t0 := now.Add(-7 * time.Minute)
+	t1 := now.Add(-1 * time.Minute)
+	sa := parser.SubagentStats{
+		AgentID:   "sub-tw",
+		AgentType: "test-writer",
+		TurnCount: 2,
+		Turns: []parser.Turn{
+			{Timestamp: t0},
+			{Timestamp: t1},
+		},
+	}
+
+	a := makeHintAssembler()
+	d := probes.Data{
+		Session:   &parser.SessionStats{},
+		Subagents: []parser.SubagentStats{sa},
+		Stdin: stdin.Payload{
+			Tasks: []stdin.Task{
+				{ID: "sub-tw", Name: "RED-6-9c"},
+			},
+		},
+		SessionID:    "test-session-detail",
+		Now:          now,
+		TerminalCols: 80,
+	}
+
+	out := a.Render(d)
+	// Detail must be "test-writer:RED-6-9c" (role:name join via Tasks[]).
+	if !strings.Contains(out, "test-writer:RED-6-9c") {
+		t.Errorf("expected Detail 'test-writer:RED-6-9c' in alert output; got: %q", out)
 	}
 }
 

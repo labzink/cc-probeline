@@ -7,16 +7,17 @@ import (
 
 // CacheEventType identifies a cache invalidation cause.
 // Detection heuristics live in DetectCacheEvents / DetectSubagentCacheEvents
-// (Phase 4.4.a). The enum order is used by hint.BuildAlert as the tie-break
-// priority when multiple events fire on the same render.
+// (Phase 4.4.a / Phase 6.95.d).
+//
+// Transient types (shown for 2 min, newest-wins): OrchTTL, ModelSwitched,
+// SubagentCacheExpired, CompactHeuristic.
+// Persistent type (shown until resolved): ConfigError.
 type CacheEventType int
 
 const (
 	OrchTTL CacheEventType = iota
 	ModelSwitched
-	SendMessageGap
-	SlowInternal
-	Compact
+	SubagentCacheExpired // inter-turn gap ≥ 5 min inside a subagent transcript
 	CompactHeuristic
 	ConfigError // Phase 6: synthesised by main from config.LoadCascade errors
 )
@@ -30,8 +31,8 @@ const cacheShrinkRatio = 0.5
 // triggers an OrchTTL event (Claude cache TTL is 60 minutes).
 const orchTTLThreshold = 60 * time.Minute
 
-// subagentGapThreshold is the minimum gap used for both SendMessageGap and
-// SlowInternal detection.
+// subagentGapThreshold is the minimum inter-turn gap inside a subagent
+// transcript that triggers a SubagentCacheExpired event.
 const subagentGapThreshold = 5 * time.Minute
 
 // CacheEvent describes one detected cache invalidation occurrence.
@@ -126,8 +127,8 @@ func detectCompactHeuristic(prev, curr Turn, turns []Turn, currIdx int) *CacheEv
 // tests pass a fixed time for determinism. Removing this parameter is a
 // breaking change deferred to Phase 7+ if no caller materializes.
 //
-// Subagent-scoped events (SendMessageGap, SlowInternal) live in
-// DetectSubagentCacheEvents because they require SubagentStats which
+// Subagent-scoped events (SubagentCacheExpired) live in
+// DetectSubagentCacheEvents because they require SubagentStats.Turns which
 // Aggregate does not have access to.
 //
 // Returns nil (not empty slice) when input is nil or has fewer than 2 turns.
@@ -170,18 +171,21 @@ func DetectCacheEvents(turns []Turn, now time.Time) []CacheEvent {
 	return events
 }
 
-// DetectSubagentCacheEvents scans subagent stats for subagent-level cache
-// invalidation events (SendMessageGap, SlowInternal).
+// DetectSubagentCacheEvents scans subagent Turns for inter-turn gaps that
+// indicate a cache expiry event (SubagentCacheExpired).
 //
-// The now parameter is reserved for future detectors that compare the latest
-// subagent span against wall-clock time (e.g. "subagent still running after
-// N minutes" — span proxy uses internal timestamps, so now is not consumed
-// by any current detector). Production callers should pass time.Now();
-// tests pass a fixed time for determinism. Removing this parameter is a
-// breaking change deferred to Phase 7+ if no caller materializes.
+// Algorithm: for each subagent, iterate consecutive turn pairs
+// Turns[i-1] → Turns[i]. If Turns[i].Timestamp − Turns[i-1].Timestamp ≥
+// subagentGapThreshold (5 min), emit one SubagentCacheExpired event with the
+// timestamp of the later turn. Each subagent produces at most one event
+// (first qualifying gap wins).
 //
-// Detail holds only AgentID (no "subagent#" prefix). The prefix is added by
-// hint.AlertTemplate (verify-RED Finding #1, 2026-05-20).
+// The now parameter is accepted for API symmetry with DetectCacheEvents and
+// for future detectors that require a wall-clock reference. No current detector
+// consumes it.
+//
+// Detail carries the AgentID (bare, no prefix). The assembler enriches it with
+// "<role>:<name>" before surfacing to BuildAlert.
 //
 // Returns nil (not empty slice) when input is nil or empty.
 func DetectSubagentCacheEvents(subagents []SubagentStats, now time.Time) []CacheEvent {
@@ -192,23 +196,19 @@ func DetectSubagentCacheEvents(subagents []SubagentStats, now time.Time) []Cache
 	var events []CacheEvent
 
 	for _, sa := range subagents {
-		span := sa.LastTimestamp.Sub(sa.FirstTimestamp)
-
-		if sa.TurnCount >= 2 && span > subagentGapThreshold {
-			// SendMessageGap: repeated subagent invocation with long idle.
-			events = append(events, CacheEvent{
-				Type:      SendMessageGap,
-				Timestamp: sa.LastTimestamp,
-				Detail:    sa.AgentID,
-			})
-		} else if sa.TurnCount == 1 && span > subagentGapThreshold {
-			// SlowInternal: single turn that took too long internally.
-			// NOTE: dead branch on real-world data (Phase 7 backlog, Finding #2).
-			events = append(events, CacheEvent{
-				Type:      SlowInternal,
-				Timestamp: sa.LastTimestamp,
-				Detail:    sa.AgentID,
-			})
+		if len(sa.Turns) < 2 {
+			continue
+		}
+		for i := 1; i < len(sa.Turns); i++ {
+			gap := sa.Turns[i].Timestamp.Sub(sa.Turns[i-1].Timestamp)
+			if gap >= subagentGapThreshold {
+				events = append(events, CacheEvent{
+					Type:      SubagentCacheExpired,
+					Timestamp: sa.Turns[i].Timestamp,
+					Detail:    sa.AgentID,
+				})
+				break // one event per subagent
+			}
 		}
 	}
 

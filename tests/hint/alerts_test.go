@@ -1,18 +1,23 @@
-// Package hint_test verifies the BuildAlert priority selection and template
-// formatting for all six parser.CacheEventType values.
+// Package hint_test verifies BuildAlert newest-wins selection and template
+// formatting for the Phase 6.95.d alert types.
 //
-// §4.4.b Hint widget + State — RED phase.
-// All tests fail because internal/hint/alerts.go is a stub (BuildAlert always
-// returns "").
+// Removed types: Compact, SendMessageGap, SlowInternal (all merged into
+// SubagentCacheExpired or dropped in Phase 6.95.d).
+// New type: SubagentCacheExpired (inter-turn gap ≥ 5 min).
+// Newest-wins: among live transient events, the one with the largest Timestamp
+// is displayed; ConfigError is a persistent fallback.
 package hint_test
 
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/parser"
 )
+
+var alertBase = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 // TestBuildAlert_NoEvents_ReturnsEmpty verifies that BuildAlert(nil) returns "".
 func TestBuildAlert_NoEvents_ReturnsEmpty(t *testing.T) {
@@ -24,7 +29,7 @@ func TestBuildAlert_NoEvents_ReturnsEmpty(t *testing.T) {
 
 // TestBuildAlert_OrchTTL verifies the plain (no %s) OrchTTL template.
 func TestBuildAlert_OrchTTL(t *testing.T) {
-	events := []parser.CacheEvent{{Type: parser.OrchTTL}}
+	events := []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: alertBase}}
 	got := hint.BuildAlert(events)
 	want := "⚠ Cache rebuilt · 60-min idle TTL passed"
 	if got != want {
@@ -36,7 +41,7 @@ func TestBuildAlert_OrchTTL(t *testing.T) {
 // template interpolates Detail into the %s slot.
 func TestBuildAlert_ModelSwitched_WithDetail(t *testing.T) {
 	events := []parser.CacheEvent{
-		{Type: parser.ModelSwitched, Detail: "opus-4-7 → sonnet-4-6"},
+		{Type: parser.ModelSwitched, Detail: "opus-4-7 → sonnet-4-6", Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
 	want := "⚠ Cache rebuilt · model switched (opus-4-7 → sonnet-4-6)"
@@ -45,70 +50,90 @@ func TestBuildAlert_ModelSwitched_WithDetail(t *testing.T) {
 	}
 }
 
-// TestBuildAlert_CompactNormal verifies the plain Compact template text.
-func TestBuildAlert_CompactNormal(t *testing.T) {
-	events := []parser.CacheEvent{{Type: parser.Compact}}
+// TestBuildAlert_SubagentCacheExpired_WithDetail verifies the SubagentCacheExpired
+// template interpolates Detail ("<role>:<name>") into the %s slot.
+func TestBuildAlert_SubagentCacheExpired_WithDetail(t *testing.T) {
+	events := []parser.CacheEvent{
+		{Type: parser.SubagentCacheExpired, Detail: "test-writer:RED-6-9c", Timestamp: alertBase},
+	}
 	got := hint.BuildAlert(events)
-	want := "Cache rebuilt by /compact (normal)"
+	want := "⚠ Subagent test-writer:RED-6-9c cache expired · 5-min gap"
 	if got != want {
-		t.Errorf("BuildAlert(Compact) = %q; want %q", got, want)
+		t.Errorf("BuildAlert(SubagentCacheExpired) = %q; want %q", got, want)
 	}
 }
 
-// TestBuildAlert_MultipleEvents_HigherCriticalWins verifies that when both
-// Compact and OrchTTL events are present, OrchTTL (higher in criticalTypes)
-// wins.
-func TestBuildAlert_MultipleEvents_HigherCriticalWins(t *testing.T) {
-	events := []parser.CacheEvent{
-		{Type: parser.Compact},
-		{Type: parser.OrchTTL},
-	}
+// TestBuildAlert_CompactHeuristic_Plain verifies the plain CompactHeuristic template.
+func TestBuildAlert_CompactHeuristic_Plain(t *testing.T) {
+	events := []parser.CacheEvent{{Type: parser.CompactHeuristic, Timestamp: alertBase}}
 	got := hint.BuildAlert(events)
-	want := "⚠ Cache rebuilt · 60-min idle TTL passed"
+	want := "⟳ Context compacted · cache rebuilt"
 	if got != want {
-		t.Errorf("BuildAlert(Compact+OrchTTL) = %q; want %q", got, want)
+		t.Errorf("BuildAlert(CompactHeuristic) = %q; want %q", got, want)
 	}
 }
 
-// TestBuildAlert_SameTypeMultiple_LastWins verifies that when two ModelSwitched
-// events exist, the last one in slice order wins (most recent).
-func TestBuildAlert_SameTypeMultiple_LastWins(t *testing.T) {
+// TestBuildAlert_NewestWins verifies that among two live transient events,
+// the one with the larger Timestamp is displayed (newest-wins).
+func TestBuildAlert_NewestWins(t *testing.T) {
+	older := alertBase
+	newer := alertBase.Add(30 * time.Second)
 	events := []parser.CacheEvent{
-		{Type: parser.ModelSwitched, Detail: "a→b"},
-		{Type: parser.ModelSwitched, Detail: "c→d"},
+		{Type: parser.OrchTTL, Timestamp: older},
+		{Type: parser.ModelSwitched, Detail: "opus → sonnet", Timestamp: newer},
+	}
+	got := hint.BuildAlert(events)
+	// ModelSwitched has newer timestamp → must win.
+	if !strings.Contains(got, "model switched") {
+		t.Errorf("BuildAlert(NewestWins): expected ModelSwitched alert; got %q", got)
+	}
+}
+
+// TestBuildAlert_NewestWins_SameType verifies that among two events of the same
+// type, the one with the larger Timestamp wins.
+func TestBuildAlert_NewestWins_SameType(t *testing.T) {
+	events := []parser.CacheEvent{
+		{Type: parser.ModelSwitched, Detail: "a→b", Timestamp: alertBase},
+		{Type: parser.ModelSwitched, Detail: "c→d", Timestamp: alertBase.Add(time.Second)},
 	}
 	got := hint.BuildAlert(events)
 	want := "⚠ Cache rebuilt · model switched (c→d)"
 	if got != want {
-		t.Errorf("BuildAlert(SameType/last) = %q; want %q", got, want)
+		t.Errorf("BuildAlert(SameType/newest): got %q; want %q", got, want)
 	}
 }
 
-// TestBuildAlert_SubagentEvent_Format verifies that a SendMessageGap event
-// interpolates Detail (subagent ID) into the %s slot.
-func TestBuildAlert_SubagentEvent_Format(t *testing.T) {
+// TestBuildAlert_ConfigError_Fallback verifies that ConfigError is returned when
+// no transient events are present.
+func TestBuildAlert_ConfigError_Fallback(t *testing.T) {
+	events := []parser.CacheEvent{{Type: parser.ConfigError}}
+	got := hint.BuildAlert(events)
+	want := "⚠ Config error · run cc-probeline check-config"
+	if got != want {
+		t.Errorf("BuildAlert(ConfigError) = %q; want %q", got, want)
+	}
+}
+
+// TestBuildAlert_TransientBeatsConfigError verifies that a live transient event
+// takes priority over ConfigError (transient wins, ConfigError is fallback).
+func TestBuildAlert_TransientBeatsConfigError(t *testing.T) {
 	events := []parser.CacheEvent{
-		{Type: parser.SendMessageGap, Detail: "3"},
+		{Type: parser.ConfigError},
+		{Type: parser.OrchTTL, Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
-	want := "⚠ Subagent#3 cache lost · 5-min SendMessage gap"
-	if got != want {
-		t.Errorf("BuildAlert(SendMessageGap) = %q; want %q", got, want)
+	// Transient (OrchTTL) must win over ConfigError.
+	if !strings.Contains(got, "60-min idle TTL") {
+		t.Errorf("BuildAlert(OrchTTL+ConfigError): expected OrchTTL alert; got %q", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// containsVerb regression tests (commit 9786c61 bugfix)
-// Verify that templates without %s do not produce fmt artefacts when Detail
-// is non-empty (e.g. "Likely /compact triggered (cache shrunk)%!(EXTRA ...)").
-// ---------------------------------------------------------------------------
 
 // TestBuildAlert_CompactHeuristic_WithDetail_NoArtefact verifies that
 // CompactHeuristic (no %s in template) returns the exact template text even
-// when CacheEvent.Detail is non-empty.
+// when CacheEvent.Detail is non-empty (no fmt artefacts).
 func TestBuildAlert_CompactHeuristic_WithDetail_NoArtefact(t *testing.T) {
 	events := []parser.CacheEvent{
-		{Type: parser.CompactHeuristic, Detail: "ignored-since-no-verb"},
+		{Type: parser.CompactHeuristic, Detail: "ignored-since-no-verb", Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
 	want := hint.AlertTexts[parser.CompactHeuristic]
@@ -120,37 +145,20 @@ func TestBuildAlert_CompactHeuristic_WithDetail_NoArtefact(t *testing.T) {
 	}
 }
 
-// TestBuildAlert_Compact_WithDetail_NoArtefact verifies that Compact (no %s
-// in template) returns the exact template text even when Detail is non-empty.
-func TestBuildAlert_Compact_WithDetail_NoArtefact(t *testing.T) {
+// TestBuildAlert_SubagentCacheExpired_AgentIDFallback verifies that when Detail
+// is just an AgentID (no "<role>:<name>" enrichment), it is interpolated correctly.
+func TestBuildAlert_SubagentCacheExpired_AgentIDFallback(t *testing.T) {
 	events := []parser.CacheEvent{
-		{Type: parser.Compact, Detail: "ignored-since-no-verb"},
+		{Type: parser.SubagentCacheExpired, Detail: "agent-abc123", Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
-	want := hint.AlertTexts[parser.Compact]
-	if got != want {
-		t.Errorf("BuildAlert(Compact+Detail) mismatch:\n  got:  %q\n  want: %q", got, want)
+	if !strings.Contains(got, "agent-abc123") {
+		t.Errorf("BuildAlert(SubagentCacheExpired): Detail not interpolated; got %q", got)
 	}
 	if strings.Contains(got, "%!") {
-		t.Errorf("BuildAlert(Compact+Detail) produced fmt artefact: %q", got)
-	}
-}
-
-// TestBuildAlert_SlowInternal_WithDetail verifies that SlowInternal (has %s
-// in template) interpolates Detail into the alert string.
-func TestBuildAlert_SlowInternal_WithDetail(t *testing.T) {
-	events := []parser.CacheEvent{
-		{Type: parser.SlowInternal, Detail: "agent-1"},
-	}
-	got := hint.BuildAlert(events)
-	// SlowInternal template: "⚠ Subagent#%s stalled >5 min · cache expired"
-	if !strings.Contains(got, "agent-1") {
-		t.Errorf("BuildAlert(SlowInternal+Detail): Detail not interpolated; got %q", got)
-	}
-	if strings.Contains(got, "%!") {
-		t.Errorf("BuildAlert(SlowInternal+Detail) produced fmt artefact: %q", got)
+		t.Errorf("BuildAlert(SubagentCacheExpired) produced fmt artefact: %q", got)
 	}
 	if strings.Contains(got, "%s") {
-		t.Errorf("BuildAlert(SlowInternal+Detail): raw %%s in output; got %q", got)
+		t.Errorf("BuildAlert(SubagentCacheExpired): raw %%s in output; got %q", got)
 	}
 }

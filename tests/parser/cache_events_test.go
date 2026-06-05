@@ -354,78 +354,127 @@ func TestIsCacheInvalidated_StableCache(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DetectSubagentCacheEvents — SendMessageGap
+// DetectSubagentCacheEvents — SubagentCacheExpired (inter-turn gap ≥ 5 min)
 // ---------------------------------------------------------------------------
 
-// TestDetectSubagentCacheEvents_SendMessageGap verifies that a subagent with
-// 2 turns and a 7-minute gap between FirstTimestamp and LastTimestamp triggers
-// a SendMessageGap event.
-func TestDetectSubagentCacheEvents_SendMessageGap(t *testing.T) {
-	// TurnCount=2, gap = LastTimestamp - FirstTimestamp = 7 min > 5 min → SendMessageGap
+// mkSubagentTurn builds a parser.Turn for subagent test use.
+func mkSubagentTurn(ts time.Time) parser.Turn {
+	return parser.Turn{Timestamp: ts}
+}
+
+// TestDetectSubagentCacheEvents_CacheEvent_InterTurnGap verifies that a subagent
+// with an inter-turn gap ≥ 5 min produces a SubagentCacheExpired event.
+//
+// Two turns: T0=base, T1=base+7min → gap=7min ≥ 5min → SubagentCacheExpired.
+func TestDetectSubagentCacheEvents_CacheEvent_InterTurnGap(t *testing.T) {
+	t0 := base
+	t1 := base.Add(7 * time.Minute)
 	sa := parser.SubagentStats{
-		AgentID:        "abc123",
-		TurnCount:      2,
-		FirstTimestamp: base,
-		LastTimestamp:  base.Add(7 * time.Minute),
+		AgentID:   "abc123",
+		TurnCount: 2,
+		Turns: []parser.Turn{
+			mkSubagentTurn(t0),
+			mkSubagentTurn(t1),
+		},
 	}
 
 	events := parser.DetectSubagentCacheEvents([]parser.SubagentStats{sa}, base.Add(10*time.Minute))
 
-	var gap []parser.CacheEvent
+	var expired []parser.CacheEvent
 	for _, e := range events {
-		if e.Type == parser.SendMessageGap {
-			gap = append(gap, e)
+		if e.Type == parser.SubagentCacheExpired {
+			expired = append(expired, e)
 		}
 	}
 
-	if len(gap) != 1 {
-		t.Fatalf("SendMessageGap: expected 1 event, got %d: %+v", len(gap), events)
+	if len(expired) != 1 {
+		t.Fatalf("SubagentCacheExpired: expected 1 event, got %d: %+v", len(expired), events)
 	}
-	// Detail must hold only AgentID (no "subagent#" prefix) — alert template
-	// "⚠ Subagent#%s cache lost · ..." (hint/alerts.go) adds the prefix.
-	// See verify-RED Finding #1 (2026-05-20).
-	if !strings.Contains(gap[0].Detail, "abc123") {
-		t.Errorf("SendMessageGap: Detail %q must contain AgentID 'abc123' (without 'subagent#' prefix)", gap[0].Detail)
+	// Timestamp must be the later turn (T1 = base+7min).
+	if !expired[0].Timestamp.Equal(t1) {
+		t.Errorf("SubagentCacheExpired: Timestamp=%v, want %v (later turn)", expired[0].Timestamp, t1)
 	}
-	if strings.Contains(gap[0].Detail, "subagent#") {
-		t.Errorf("SendMessageGap: Detail %q must NOT contain 'subagent#' prefix (template owns the prefix)", gap[0].Detail)
+	// Detail must hold AgentID.
+	if !strings.Contains(expired[0].Detail, "abc123") {
+		t.Errorf("SubagentCacheExpired: Detail %q must contain AgentID 'abc123'", expired[0].Detail)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DetectSubagentCacheEvents — SlowInternal
-// ---------------------------------------------------------------------------
-
-// TestDetectSubagentCacheEvents_SlowInternal verifies that a subagent with
-// a single turn that spans 6 minutes (LastTimestamp - FirstTimestamp > 5 min,
-// TurnCount == 1) triggers a SlowInternal event.
-func TestDetectSubagentCacheEvents_SlowInternal(t *testing.T) {
-	// TurnCount=1, span = LastTimestamp - FirstTimestamp = 6 min > 5 min → SlowInternal
+// TestDetectSubagentCacheEvents_CacheEvent_GapUnderThreshold verifies that a
+// gap < 5 min does NOT produce a SubagentCacheExpired event.
+//
+// Two turns: T0=base, T1=base+4min → gap=4min < 5min → no event.
+func TestDetectSubagentCacheEvents_CacheEvent_GapUnderThreshold(t *testing.T) {
 	sa := parser.SubagentStats{
-		AgentID:        "def456",
-		TurnCount:      1,
-		FirstTimestamp: base,
-		LastTimestamp:  base.Add(6 * time.Minute),
+		AgentID:   "def456",
+		TurnCount: 2,
+		Turns: []parser.Turn{
+			mkSubagentTurn(base),
+			mkSubagentTurn(base.Add(4 * time.Minute)),
+		},
+	}
+
+	events := parser.DetectSubagentCacheEvents([]parser.SubagentStats{sa}, base.Add(5*time.Minute))
+
+	for _, e := range events {
+		if e.Type == parser.SubagentCacheExpired {
+			t.Errorf("SubagentCacheExpired must not fire for 4-min gap (< 5 min): %+v", e)
+		}
+	}
+}
+
+// TestDetectSubagentCacheEvents_CacheEvent_SingleTurnNoEvent verifies that a
+// subagent with fewer than 2 turns never produces a SubagentCacheExpired event.
+func TestDetectSubagentCacheEvents_CacheEvent_SingleTurnNoEvent(t *testing.T) {
+	sa := parser.SubagentStats{
+		AgentID:   "ghi789",
+		TurnCount: 1,
+		Turns:     []parser.Turn{mkSubagentTurn(base)},
 	}
 
 	events := parser.DetectSubagentCacheEvents([]parser.SubagentStats{sa}, base.Add(10*time.Minute))
 
-	var slow []parser.CacheEvent
+	if len(events) != 0 {
+		t.Errorf("SingleTurnNoEvent: expected 0 events, got %d: %+v", len(events), events)
+	}
+}
+
+// TestDetectSubagentCacheEvents_CacheEvent_FirstGapWins verifies that when
+// multiple inter-turn gaps exist, only the first qualifying gap fires (one event
+// per subagent).
+//
+// Three turns: T0→T1 gap=2min (< 5min, no fire), T1→T2 gap=6min (≥ 5min, fires).
+// The event timestamp must be T2 (the later turn of the qualifying pair).
+func TestDetectSubagentCacheEvents_CacheEvent_FirstGapWins(t *testing.T) {
+	t0 := base
+	t1 := base.Add(2 * time.Minute)
+	t2 := t1.Add(6 * time.Minute)
+	sa := parser.SubagentStats{
+		AgentID:   "multi123",
+		TurnCount: 3,
+		Turns: []parser.Turn{
+			mkSubagentTurn(t0),
+			mkSubagentTurn(t1),
+			mkSubagentTurn(t2),
+		},
+	}
+
+	events := parser.DetectSubagentCacheEvents([]parser.SubagentStats{sa}, t2.Add(time.Minute))
+
+	var expired []parser.CacheEvent
 	for _, e := range events {
-		if e.Type == parser.SlowInternal {
-			slow = append(slow, e)
+		if e.Type == parser.SubagentCacheExpired {
+			expired = append(expired, e)
 		}
 	}
 
-	if len(slow) != 1 {
-		t.Fatalf("SlowInternal: expected 1 event, got %d: %+v", len(slow), events)
+	// Exactly one event (one per subagent, first qualifying gap).
+	if len(expired) != 1 {
+		t.Fatalf("FirstGapWins: expected 1 event, got %d: %+v", len(expired), events)
 	}
-	// Detail holds only AgentID (no "subagent#" prefix); alert template owns prefix.
-	if !strings.Contains(slow[0].Detail, "def456") {
-		t.Errorf("SlowInternal: Detail %q must contain AgentID 'def456' (without 'subagent#' prefix)", slow[0].Detail)
-	}
-	if strings.Contains(slow[0].Detail, "subagent#") {
-		t.Errorf("SlowInternal: Detail %q must NOT contain 'subagent#' prefix", slow[0].Detail)
+	// The event timestamp is T2 (the turn after the qualifying T1→T2 gap).
+	if !expired[0].Timestamp.Equal(t2) {
+		t.Errorf("FirstGapWins: Timestamp=%v, want %v (T2, the later turn)", expired[0].Timestamp, t2)
 	}
 }
 
@@ -434,15 +483,16 @@ func TestDetectSubagentCacheEvents_SlowInternal(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestDetectSubagentCacheEvents_NoEvents_FastSubagent verifies that a subagent
-// with 2 turns and a 2-minute total span and 1-minute duration emits no events.
+// with turns within the 5-min threshold emits no events.
 func TestDetectSubagentCacheEvents_NoEvents_FastSubagent(t *testing.T) {
-	// TurnCount=2, gap=2 min < 5 min → no SendMessageGap
-	// span=2 min < 5 min → no SlowInternal
+	// Two turns 2 min apart → gap < 5 min → no event.
 	sa := parser.SubagentStats{
-		AgentID:        "ghi789",
-		TurnCount:      2,
-		FirstTimestamp: base,
-		LastTimestamp:  base.Add(2 * time.Minute),
+		AgentID:   "ghi789",
+		TurnCount: 2,
+		Turns: []parser.Turn{
+			mkSubagentTurn(base),
+			mkSubagentTurn(base.Add(2 * time.Minute)),
+		},
 	}
 
 	events := parser.DetectSubagentCacheEvents([]parser.SubagentStats{sa}, base.Add(5*time.Minute))

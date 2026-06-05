@@ -454,6 +454,38 @@ func (a *Assembler) instanceName(sa parser.SubagentStats) string {
 	return name
 }
 
+// subagentAlertDetail builds the "<role>:<name>" Detail string for a
+// SubagentCacheExpired alert, given the bare AgentID from the raw event.
+//
+// role = AgentType from SubagentStats (fallback "agent" when empty).
+// name = Tasks[].Name where task.ID == AgentID (from stdin Payload).
+// When the name cannot be resolved (no Tasks match), returns only the role.
+func (a *Assembler) subagentAlertDetail(agentID string, d probes.Data) string {
+	// Find the SubagentStats for this agentID.
+	var sa *parser.SubagentStats
+	for i := range d.Subagents {
+		if d.Subagents[i].AgentID == agentID {
+			sa = &d.Subagents[i]
+			break
+		}
+	}
+	role := "agent"
+	if sa != nil && sa.AgentType != "" {
+		role = sa.AgentType
+	}
+
+	// Look up name from Tasks[] by task.ID == agentID.
+	for _, task := range d.Stdin.Tasks {
+		if task.ID == agentID {
+			if task.Name != "" {
+				return role + ":" + task.Name
+			}
+			break
+		}
+	}
+	return role
+}
+
 // hint returns the hint widget text for this session's rotation state.
 // Returns "" when all hints have been shown and no critical alert is active
 // (caller skips adding the hint row in that case, per C-12).
@@ -467,28 +499,48 @@ func (a *Assembler) hint(d probes.Data) string {
 	if d.Session != nil && len(d.Session.Turns) > 0 {
 		cacheEvents = d.Session.CacheEvents
 	}
-	// Merge subagent-scope events (T-9 SendMessageGap, T-10 SlowInternal).
+	// Merge subagent-scope events (Phase 6.95.d: inter-turn gap ≥ 5 min).
 	// SubagentStats live outside SessionStats so Aggregate cannot include them.
+	// Events are enriched with "<role>:<name>" Detail before recency filtering.
 	if len(d.Subagents) > 0 {
-		cacheEvents = append(cacheEvents,
-			parser.DetectSubagentCacheEvents(d.Subagents, d.Now)...)
+		raw := parser.DetectSubagentCacheEvents(d.Subagents, d.Now)
+		for _, ev := range raw {
+			ev.Detail = a.subagentAlertDetail(ev.Detail, d)
+			cacheEvents = append(cacheEvents, ev)
+		}
 	}
-	// Phase 6: config-error alerts ALWAYS surface, even on an empty session.
-	// ExtraCacheEvents are not session-derived and are not gated by D1.
-	if len(d.ExtraCacheEvents) > 0 {
-		cacheEvents = append(cacheEvents, d.ExtraCacheEvents...)
-	}
-	w := hint.Widget{
-		State:  state,
-		Events: cacheEvents,
-	}
-	// Use d.Now for deterministic clock (hypothesis insurance #3).
-	// Fall back to time.Now() so the CLI entrypoint (Phase 5) is safe if
-	// it forgets to populate d.Now.
+
+	// Phase 6.95.d: apply 2-min recency filter to transient events before
+	// surfacing to hint.Widget. ConfigError (persistent) bypasses the filter.
 	now := d.Now
 	if now.IsZero() {
 		now = time.Now()
 	}
+	var filteredEvents []parser.CacheEvent
+	for _, ev := range cacheEvents {
+		if hint.IsTransient(ev.Type) {
+			if ev.Timestamp.IsZero() || now.Sub(ev.Timestamp) <= hint.TransientAlertWindow {
+				filteredEvents = append(filteredEvents, ev)
+			}
+			// Events older than 2 min are silently dropped (no surfacing).
+			continue
+		}
+		// ConfigError: always surface (persistent).
+		filteredEvents = append(filteredEvents, ev)
+	}
+
+	// Phase 6: config-error alerts ALWAYS surface, even on an empty session.
+	// ExtraCacheEvents are not session-derived and are not gated by D1.
+	if len(d.ExtraCacheEvents) > 0 {
+		filteredEvents = append(filteredEvents, d.ExtraCacheEvents...)
+	}
+
+	w := hint.Widget{
+		State:  state,
+		Events: filteredEvents,
+	}
+	// now was initialised above for the recency filter; reuse it here.
+	// (hypothesis insurance #3: deterministic clock for tests)
 	text := w.Pick(now)
 	// Persist updated state (rotation advanced). Ignore error: on
 	// permission-denied or disk-full the widget degrades to memory-only mode.
