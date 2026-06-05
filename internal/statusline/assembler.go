@@ -490,7 +490,14 @@ func (a *Assembler) subagentAlertDetail(agentID string, d probes.Data) string {
 // Returns "" when all hints have been shown and no critical alert is active
 // (caller skips adding the hint row in that case, per C-12).
 func (a *Assembler) hint(d probes.Data) string {
-	state := hint.Load(d.SessionID)
+	// Phase 6.95.b: rotation state lives in state.Session.HintRotation (the
+	// per-session state file), not a separate hint-<sid>.json. Read it from
+	// d.State; when state is unavailable (SessionID==""), use a zero rotation
+	// (memory-only — the advance below is simply not persisted).
+	var rot hint.State
+	if d.State != nil {
+		rot = d.State.HintRotation
+	}
 
 	// D1 guard: skip session-derived alerts when no turns exist (§11).
 	// A newly opened session has no turns; surfacing cache alerts at turn-zero
@@ -536,16 +543,17 @@ func (a *Assembler) hint(d probes.Data) string {
 	}
 
 	w := hint.Widget{
-		State:  state,
+		State:  rot,
 		Events: filteredEvents,
 	}
 	// now was initialised above for the recency filter; reuse it here.
 	// (hypothesis insurance #3: deterministic clock for tests)
 	text := w.Pick(now)
-	// Persist updated state (rotation advanced). Ignore error: on
-	// permission-denied or disk-full the widget degrades to memory-only mode.
-	if d.SessionID != "" {
-		_ = hint.Save(d.SessionID, w.State)
+	// Persist the advanced rotation back into state.Session. main.Save(st)
+	// after Render writes it to disk; when d.State is nil (no SessionID) the
+	// advance is memory-only and simply discarded.
+	if d.State != nil {
+		d.State.HintRotation = w.State
 	}
 	return text
 }

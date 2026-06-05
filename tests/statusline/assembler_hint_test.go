@@ -21,6 +21,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/statusline"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
@@ -106,27 +107,23 @@ func TestAssembler_Render_HintHidden_WhenAllShown(t *testing.T) {
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "m"}})
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "c"}})
 
-	cacheHome := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheHome)
-
-	// Pre-populate state with all 8 shown indices.
+	// Pre-populate rotation with all 8 shown indices. Phase 6.95.b: seeded via
+	// state.Session.HintRotation, not the retired hint-<sid>.json file.
 	shown := make([]int, len(hint.DefaultHints))
 	for i := range shown {
 		shown[i] = i
 	}
-	state := hint.State{
+	rotState := hint.State{
 		ShownIndices: shown,
 		CurrentIndex: len(hint.DefaultHints) - 1,
 		LastSwitch:   time.Now(),
 	}
 	const sid = "test-session-2"
-	if err := hint.Save(sid, state); err != nil {
-		t.Fatalf("hint.Save: %v", err)
-	}
 
 	a := makeHintAssembler()
 	d := probes.Data{
 		Session:      &parser.SessionStats{},
+		State:        &state.Session{HintRotation: rotState},
 		SessionID:    sid,
 		Now:          time.Now(),
 		TerminalCols: 80,
@@ -179,23 +176,18 @@ func TestAssembler_Render_HintAlert_OverridesRotation(t *testing.T) {
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "m"}})
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "c"}})
 
-	cacheHome := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheHome)
-
-	// All hints shown — normally hint row is hidden.
+	// All hints shown — normally hint row is hidden. Phase 6.95.b: seeded via
+	// state.Session.HintRotation.
 	shown := make([]int, len(hint.DefaultHints))
 	for i := range shown {
 		shown[i] = i
 	}
-	state := hint.State{
+	rotState := hint.State{
 		ShownIndices: shown,
 		CurrentIndex: len(hint.DefaultHints) - 1,
 		LastSwitch:   time.Now(),
 	}
 	const sid = "test-session-4"
-	if err := hint.Save(sid, state); err != nil {
-		t.Fatalf("hint.Save: %v", err)
-	}
 
 	a := makeHintAssembler()
 	d := probes.Data{
@@ -208,6 +200,7 @@ func TestAssembler_Render_HintAlert_OverridesRotation(t *testing.T) {
 				{Type: parser.ModelSwitched, Detail: "opus -> sonnet"},
 			},
 		},
+		State:        &state.Session{HintRotation: rotState},
 		SessionID:    sid,
 		Now:          time.Now(),
 		TerminalCols: 80,
@@ -305,16 +298,14 @@ func TestAssembler_Render_Alert_OldEventNotSurfaced(t *testing.T) {
 	for i := range shown {
 		shown[i] = i
 	}
-	state := hint.State{ShownIndices: shown, CurrentIndex: len(hint.DefaultHints) - 1, LastSwitch: now}
+	rotState := hint.State{ShownIndices: shown, CurrentIndex: len(hint.DefaultHints) - 1, LastSwitch: now}
 	const sid = "test-session-old-event"
-	if err := hint.Save(sid, state); err != nil {
-		t.Fatalf("hint.Save: %v", err)
-	}
 
 	a := makeHintAssembler()
 	d := probes.Data{
 		Session:      &parser.SessionStats{},
 		Subagents:    []parser.SubagentStats{sa},
+		State:        &state.Session{HintRotation: rotState},
 		SessionID:    sid,
 		Now:          now,
 		TerminalCols: 80,
@@ -394,20 +385,18 @@ func TestAssembler_Render_HintRotation_AdvancesAfter121s(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", cacheHome)
 
 	goldenNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	// Pre-populate state: index 0 shown, LastSwitch = 121s ago.
-	state := hint.State{
+	// Pre-populate rotation: index 0 shown, LastSwitch = 121s ago.
+	rotState := hint.State{
 		ShownIndices: []int{0},
 		CurrentIndex: 0,
 		LastSwitch:   goldenNow.Add(-121 * time.Second),
 	}
 	const sid = "test-session-rotation"
-	if err := hint.Save(sid, state); err != nil {
-		t.Fatalf("hint.Save: %v", err)
-	}
 
 	a := makeHintAssembler()
 	d := probes.Data{
 		Session:      &parser.SessionStats{},
+		State:        &state.Session{HintRotation: rotState},
 		SessionID:    sid,
 		Now:          goldenNow,
 		TerminalCols: 80,

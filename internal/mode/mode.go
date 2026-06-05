@@ -67,6 +67,18 @@ func Load() Mode {
 	return m
 }
 
+// Parse converts a config string (e.g. config.General.Mode) into a Mode.
+// Whitespace is trimmed; empty or unrecognised values return Default
+// (Standard). Phase 6.95.b: the render path reads the mode from the TOML
+// config via this helper instead of the legacy per-session mode file.
+func Parse(s string) Mode {
+	m := Mode(strings.TrimSpace(s))
+	if m == SuperCompact || m == Standard {
+		return m
+	}
+	return Default
+}
+
 // Save persists m atomically to the mode storage file.
 // Write sequence: MkdirAll → write to <path>.tmp → rename to <path>.
 // The entire write is guarded by a flock on <path>.lock (a separate lock

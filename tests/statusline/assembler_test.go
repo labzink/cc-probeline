@@ -15,6 +15,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/statusline"
 )
 
@@ -258,23 +259,18 @@ func TestAssembler_Standard_NoTurns_NoTable(t *testing.T) {
 // We force the "all shown" scenario by pre-saving a fully-exhausted state.
 // ---------------------------------------------------------------------------
 func TestAssembler_HintEmpty_NoExtraLine(t *testing.T) {
-	cacheHome := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cacheHome)
-
-	// Pre-save fully-exhausted hint state so widget returns "".
+	// Pre-seed a fully-exhausted rotation so the widget returns "". Phase 6.95.b:
+	// rotation lives in state.Session.HintRotation, not the retired hint file.
 	shown := make([]int, len(hint.DefaultHints))
 	for i := range shown {
 		shown[i] = i
 	}
-	state := hint.State{
+	rotState := hint.State{
 		ShownIndices: shown,
 		CurrentIndex: len(hint.DefaultHints) - 1,
 		LastSwitch:   time.Now(),
 	}
 	const sid = "exhausted-session"
-	if err := hint.Save(sid, state); err != nil {
-		t.Fatalf("hint.Save: %v", err)
-	}
 
 	swapLine0(t, []probes.Probe{&fakeProbe{name: "e", visible: true, out: "email@x"}})
 	swapLine1(t, []probes.Probe{&fakeProbe{name: "m", visible: true, out: "sonnet"}})
@@ -283,6 +279,7 @@ func TestAssembler_HintEmpty_NoExtraLine(t *testing.T) {
 	a := makeAssembler(mode.SuperCompact)
 	d := probes.Data{
 		Session:      &parser.SessionStats{},
+		State:        &state.Session{HintRotation: rotState},
 		SessionID:    sid,
 		Now:          time.Now(),
 		TerminalCols: 80,

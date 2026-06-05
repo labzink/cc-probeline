@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/gofrs/flock"
+	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/parser"
 )
 
@@ -53,6 +54,12 @@ type Session struct {
 	// LastGoodGit is the most recent successfully detected git status for this
 	// session. Used as a fallback when DetectGit fails (anti-flicker).
 	LastGoodGit *parser.GitStatus
+
+	// HintRotation persists the rotating-hint widget state (which hints have
+	// been shown, current index, last switch time). Phase 6.95.b consolidated
+	// this here, retiring the separate ~/.cache/cc-probeline/hint-<sid>.json.
+	// Disposable: loss only resets the hint rotation, never costs/quota data.
+	HintRotation hint.State `json:"hint_rotation"`
 }
 
 // stateDir resolves the directory used to store state files.

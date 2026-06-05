@@ -278,7 +278,10 @@ func runRender(strict bool) int {
 	configAlerts := config.ToCacheEvents(configErrs)
 	slog.Debug("config loaded", "source", source, "errors", len(configErrs))
 
-	modeVal := mode.Load()
+	// Phase 6.95.b: mode is read from the TOML config ([general].mode), not the
+	// legacy per-session mode file. mode.Parse falls back to Standard on empty
+	// or invalid values. The mode-file storage is no longer consulted at render.
+	modeVal := mode.Parse(ccfg.General.Mode)
 
 	d := probes.Data{
 		Stdin:            payload,
@@ -336,6 +339,16 @@ func runRender(strict bool) int {
 	cols := renderer.DetectCols()
 	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
+
+	// Phase 6.95.b: hint rotation now lives in state.Session (st.HintRotation),
+	// mutated during Render via d.State. Persist after Render so the rotation
+	// advance survives to the next invocation. Fail-soft: degrade to memory-only.
+	if st != nil && payload.SessionID != "" {
+		if saveErr := state.Save(payload.SessionID, st); saveErr != nil {
+			slog.Warn("state.Save after render failed", "err", saveErr)
+		}
+	}
+
 	final := renderer.Apply(raw, theme)
 	fmt.Fprintln(os.Stdout, final)
 	return 0
