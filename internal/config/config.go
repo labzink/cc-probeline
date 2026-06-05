@@ -53,6 +53,15 @@ type General struct {
 	// to Claude Code via the hook handshake. Does not affect the actual
 	// rendering interval — CC controls that. Range: 1-60.
 	RefreshIntervalHint int `toml:"refresh_interval_hint" json:"refresh_interval_hint"`
+
+	// TableRows is the maximum number of per-turn rows shown in the subagent
+	// table. Defaults to 10. SetTableRows caps the value at 40.
+	TableRows int `toml:"table_rows" json:"table_rows"`
+
+	// Mode selects the display mode: "standard" (default) or "super-compact".
+	// CORE reads this field to switch the assembler layout. Setters write it
+	// via SetMode; the legacy per-session mode file is superseded by this field.
+	Mode string `toml:"mode" json:"mode"`
 }
 
 // Theme selects a named palette and allows per-field hex overrides.
@@ -117,17 +126,11 @@ type Widgets struct {
 	// Ctx shows the context window usage as a progress bar.
 	Ctx bool `toml:"ctx" json:"ctx"`
 
-	// Cache shows cache-read vs cache-create token counts.
-	Cache bool `toml:"cache" json:"cache"`
-
 	// Quota shows the daily/monthly quota usage if available.
 	Quota bool `toml:"quota" json:"quota"`
 
 	// Git shows the current git branch and dirty-state indicator.
 	Git bool `toml:"git" json:"git"`
-
-	// Subagent shows active subagent count and orchestrator TTL.
-	Subagent bool `toml:"subagent" json:"subagent"`
 }
 
 // Thresholds defines numeric cutoffs used by probes to decide when to emit

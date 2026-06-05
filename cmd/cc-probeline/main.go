@@ -43,9 +43,14 @@ const (
 	modeUninstall
 	modeInstall
 	modeCheck
-	modeCheckConfig // Phase 6.e: cc-probeline check-config
-	modeHints       // Phase 6.f: cc-probeline hints on/off
-	modeBad         // unknown flag: exit 64
+	modeCheckConfig  // Phase 6.e: cc-probeline check-config
+	modeHints        // Phase 6.f: cc-probeline hints on/off
+	modeCfgMode      // Phase 6.95.cfg: cc-probeline mode standard|super-compact
+	modeCfgNoColor   // Phase 6.95.cfg: cc-probeline no-color on|off
+	modeCfgWidgets   // Phase 6.95.cfg: cc-probeline widgets <name> on|off
+	modeCfgRefresh   // Phase 6.95.cfg: cc-probeline refresh-interval <n>
+	modeCfgTableRows // Phase 6.95.cfg: cc-probeline table-rows <n>
+	modeBad          // unknown flag: exit 64
 )
 
 func main() {
@@ -71,6 +76,16 @@ func run(args []string) int {
 		return runCheckConfig(args[2:])
 	case modeHints:
 		return runHints(args[2:])
+	case modeCfgMode:
+		return runModeCmd(args[2:])
+	case modeCfgNoColor:
+		return runNoColor(args[2:])
+	case modeCfgWidgets:
+		return runWidgets(args[2:])
+	case modeCfgRefresh:
+		return runRefreshInterval(args[2:])
+	case modeCfgTableRows:
+		return runTableRows(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -102,6 +117,16 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeCheckConfig, false, ""
 	case "hints":
 		return modeHints, false, ""
+	case "mode":
+		return modeCfgMode, false, ""
+	case "no-color":
+		return modeCfgNoColor, false, ""
+	case "widgets":
+		return modeCfgWidgets, false, ""
+	case "refresh-interval":
+		return modeCfgRefresh, false, ""
+	case "table-rows":
+		return modeCfgTableRows, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}

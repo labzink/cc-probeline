@@ -95,6 +95,11 @@ type Config struct {
 	GitEnabled      bool
 	SubagentEnabled bool
 
+	// TableRows is the maximum number of per-turn rows shown in the subagent
+	// table. Set from config.General.TableRows via ToProbesConfig. When 0 the
+	// assembler applies its own default (10). Capped at 40 by SetTableRows.
+	TableRows int
+
 	// Per-probe values (Phase 6 — from config.Probes).
 	// Email is the override address for the Email probe. When empty the probe
 	// reads the address from the CC session JSONL.

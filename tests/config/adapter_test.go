@@ -34,8 +34,10 @@ import (
 // ToProbesConfig tests
 // ---------------------------------------------------------------------------
 
-// T-AD1: Each of the 11 Widgets toggles maps to the corresponding XEnabled
-// field in probes.Config. Table-driven: set one widget to false at a time.
+// T-AD1: Each active Widgets toggle maps to the corresponding XEnabled field in
+// probes.Config. Table-driven: set one widget to false at a time.
+// Note: Cache and Subagent were removed from Widgets in Phase 6.95; their
+// probes.Config fields are now hardcoded true in adapter (see T-AD1b below).
 func TestToProbesConfig_AllToggleFields(t *testing.T) {
 	type row struct {
 		name    string
@@ -88,12 +90,6 @@ func TestToProbesConfig_AllToggleFields(t *testing.T) {
 			"CtxEnabled should be false",
 		},
 		{
-			"Cache",
-			func(c *config.Config) { c.Widgets.Cache = false },
-			func(p probes.Config) bool { return !p.CacheEnabled },
-			"CacheEnabled should be false",
-		},
-		{
 			"Quota",
 			func(c *config.Config) { c.Widgets.Quota = false },
 			func(p probes.Config) bool { return !p.QuotaEnabled },
@@ -104,12 +100,6 @@ func TestToProbesConfig_AllToggleFields(t *testing.T) {
 			func(c *config.Config) { c.Widgets.Git = false },
 			func(p probes.Config) bool { return !p.GitEnabled },
 			"GitEnabled should be false",
-		},
-		{
-			"Subagent",
-			func(c *config.Config) { c.Widgets.Subagent = false },
-			func(p probes.Config) bool { return !p.SubagentEnabled },
-			"SubagentEnabled should be false",
 		},
 	}
 
@@ -168,6 +158,8 @@ func TestToProbesConfig_EmailAddress(t *testing.T) {
 
 // T-AD4: ToProbesConfig(Default()) must have all XEnabled fields set to true,
 // preserving Phase 4-5 behaviour where all probes were unconditionally shown.
+// CacheEnabled and SubagentEnabled are hardcoded true in adapter (Phase 6.95):
+// their widget toggles were removed from Widgets struct but probes still read them.
 func TestToProbesConfig_Default_PreservesPhase5Behaviour(t *testing.T) {
 	pcfg := config.ToProbesConfig(*config.Default())
 
@@ -182,16 +174,39 @@ func TestToProbesConfig_Default_PreservesPhase5Behaviour(t *testing.T) {
 		{"EmailEnabled", pcfg.EmailEnabled},
 		{"TimeEnabled", pcfg.TimeEnabled},
 		{"CtxEnabled", pcfg.CtxEnabled},
-		{"CacheEnabled", pcfg.CacheEnabled},
+		{"CacheEnabled", pcfg.CacheEnabled},   // hardcoded true in adapter
 		{"QuotaEnabled", pcfg.QuotaEnabled},
 		{"GitEnabled", pcfg.GitEnabled},
-		{"SubagentEnabled", pcfg.SubagentEnabled},
+		{"SubagentEnabled", pcfg.SubagentEnabled}, // hardcoded true in adapter
 	}
 
 	for _, f := range fields {
 		if !f.got {
 			t.Errorf("T-AD4 %s: got false, want true (default must preserve Phase 4-5 all-visible behaviour)", f.name)
 		}
+	}
+}
+
+// T-AD1b: CacheEnabled and SubagentEnabled are hardcoded true regardless of
+// config (Phase 6.95: dead toggles removed, probes still read these fields).
+func TestToProbesConfig_CacheSubagent_AlwaysTrue(t *testing.T) {
+	// Even with an entirely zeroed Config, both flags must be true.
+	pcfg := config.ToProbesConfig(config.Config{})
+	if !pcfg.CacheEnabled {
+		t.Error("T-AD1b CacheEnabled: got false, want true (hardcoded in adapter)")
+	}
+	if !pcfg.SubagentEnabled {
+		t.Error("T-AD1b SubagentEnabled: got false, want true (hardcoded in adapter)")
+	}
+}
+
+// T-AD1c: TableRows is forwarded from cfg.General.TableRows into probes.Config.
+func TestToProbesConfig_TableRows_Forwarded(t *testing.T) {
+	cfg := config.Default()
+	cfg.General.TableRows = 15
+	pcfg := config.ToProbesConfig(*cfg)
+	if pcfg.TableRows != 15 {
+		t.Errorf("T-AD1c TableRows: got %d, want 15", pcfg.TableRows)
 	}
 }
 

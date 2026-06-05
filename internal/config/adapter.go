@@ -30,17 +30,23 @@ var minimalPalette = renderer.ColorScheme{
 // consumed by Probe.Visible / Probe.Render. Pure function; no errors.
 func ToProbesConfig(cfg Config) probes.Config {
 	return probes.Config{
-		ModelEnabled:    cfg.Widgets.Model,
-		EffortEnabled:   cfg.Widgets.Effort,
-		CostEnabled:     cfg.Widgets.Cost,
-		ProjectEnabled:  cfg.Widgets.Project,
-		EmailEnabled:    cfg.Widgets.Email,
-		TimeEnabled:     cfg.Widgets.Time,
-		CtxEnabled:      cfg.Widgets.Ctx,
-		CacheEnabled:    cfg.Widgets.Cache,
+		ModelEnabled:   cfg.Widgets.Model,
+		EffortEnabled:  cfg.Widgets.Effort,
+		CostEnabled:    cfg.Widgets.Cost,
+		ProjectEnabled: cfg.Widgets.Project,
+		EmailEnabled:   cfg.Widgets.Email,
+		TimeEnabled:    cfg.Widgets.Time,
+		CtxEnabled:     cfg.Widgets.Ctx,
+		// CacheEnabled and SubagentEnabled are hardcoded true: the widget toggle
+		// fields were removed from Widgets (dead config) but probes still read
+		// these flags internally (cache.go:46, subagent.go:34). Hardcoding true
+		// keeps probe visibility unchanged without cascading deletes into probes/.
+		CacheEnabled:    true,
 		QuotaEnabled:    cfg.Widgets.Quota,
 		GitEnabled:      cfg.Widgets.Git,
-		SubagentEnabled: cfg.Widgets.Subagent,
+		SubagentEnabled: true,
+
+		TableRows: cfg.General.TableRows,
 
 		Email: cfg.Probes.Email.Address,
 

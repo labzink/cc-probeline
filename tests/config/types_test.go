@@ -31,6 +31,8 @@ func TestDefault_AllFieldsMatchSpec(t *testing.T) {
 		{"General.NoColor", d.General.NoColor, false},
 		{"General.NerdFont", d.General.NerdFont, false},
 		{"General.RefreshIntervalHint", d.General.RefreshIntervalHint, 5},
+		{"General.TableRows", d.General.TableRows, 10},
+		{"General.Mode", d.General.Mode, "standard"},
 		{"Theme.Name", d.Theme.Name, "default"},
 		{"Theme.Colors.Cyan", d.Theme.Colors.Cyan, ""},
 		{"Theme.Colors.Red", d.Theme.Colors.Red, ""},
@@ -49,7 +51,9 @@ func TestDefault_AllFieldsMatchSpec(t *testing.T) {
 	}
 }
 
-// T-T2: Default() must return a Config where all 11 Widgets fields are true.
+// T-T2: Default() must return a Config where all active Widgets fields are true.
+// Note: Cache and Subagent widget toggles were removed in Phase 6.95 (dead config);
+// probes.CacheEnabled/SubagentEnabled are now hardcoded true in adapter.go.
 func TestDefault_WidgetsAllTrue(t *testing.T) {
 	d := config.Default()
 	if d == nil {
@@ -69,10 +73,8 @@ func TestDefault_WidgetsAllTrue(t *testing.T) {
 		{"Email", d.Widgets.Email},
 		{"Time", d.Widgets.Time},
 		{"Ctx", d.Widgets.Ctx},
-		{"Cache", d.Widgets.Cache},
 		{"Quota", d.Widgets.Quota},
 		{"Git", d.Widgets.Git},
-		{"Subagent", d.Widgets.Subagent},
 	}
 
 	for _, tg := range toggles {

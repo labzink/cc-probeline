@@ -519,6 +519,42 @@ func TestCheckConfig_MultipleErrors_AllListed(t *testing.T) {
 	}
 }
 
+// ─── T-CC17: widgets.cache / widgets.subagent removed (Phase 6.95.cfg) ───────
+
+// TestCheckConfig_WidgetsCacheSubagent_NotInDiagnostics verifies that
+// --verbose output does NOT include widgets.cache or widgets.subagent.
+// These fields were removed from config.Widgets in Phase 6.95.cfg; their probes
+// remain visible via hardcoded true in adapter.go, but they are no longer user-
+// configurable toggles and must not appear in check-config diagnostics.
+func TestCheckConfig_WidgetsCacheSubagent_NotInDiagnostics(t *testing.T) {
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "cc-probeline")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("T-CC17: MkdirAll: %v", err)
+	}
+	// A valid config; --verbose forces all fields to be printed.
+	writeConfig(t, cfgDir, "config.toml", "version = 1\n\n[general]\ntutorial_hints = true\n")
+
+	stdout, _, exitCode := runCheckConfig(t, []string{"HOME=" + home}, "--verbose")
+
+	if exitCode != 0 {
+		t.Errorf("T-CC17: expected exit 0, got %d; stdout: %q", exitCode, stdout)
+	}
+	if strings.Contains(stdout, "widgets.cache") {
+		t.Errorf("T-CC17: stdout must NOT contain 'widgets.cache' (field removed); got: %q", stdout)
+	}
+	if strings.Contains(stdout, "widgets.subagent") {
+		t.Errorf("T-CC17: stdout must NOT contain 'widgets.subagent' (field removed); got: %q", stdout)
+	}
+	// New fields table_rows and mode must appear in --verbose output.
+	if !strings.Contains(stdout, "table_rows") {
+		t.Errorf("T-CC17: stdout should contain 'table_rows' (new field); got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "general.mode") {
+		t.Errorf("T-CC17: stdout should contain 'general.mode' (new field); got: %q", stdout)
+	}
+}
+
 // ─── utility ─────────────────────────────────────────────────────────────────
 
 // keysOf returns the keys of a map as a slice (for error messages).

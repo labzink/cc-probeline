@@ -279,6 +279,8 @@ func collectConfigFields(cfg, def *config.Config, verbose bool) []configField {
 	add("general.no_color", cfg.General.NoColor, def.General.NoColor)
 	add("general.nerd_font", cfg.General.NerdFont, def.General.NerdFont)
 	add("general.refresh_interval_hint", cfg.General.RefreshIntervalHint, def.General.RefreshIntervalHint)
+	add("general.table_rows", cfg.General.TableRows, def.General.TableRows)
+	add("general.mode", cfg.General.Mode, def.General.Mode)
 
 	// Theme.
 	add("theme.name", cfg.Theme.Name, def.Theme.Name)
@@ -298,10 +300,8 @@ func collectConfigFields(cfg, def *config.Config, verbose bool) []configField {
 	add("widgets.email", cfg.Widgets.Email, def.Widgets.Email)
 	add("widgets.time", cfg.Widgets.Time, def.Widgets.Time)
 	add("widgets.ctx", cfg.Widgets.Ctx, def.Widgets.Ctx)
-	add("widgets.cache", cfg.Widgets.Cache, def.Widgets.Cache)
 	add("widgets.quota", cfg.Widgets.Quota, def.Widgets.Quota)
 	add("widgets.git", cfg.Widgets.Git, def.Widgets.Git)
-	add("widgets.subagent", cfg.Widgets.Subagent, def.Widgets.Subagent)
 
 	// Thresholds.
 	add("thresholds.cost_budget_usd", cfg.Thresholds.CostBudgetUSD, def.Thresholds.CostBudgetUSD)
