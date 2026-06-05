@@ -7,6 +7,7 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
@@ -46,6 +47,46 @@ func TestTime_Render_Full(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("Render(Full, %dms): want %q, got %q",
 					tc.totalAPIDurationMS, tc.want, got)
+			}
+		})
+	}
+}
+
+// TestTime_Render_ResetOnClear verifies that when state IS loaded (d.State != nil)
+// a zero SessionDurMS renders as "00:00" instead of falling back to the raw
+// cumulative TotalAPIDurationMS. This is the /clear reset: cost shows $0.00 and
+// time must show 00:00, not the stale pre-clear total. Also checks that a positive
+// SessionDurMS wins over the raw total, and that a negative delta clamps to 00:00.
+func TestTime_Render_ResetOnClear(t *testing.T) {
+	p := &probes.TimeProbe{}
+	th := renderer.Theme{}
+	cfg := probes.Config{}
+
+	tests := []struct {
+		name         string
+		sessionDurMS int64
+		rawTotalMS   int64
+		want         string
+	}{
+		// /clear: state loaded, delta 0, stale raw total must NOT resurface.
+		{"reset-zero-ignores-raw", 0, 14297000, "time: 00:00"},
+		// state loaded, real delta wins over raw total.
+		{"delta-wins-over-raw", 60000, 14297000, "time: 01:00"},
+		// transient negative delta clamps to zero.
+		{"negative-clamps", -5000, 14297000, "time: 00:00"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := probes.Data{
+				Stdin:        stdin.Payload{Cost: stdin.Cost{TotalAPIDurationMS: tc.rawTotalMS}},
+				State:        &state.Session{},
+				SessionDurMS: tc.sessionDurMS,
+			}
+			got := p.Render(d, cfg, th, probes.LevelFull)
+			if got != tc.want {
+				t.Errorf("Render(Full, dur=%d raw=%d): want %q, got %q",
+					tc.sessionDurMS, tc.rawTotalMS, tc.want, got)
 			}
 		})
 	}

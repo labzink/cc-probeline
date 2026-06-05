@@ -22,16 +22,24 @@ func (p *TimeProbe) Visible(d Data, c Config) bool {
 
 // Render formats the elapsed time relative to the session baseline (phase 6.9.a).
 // Uses d.SessionDurMS (TotalAPIDurationMS − BaselineDurMS) so the counter resets
-// on /clear together with the cost counter. Falls back to raw TotalAPIDurationMS
-// when SessionDurMS is zero (state not yet loaded).
+// on /clear together with the cost counter.
+//
+// The fallback to raw TotalAPIDurationMS keys on d.State == nil ("state not yet
+// loaded") rather than on durMS <= 0. After /clear the state IS loaded and
+// SessionDurMS is legitimately 0 (baseline == current) — falling back there would
+// resurrect the stale cumulative total (bug: cost reset to $0.00 but time kept
+// 238:17). Negative deltas (transient ccTotal dip) are clamped to 0.
 //
 //	Full:    "time: MM:SS"
 //	Compact: "MM:SS"
 //	Minimal: "MM:SS"
 func (p *TimeProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
 	durMS := d.SessionDurMS
-	if durMS <= 0 {
+	if d.State == nil {
 		durMS = d.Stdin.Cost.TotalAPIDurationMS
+	}
+	if durMS < 0 {
+		durMS = 0
 	}
 	mmss := formatMMSS(durMS)
 	if level == LevelFull {
