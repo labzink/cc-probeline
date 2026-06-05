@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type rawContentBlock struct {
 	Type  string          `json:"type"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
+	Text  string          `json:"text"`
 }
 
 type rawCacheCreation struct {
@@ -78,7 +80,26 @@ type rawLine struct {
 	Version        string     `json:"version"`
 	IsSidechain    bool       `json:"isSidechain"`
 	UserType       string     `json:"userType"`
+	IsMeta         bool       `json:"isMeta"`
 	Message        rawMessage `json:"message"`
+}
+
+// leadingUserText extracts the leading text of a user record for boundary
+// classification: the first "text" content block, or the bare-string content
+// when no blocks were decoded. Returns "" when no text is present.
+func leadingUserText(raw json.RawMessage, blocks []rawContentBlock) string {
+	for _, b := range blocks {
+		if b.Type == "text" {
+			return strings.TrimSpace(b.Text)
+		}
+	}
+	if len(blocks) == 0 {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
 
 // ParseLines reads JSONL records from r, decodes them into Record values,
@@ -127,6 +148,8 @@ func ParseLines(r io.Reader) ([]Record, []ParseError, error) {
 				UUID:        raw.UUID,
 				RequestID:   raw.RequestID,
 				IsSidechain: raw.IsSidechain,
+				IsMeta:      raw.IsMeta,
+				Text:        leadingUserText(raw.Message.Content, contentBlocks),
 			}
 			if raw.Timestamp != "" {
 				if ts, err := time.Parse(time.RFC3339Nano, raw.Timestamp); err == nil {

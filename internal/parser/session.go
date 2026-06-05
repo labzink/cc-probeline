@@ -41,13 +41,48 @@ func isUserTextRecord(r Record) bool {
 	if r.Type != "user" {
 		return false
 	}
-	// If content blocks exist, verify no tool_result is present.
+	// CC-injected meta records (local-command caveats, context replay) are not
+	// real user prompts — they must not start a new group / dim prior rows.
+	if r.IsMeta {
+		return false
+	}
+	// If content blocks exist, verify no tool_result is present (subagent returns
+	// and tool outputs are delivered as user-role tool_result records).
 	for _, c := range r.Content {
 		if c.Type == "tool_result" {
 			return false
 		}
 	}
+	// System-injected text records that CC writes autonomously (slash-command
+	// expansions, background-task notifications, interrupt markers) are wrapped in
+	// recognisable tags / brackets. Excluding them prevents spurious dimming of
+	// older rows when no human prompt was actually entered.
+	if isSystemInjectedText(r.Text) {
+		return false
+	}
 	return true
+}
+
+// systemTextPrefixes are leading markers of CC-injected user-text records that
+// are not genuine human prompts and therefore must not start a prompt group.
+var systemTextPrefixes = []string{
+	"<command-name>",
+	"<command-message>",
+	"<command-args>",
+	"<local-command-caveat>",
+	"<local-command-stdout>",
+	"<task-notification>",
+	"[Request interrupted",
+}
+
+// isSystemInjectedText reports whether s begins with a known system-injection marker.
+func isSystemInjectedText(s string) bool {
+	for _, p := range systemTextPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Aggregate computes a SessionStats from a []Record that may contain both user

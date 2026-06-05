@@ -15,6 +15,13 @@ type Record struct {
 	IsSidechain                        bool
 	UserType                           string
 
+	// IsMeta is true for CC-injected meta records (local-command caveats, context
+	// replay) — these are not real user prompts and must not start a new group.
+	IsMeta bool
+	// Text holds the leading text of a user record, used to classify system-injected
+	// records (slash-command expansions, task notifications). "" for non-user records.
+	Text string
+
 	Model, ServiceTier, StopReason string
 	Usage                          TokenCounts
 	Content                        []ContentBlock
