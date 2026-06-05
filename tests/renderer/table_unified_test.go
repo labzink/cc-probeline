@@ -261,22 +261,22 @@ func TestRender_SubagentArrowAndNum(t *testing.T) {
 		t.Fatalf("T-9: no table in output; output:\n%s", out)
 	}
 
-	// The subagent # column must show "↳₃" with a Unicode subscript digit
-	// (U+2083), not the ASCII "↳3" (F10).
+	// The subagent # column must show ASCII "↳3" (normal digit); the old Unicode
+	// subscript "↳₃" was dropped per user request (2026-06-05).
 	foundArrowNum := false
 	for _, l := range collectDataLines(out) {
 		bare := stripMk(l)
-		if strings.Contains(bare, "↳₃") {
+		if strings.Contains(bare, "↳3") {
 			foundArrowNum = true
 		}
-		// ASCII "↳3" is the old format — must NOT appear.
-		if strings.Contains(bare, "↳3") {
-			t.Errorf("F10: ASCII '↳3' found; want subscript '↳₃'; row: %s", l)
+		// Unicode subscript "↳₃" is the old format — must NOT appear.
+		if strings.Contains(bare, "↳₃") {
+			t.Errorf("subagent #: subscript '↳₃' found; want ASCII '↳3'; row: %s", l)
 		}
 	}
 
 	if !foundArrowNum {
-		t.Errorf("F10: subagent # column must show '↳₃' (CurrentTurnNum=3); not found\noutput:\n%s", out)
+		t.Errorf("subagent # column must show ASCII '↳3' (CurrentTurnNum=3); not found\noutput:\n%s", out)
 	}
 }
 
@@ -324,7 +324,7 @@ func TestRender_SubagentArrowFlushLeft(t *testing.T) {
 		}
 	}
 	if subRows != 2 {
-		t.Errorf("expected 2 subagent rows (↳₁₈ and ↳₂), got %d\noutput:\n%s", subRows, out)
+		t.Errorf("expected 2 subagent rows (↳18 and ↳2), got %d\noutput:\n%s", subRows, out)
 	}
 }
 

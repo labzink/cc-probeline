@@ -106,7 +106,7 @@ func (b *Builder) RenderUnifiedRows(rows []UnifiedRow) string {
 			sb.WriteByte(' ')
 			// Dim rows fade their TTL too: the suffix is appended outside the row's
 			// dim wrap, so a faded (older-group) row would otherwise keep a bright
-			// TTL. Re-render it dim instead of coloured for visual consistency.
+			// TTL. Layer {{dim}} over its colour so it fades to dim-coloured.
 			if r.Dim {
 				sb.WriteString(dimTTLSuffix(r.TTLSuffix))
 			} else {
@@ -163,24 +163,17 @@ func computeAnchorRows(rows []UnifiedRow) []bool {
 	return anchors
 }
 
-// ttlColorStripper removes the colour markers CacheTTL emits, so a dim row's TTL
-// can be re-wrapped in {{dim}} — the bright colour would otherwise override dim.
-var ttlColorStripper = strings.NewReplacer(
-	"{{color:green}}", "",
-	"{{color:yellow}}", "",
-	"{{color:red}}", "",
-	"{{reset}}", "",
-)
-
-// dimTTLSuffix converts a colour-marked TTL suffix into its dim form so a faded
-// (older-group) row's TTL fades with the rest of the row instead of staying bright.
-// When colour is off the input has no markers and the result is the plain text
-// wrapped in {{dim}}…{{reset}}, which Apply strips back to plain.
+// dimTTLSuffix layers {{dim}} over a colour-marked TTL suffix so a faded
+// (older-group) row's TTL fades WITH its colour preserved — e.g. an expired red
+// "0m" reads as dim-red, not dim-grey. {{dim}} + {{color:red}} both apply
+// (\x1b[2m\x1b[31m); the trailing {{reset}} clears both. When colour is off the
+// input has no markers and the result is plain text in {{dim}}…{{reset}}, which
+// Apply strips back to plain.
 func dimTTLSuffix(suffix string) string {
 	if suffix == "" {
 		return ""
 	}
-	return "{{dim}}" + ttlColorStripper.Replace(suffix) + "{{reset}}"
+	return "{{dim}}" + suffix + "{{reset}}"
 }
 
 // dimNotchLeading is the notch leading border (├) wrapped in dim markers.

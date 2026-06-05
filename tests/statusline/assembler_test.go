@@ -1307,8 +1307,8 @@ func TestAssemble_SubagentTTLWindow(t *testing.T) {
 }
 
 // TestAssemble_DimSubagentTTLFaded (task 2b) verifies that a dim subagent row
-// renders its TTL faded ({{dim}}) rather than bright-coloured, so the TTL fades
-// together with the rest of the row instead of staying bright.
+// renders its TTL dim-coloured ({{dim}} layered over its own colour, e.g. dim-red
+// "0m") rather than full-bright, so the TTL fades with the row but keeps its hue.
 func TestAssemble_DimSubagentTTLFaded(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	sub := parser.SubagentStats{
@@ -1348,11 +1348,10 @@ func TestAssemble_DimSubagentTTLFaded(t *testing.T) {
 			break
 		}
 	}
-	if !strings.Contains(line, "{{dim}}⏱ 0m{{reset}}") {
-		t.Errorf("dim subagent TTL must be faded '{{dim}}⏱ 0m{{reset}}'; got:\n%s", line)
-	}
-	if strings.Contains(line, "{{color:red}}⏱") {
-		t.Errorf("dim subagent TTL must not stay bright-coloured; got:\n%s", line)
+	// Faded TTL keeps its colour and layers {{dim}} on top → dim-red "0m"
+	// (colour preserved, intensity dropped), not dim-grey.
+	if !strings.Contains(line, "{{dim}}{{color:red}}⏱ 0m{{reset}}") {
+		t.Errorf("dim subagent TTL must be dim-red '{{dim}}{{color:red}}⏱ 0m{{reset}}'; got:\n%s", line)
 	}
 }
 

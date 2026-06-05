@@ -377,7 +377,7 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 		dim := !freshestGroupStart.IsZero() && sa.ActivationStart.Before(freshestGroupStart)
 
 		row := renderer.UnifiedRow{
-			HashCell:      "↳" + subscriptInt(sa.CurrentTurnNum),
+			HashCell:      "↳" + fmt.Sprintf("%d", sa.CurrentTurnNum),
 			Role:          role,
 			Model:         model,
 			CacheRead:     last.Tokens.CacheRead,
@@ -435,21 +435,6 @@ func subagentRedCacheWrite(sa parser.SubagentStats, windowMinutes int) bool {
 		return false
 	}
 	return renderer.CacheExpiredAt(sa.Turns[n-2].Timestamp, sa.Turns[n-1].Timestamp, windowMinutes)
-}
-
-// subscriptInt renders a non-negative integer using Unicode subscript digits
-// (U+2080..U+2089), e.g. 5 → "₅", 12 → "₁₂". Each digit is a single-width rune,
-// so table column alignment is preserved (F10).
-func subscriptInt(n int) string {
-	if n < 0 {
-		return fmt.Sprintf("%d", n)
-	}
-	digits := []rune(fmt.Sprintf("%d", n))
-	var b strings.Builder
-	for _, d := range digits {
-		b.WriteRune('₀' + (d - '0'))
-	}
-	return b.String()
 }
 
 // instanceName resolves the subagent's display instance name from meta.json
