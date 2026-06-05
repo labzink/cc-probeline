@@ -390,7 +390,7 @@ func (a *Assembler) subagentRows(d probes.Data, st *state.Session, freshestGroup
 			GroupID:       0,
 			SkipSeparator: true,
 			RedCacheWrite: subagentRedCacheWrite(sa, a.Config.SubagentGapMinutes),
-			TTLSuffix:     subagentTTLSuffix(now, sa.LastTimestamp, a.Config.SubagentGapMinutes, a.Theme.AnsiEnabled),
+			TTLSuffix:     subagentTTLSuffix(now, sa.LastTimestamp, dim, a.Config.SubagentGapMinutes, a.Theme.AnsiEnabled),
 		}
 		out = append(out, timedRow{row: row, ts: sa.ActivationStart})
 	}
@@ -406,13 +406,20 @@ const subagentTTLHoldMinutes = 5
 
 // subagentTTLSuffix renders the subagent row's TTL suffix using the subagent
 // cache window (SubagentGapMinutes, default 5). While elapsed ≤ window it counts
-// down; between window and window+hold it shows the expired "⏱ 0m"; past
-// window+hold it returns "" so the suffix is dropped (F3).
-func subagentTTLSuffix(now, lastTS time.Time, window int, ansi bool) string {
+// down; between window and window+hold it shows the expired "⏱ 0m".
+//
+// The drop (past window+hold → "") is gated on dim: only a subagent whose row has
+// gone dim (its request moved into the past) drops its TTL. While the subagent is
+// still in the active (non-dim) group, "⏱ 0m" holds indefinitely — so a freshly
+// active subagent does not lose its TTL just because it has been silent a while.
+// The moment a new human prompt dims the row, the window+hold countdown applies:
+// if >window+hold has already elapsed the suffix drops at once, otherwise it
+// lingers until the window+hold mark.
+func subagentTTLSuffix(now, lastTS time.Time, dim bool, window int, ansi bool) string {
 	if window <= 0 || lastTS.IsZero() {
 		return ""
 	}
-	if now.Sub(lastTS) > time.Duration(window+subagentTTLHoldMinutes)*time.Minute {
+	if dim && now.Sub(lastTS) > time.Duration(window+subagentTTLHoldMinutes)*time.Minute {
 		return ""
 	}
 	return renderer.CacheTTL(now, lastTS, 1, window, ansi)

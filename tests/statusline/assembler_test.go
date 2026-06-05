@@ -1225,7 +1225,10 @@ func TestAssemble_SubagentTTLWindow(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	orchT := orchTurn(1, "orch1", 1, base, "BashOrch", "")
 
-	render := func(elapsed time.Duration) string {
+	// render builds the table at the given elapsed time. When dimSub is true a
+	// newer human prompt-group orch turn is added so the subagent (activated at
+	// base) renders dim — its request is in the past.
+	render := func(elapsed time.Duration, dimSub bool) string {
 		subTurn := parser.Turn{
 			Role:        "agent",
 			UUID:        "sub-ttl",
@@ -1251,8 +1254,14 @@ func TestAssemble_SubagentTTLWindow(t *testing.T) {
 			Cols:   80,
 			Config: probes.Config{OrchTTLMinutes: 60, SubagentGapMinutes: 5},
 		}
+		orchTurns := []parser.Turn{orchT}
+		if dimSub {
+			// A later human prompt group makes freshestGroupStart > base, so the
+			// subagent activated at base is dim.
+			orchTurns = append(orchTurns, orchTurn(2, "orch2", 2, base.Add(time.Minute), "BashOrch2", ""))
+		}
 		d := probes.Data{
-			Session:   &parser.SessionStats{TurnCount: 1, Turns: []parser.Turn{orchT}},
+			Session:   &parser.SessionStats{TurnCount: len(orchTurns), Turns: orchTurns},
 			Subagents: []parser.SubagentStats{sa},
 			Now:       base.Add(elapsed),
 		}
@@ -1271,17 +1280,79 @@ func TestAssemble_SubagentTTLWindow(t *testing.T) {
 		return ""
 	}
 
+	// Active (non-dim) subagent: TTL counts down, then holds "⏱ 0m" indefinitely.
 	// elapsed 2m < window(5) → live countdown "⏱ 3m".
-	if line := subagentLine(render(2 * time.Minute)); !strings.Contains(line, "⏱ 3m") {
-		t.Errorf("F3 elapsed=2m: want subagent countdown '⏱ 3m'; got row:\n%s", line)
+	if line := subagentLine(render(2*time.Minute, false)); !strings.Contains(line, "⏱ 3m") {
+		t.Errorf("active elapsed=2m: want subagent countdown '⏱ 3m'; got row:\n%s", line)
 	}
 	// window(5) < elapsed 7m < window+hold(10) → expired "⏱ 0m" held.
-	if line := subagentLine(render(7 * time.Minute)); !strings.Contains(line, "⏱ 0m") {
-		t.Errorf("F3 elapsed=7m: want held '⏱ 0m'; got row:\n%s", line)
+	if line := subagentLine(render(7*time.Minute, false)); !strings.Contains(line, "⏱ 0m") {
+		t.Errorf("active elapsed=7m: want held '⏱ 0m'; got row:\n%s", line)
 	}
-	// elapsed 12m > window+hold(10) → suffix dropped, no "⏱" on the subagent row.
-	if line := subagentLine(render(12 * time.Minute)); strings.Contains(line, "⏱") {
-		t.Errorf("F3 elapsed=12m: subagent TTL must be dropped (no ⏱); got row:\n%s", line)
+	// elapsed 12m > window+hold(10): active subagent STILL holds "⏱ 0m" (never
+	// dropped while in the active group — task 2a).
+	if line := subagentLine(render(12*time.Minute, false)); !strings.Contains(line, "⏱ 0m") {
+		t.Errorf("active elapsed=12m: TTL must hold '⏱ 0m' forever while non-dim; got row:\n%s", line)
+	}
+
+	// Dim subagent: the window+hold drop applies once the row has gone dim.
+	// elapsed 7m (within hold): TTL still shown (and dimmed by the renderer).
+	if line := subagentLine(render(7*time.Minute, true)); !strings.Contains(line, "⏱ 0m") {
+		t.Errorf("dim elapsed=7m: want '⏱ 0m' still present within hold; got row:\n%s", line)
+	}
+	// elapsed 12m > window+hold(10): dim subagent drops the TTL (no "⏱").
+	if line := subagentLine(render(12*time.Minute, true)); strings.Contains(line, "⏱") {
+		t.Errorf("dim elapsed=12m: TTL must be dropped (no ⏱); got row:\n%s", line)
+	}
+}
+
+// TestAssemble_DimSubagentTTLFaded (task 2b) verifies that a dim subagent row
+// renders its TTL faded ({{dim}}) rather than bright-coloured, so the TTL fades
+// together with the rest of the row instead of staying bright.
+func TestAssemble_DimSubagentTTLFaded(t *testing.T) {
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	sub := parser.SubagentStats{
+		AgentID:         "agent-x",
+		AgentType:       "general-purpose",
+		ActivationStart: base,
+		LastTimestamp:   base,
+		CurrentTurnNum:  1,
+		TurnCount:       1,
+		Turns: []parser.Turn{{
+			Role: "agent", UUID: "s1", Timestamp: base,
+			Tokens: parser.TokenCounts{Output: 50}, ToolUse: "ReadX", IsSidechain: true,
+		}},
+		LastTool: "ReadX",
+	}
+	a := &statusline.Assembler{
+		Mode:   mode.Standard,
+		Theme:  renderer.Theme{AnsiEnabled: true},
+		Cols:   80,
+		Config: probes.Config{OrchTTLMinutes: 60, SubagentGapMinutes: 5},
+	}
+	// A later human prompt group makes the subagent (activated at base) dim.
+	orchTurns := []parser.Turn{
+		orchTurn(1, "o1", 1, base, "Bash", ""),
+		orchTurn(2, "o2", 2, base.Add(time.Minute), "Bash", ""),
+	}
+	d := probes.Data{
+		Session:   &parser.SessionStats{TurnCount: 2, Turns: orchTurns},
+		Subagents: []parser.SubagentStats{sub},
+		Now:       base.Add(7 * time.Minute), // within window+hold → "⏱ 0m" present
+	}
+
+	var line string
+	for _, l := range strings.Split(a.Render(d), "\n") {
+		if strings.Contains(l, "↳") {
+			line = l
+			break
+		}
+	}
+	if !strings.Contains(line, "{{dim}}⏱ 0m{{reset}}") {
+		t.Errorf("dim subagent TTL must be faded '{{dim}}⏱ 0m{{reset}}'; got:\n%s", line)
+	}
+	if strings.Contains(line, "{{color:red}}⏱") {
+		t.Errorf("dim subagent TTL must not stay bright-coloured; got:\n%s", line)
 	}
 }
 
