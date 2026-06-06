@@ -444,6 +444,10 @@ func TestAssembler_Render_Cap20StillEnforced_AfterTruncation(t *testing.T) {
 	const wantRows = 20 // §4.2 C-6 cap
 
 	a := makeAssemblerForCols(mode.Standard, 50)
+	// Phase 6.95: the table cap is now configurable ([general].table_rows, default
+	// 10). Set it to 20 explicitly so this test still exercises cap-N survival
+	// across column-drop with the original C-6 value.
+	a.Config.TableRows = wantRows
 	out := a.Render(makeDataWithTurns(nTurns))
 
 	// §4.3 T-9 + C-6: cap-20 must hold even after column-drop at cols=50.

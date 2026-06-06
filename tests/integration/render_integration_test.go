@@ -327,8 +327,10 @@ func TestRenderHintIndex0Text(t *testing.T) {
 	}
 	got := renderer.Apply(a.Render(d), renderer.Theme{})
 
-	// §4.4.b: first render shows DefaultHints[0].Text.
-	wantHint := hint.DefaultHints[0].Text
+	// §4.4.b: first render shows DefaultHints[0].Text. The render above applied
+	// a plain (colour-off) theme, which strips the hint's {{color:…}} markers, so
+	// compare against the marker-stripped form (Phase 6.95.c added colour markers).
+	wantHint := renderer.Apply(hint.DefaultHints[0].Text, renderer.Theme{})
 	if !strings.Contains(got, wantHint) {
 		t.Errorf("first render should contain hint[0] text %q; got:\n%s", wantHint, got)
 	}

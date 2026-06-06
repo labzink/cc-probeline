@@ -1,7 +1,7 @@
 // Package hint provides the rotating hint widget appended at the bottom of
-// the status output. Each session shows up to 8 default hints (brainstorm
-// Batch 3) on 120-second rotation; critical cache invalidation events
-// override the rotation. State is persisted per-session under XDG_CACHE_HOME.
+// the status output. Each session shows the default hints (Phase 6.95.c) on
+// 120-second rotation; critical cache invalidation events override the
+// rotation. Rotation state is persisted per-session in state.Session.HintRotation.
 package hint
 
 import (
@@ -16,16 +16,18 @@ type Hint struct {
 	Text  string
 }
 
-// DefaultHints holds the 8 fixed brainstorm Batch 3 hint strings.
+// DefaultHints holds the rotating hint strings (Phase 6.95.c, draft §2A).
+// Colour = feature colour (visual link): #0 reasoning magenta, #1 split
+// cyan+yellow mirroring the git segment, #3 cache green, #5 settings dim;
+// #2/#4 stay plain. Markers are {{color:X}}/{{dim}} text tokens converted by
+// renderer.Apply (stripped when colour is off), never raw ANSI.
 var DefaultHints = []Hint{
-	{0, "legend: [high]=effort · ⚠=cache miss/modified · ⎇=git branch"},
-	{1, "⎇ git branch (worktree) · ⚠N modified files in working tree"},
-	{2, "ctx N/M — context window load (cached / max context)"},
-	{3, "⏱ N — cache lives N after last request (orch ~60m, agent ~5m)"},
-	{4, "↻ N — time until rate limits reset (5h window / 7d window)"},
-	{5, "≡ cache tokens (read/create) · ↗ out (output tokens)"},
-	{6, "/cp-mode toggles view: super-compact ↔ standard (cap 20 turns)"},
-	{7, "cc-probeline diagnostics — raw stdin dump for debugging/bug reports"},
+	{0, "{{color:magenta}}Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max{{reset}}"},
+	{1, "{{color:cyan}}⎇ git branch (worktree){{reset}} · {{color:yellow}}⚠ N modified files{{reset}}"},
+	{2, "ctx N/M — context load (used / max window)"},
+	{3, "{{color:green}}⏱ N — cache lives N after last request (orch ~60m · agent ~5m){{reset}}"},
+	{4, "↻ N — time until rate-limit reset (5h · 7d windows)"},
+	{5, "{{dim}}⚙ /cp-config — customise your line: probes · table size · colours & more{{reset}}"},
 }
 
 // rotateInterval is the minimum time between hint rotations.

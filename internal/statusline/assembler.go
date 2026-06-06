@@ -154,8 +154,15 @@ func (a *Assembler) perTurnTable(d probes.Data, cols int) []string {
 	sort.SliceStable(timed, func(i, j int) bool {
 		return timed[i].ts.After(timed[j].ts)
 	})
-	if len(timed) > 20 {
-		timed = timed[:20]
+	// Phase 6.95: cap the table at the user-configured row count ([general].table_rows,
+	// default 10, capped ≤40 by the config setter). Zero means "not configured" →
+	// fall back to the default. Older builds hard-capped at 20.
+	rowCap := a.Config.TableRows
+	if rowCap <= 0 {
+		rowCap = 10
+	}
+	if len(timed) > rowCap {
+		timed = timed[:rowCap]
 	}
 
 	rows := make([]renderer.UnifiedRow, len(timed))

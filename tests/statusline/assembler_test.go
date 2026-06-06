@@ -191,6 +191,9 @@ func TestAssembler_Standard_Cap20Turns(t *testing.T) {
 	swapLine2(t, []probes.Probe{&fakeProbe{name: "c", visible: true, out: "c"}})
 
 	a := makeAssembler(mode.Standard)
+	// Phase 6.95: table cap is now configurable ([general].table_rows, default 10).
+	// Set it to 20 explicitly so this test still exercises the original C-6 cap.
+	a.Config.TableRows = 20
 	out := a.Render(makeData(30))
 
 	// Count data rows: lines that start with "│" OR "├" (notch anchor rows),

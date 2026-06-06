@@ -1,15 +1,17 @@
 // Package statusline_test — RED test for Phase 6.8 FIXES bug N1 (role colour).
 //
 // Root cause (found by hands-on smoke, missed by unit tests):
-//   roleColour (internal/renderer/table.go:171) matches role == "orch" literally,
-//   but RenderUnified.buildUnifiedRow passes the raw Turn.Role, which the parser
-//   sets to "orchestrator" (session.go:133) for orchestrator turns and "agent"
-//   (subagent.go:387) for sidechain turns. "orchestrator" != "orch" → falls to
-//   yellow. The C1 table test missed this because its fixture used the UNREALISTIC
-//   Role="orch", which happened to match the literal check.
+//
+//	roleColour (internal/renderer/table.go:171) matches role == "orch" literally,
+//	but RenderUnified.buildUnifiedRow passes the raw Turn.Role, which the parser
+//	sets to "orchestrator" (session.go:133) for orchestrator turns and "agent"
+//	(subagent.go:387) for sidechain turns. "orchestrator" != "orch" → falls to
+//	yellow. The C1 table test missed this because its fixture used the UNREALISTIC
+//	Role="orch", which happened to match the literal check.
 //
 // Fix vector: colour the role by Turn.IsSidechain (false → cyan, true → yellow),
-//   not by string match. Label keeps the real role name.
+//
+//	not by string match. Label keeps the real role name.
 //
 // Production path verified: Assembler.Render(d) → perTurnTable → RenderUnified.
 //
@@ -79,8 +81,15 @@ func TestTable_OrchestratorRoleCyan(t *testing.T) {
 	}
 
 	// Find the orchestrator data row.
+	// Scope the search to actual table rows by requiring the model cell
+	// ("sonnet-4-6"): otherwise the role-marker substring matches unrelated lines —
+	// the "{{color:magenta}}" hint marker contains "agent" (m-AGENT-a), so a loose
+	// Contains(ln, "agent") false-matches the reasoning hint line (Phase 6.95.c).
 	var orchRow, agentRow string
 	for _, ln := range strings.Split(out, "\n") {
+		if !strings.Contains(ln, "sonnet-4-6") {
+			continue
+		}
 		if strings.Contains(ln, "orchestrator") {
 			orchRow = ln
 		}
