@@ -119,9 +119,6 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	reset5h := formatReset(live5h, snap5hReset, d.Now, fiveHourThresholds)
 	reset7d := formatReset(live7d, snap7dReset, d.Now, sevenDayThresholds)
 
-	pct5hInt := int(pct5h)
-	pct7dInt := int(pct7d)
-
 	// pctSuffix returns " NN%" coloured with ProgressBarColor when 90 ≤ pct < 100.
 	// At pct > 95 the existing boldRedWrap handles the bold-red colouring of
 	// the entire block; the suffix itself uses the bar-colour marker.
@@ -169,6 +166,32 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		case at7d:
 			extraOn7d = true
 		}
+	}
+
+	// minimalPctColour wraps "NN%" in the colour the progress bar would use at
+	// this percentage (6.95.e). Thresholds mirror renderer.ProgressBarColor
+	// (<50 green · <70 yellow · <90 orange · ≥90 red); pct > 95 overrides to
+	// bold_red (same rule boldRedWrap applies in Full/Compact). Markers are gated
+	// on AnsiEnabled so plain callers receive an uncoloured "NN%".
+	minimalPctColour := func(pct float64) string {
+		pctStr := fmt.Sprintf("%d%%", int(pct))
+		if !t.AnsiEnabled {
+			return pctStr
+		}
+		var marker string
+		switch {
+		case pct > 95.0:
+			marker = "{{color:bold_red}}"
+		case pct >= 90.0:
+			marker = "{{color:red}}"
+		case pct >= 70.0:
+			marker = "{{color:orange}}"
+		case pct >= 50.0:
+			marker = "{{color:yellow}}"
+		default:
+			marker = "{{color:green}}"
+		}
+		return marker + pctStr + "{{reset}}"
 	}
 
 	// extraBlock renders the red "+$X[ extra[ usage]]" badge for the given level.
@@ -219,11 +242,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		}
 		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	default: // LevelMinimal
-		// Minimal keeps the number even at ≥100% (it stands in place of the bar).
-		// The full quota-Minimal revision (bar-rule colour + reset countdown) is
-		// task 6.95.e; this branch only wires the extra-usage block (6.95.h).
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%d%%", pct5hInt))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%d%%", pct7dInt))
+		// Minimal drops the bar; the number stands in its place, coloured by the
+		// same rules the bar would use, and the reset countdown is kept like
+		// Compact (6.95.e). The number stays even at ≥100% — it is the only quota
+		// signal at this level (6.95.h hides it only when a bar is present).
+		val5h := minimalPctColour(pct5h) + " " + reset5h
+		val7d := minimalPctColour(pct7d) + " " + reset7d
 		if extraOn5h {
 			val5h += extraBlock(LevelMinimal)
 		}

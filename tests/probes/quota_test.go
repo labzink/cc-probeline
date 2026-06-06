@@ -124,8 +124,10 @@ func TestQuota_Render_Compact(t *testing.T) {
 }
 
 // TestQuota_Render_Minimal verifies QuotaProbe.Render at LevelMinimal.
-// Progress bars and time-to-reset are dropped; only percent values remain.
-// Updated in Phase 6.5.b4: uses real RateLimits data; format is integer %.
+// The progress bar is dropped, but the percent value and the reset countdown
+// are kept (Phase 6.95.e). With no resets_at and no stored snapshot the
+// countdown renders the "↻ ??m" unknown form. Theme is plain (AnsiEnabled
+// false) so the percent carries no colour markers.
 func TestQuota_Render_Minimal(t *testing.T) {
 	// C4: isolate from real quota file so probe uses d.Stdin.RateLimits only.
 	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
@@ -141,7 +143,7 @@ func TestQuota_Render_Minimal(t *testing.T) {
 	d := probes.Data{Stdin: stdin.Payload{RateLimits: rl}}
 
 	got := p.Render(d, cfg, th, probes.LevelMinimal)
-	want := "23% · 41%"
+	want := "23% ↻ ??m · 41% ↻ ??m"
 	if got != want {
 		t.Errorf("Render(Minimal): want %q, got %q", want, got)
 	}
@@ -217,7 +219,8 @@ func TestQuotaProbe_RealRender(t *testing.T) {
 		t.Errorf("Render(Compact): want %q, got %q", wantCompact, got)
 	}
 
-	wantMinimal := "40% · 60%"
+	// Phase 6.95.e: Minimal keeps the reset countdown (same source as Full/Compact).
+	wantMinimal := "40% ↻ 2h:13m · 60% ↻ 3d.12h"
 	if got := p.Render(d, cfg, th, probes.LevelMinimal); got != wantMinimal {
 		t.Errorf("Render(Minimal): want %q, got %q", wantMinimal, got)
 	}
