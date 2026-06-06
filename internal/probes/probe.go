@@ -78,6 +78,17 @@ type Data struct {
 	// (Phase 6.95.a). Zero means no badge. Set by main via state.CommitBadgeTick;
 	// GitProbe renders it (green) in Full/Compact, never in Minimal.
 	CommitBadgeCount int
+
+	// ExtraActive reports that paid extra-usage is in effect (a rate-limit window
+	// at ≥100% AND hasExtraUsageEnabled). Set by main (Phase 6.95.h) via
+	// state.ExtraUsageTick. QuotaProbe renders a red "+$X extra usage" block after
+	// the triggering window's reset timer.
+	ExtraActive bool
+
+	// ExtraUSD is the estimated overage in USD accrued since a rate-limit window
+	// crossed 100% (SessionTotal − OverageBaseline). The extra block is shown only
+	// when ExtraActive && ExtraUSD ≥ $0.01.
+	ExtraUSD float64
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

@@ -65,6 +65,16 @@ type Session struct {
 	// Set when the working tree's modified-file count drops from N>0 to 0; shown
 	// for exactly one refresh, then cleared. See CommitBadgeTick.
 	CommitBadge CommitBadge `json:"commit_badge"`
+
+	// OverageBaseline is the SessionTotal captured the moment the account first
+	// crossed a rate-limit window into paid extra usage (Phase 6.95.h). The
+	// overage shown is SessionTotal − OverageBaseline. Valid only while
+	// OverageActive; reset to 0 when the badge clears. See ExtraUsageTick.
+	OverageBaseline float64 `json:"overage_baseline"`
+
+	// OverageActive reports whether the extra-usage badge is currently armed: a
+	// rate-limit window is at ≥100% AND ~/.claude.json has hasExtraUsageEnabled.
+	OverageActive bool `json:"overage_active"`
 }
 
 // CommitBadge is the transient post-commit indicator state. Count is the number
@@ -94,6 +104,31 @@ func (s *Session) CommitBadgeTick(prevModified, currModified int, gitOK bool) in
 		s.CommitBadge = CommitBadge{}
 	}
 	return 0
+}
+
+// ExtraUsageTick advances the extra-usage (paid overage) state for one refresh
+// and returns whether the badge is active and the overage USD to display.
+//
+// trigger = at100 (a rate-limit window ≥100%) AND hasExtra (~/.claude.json
+// hasExtraUsageEnabled). On the first refresh where trigger holds, sessionTotal
+// is snapshotted as the baseline; the overage returned is sessionTotal − baseline
+// (clamped at 0). When trigger is false the badge clears and the baseline resets
+// to 0 — recomputed every refresh, never sticky.
+func (s *Session) ExtraUsageTick(sessionTotal float64, at100, hasExtra bool) (active bool, usd float64) {
+	if at100 && hasExtra {
+		if !s.OverageActive {
+			s.OverageBaseline = sessionTotal
+			s.OverageActive = true
+		}
+		over := sessionTotal - s.OverageBaseline
+		if over < 0 {
+			over = 0
+		}
+		return true, over
+	}
+	s.OverageActive = false
+	s.OverageBaseline = 0
+	return false, 0
 }
 
 // stateDir resolves the directory used to store state files.

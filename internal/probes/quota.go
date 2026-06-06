@@ -122,12 +122,14 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	pct5hInt := int(pct5h)
 	pct7dInt := int(pct7d)
 
-	// pctSuffix returns " NN%" coloured with ProgressBarColor when pct ≥ 90.
+	// pctSuffix returns " NN%" coloured with ProgressBarColor when 90 ≤ pct < 100.
 	// At pct > 95 the existing boldRedWrap handles the bold-red colouring of
 	// the entire block; the suffix itself uses the bar-colour marker.
 	// Spec §2.3: colour = ProgressBarColor(pct,t); >95 → bold_red.
+	// Phase 6.95.h: at pct ≥ 100 the number is dropped (the full bar already
+	// conveys 100%) and the extra-usage block stands in its place.
 	pctSuffix := func(pct float64) string {
-		if pct < 90.0 {
+		if pct < 90.0 || pct >= 100.0 {
 			return ""
 		}
 		pctStr := fmt.Sprintf("%d%%", int(pct))
@@ -145,6 +147,48 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		return " " + pctStr
 	}
 
+	// Phase 6.95.h: decide which window (if any) carries the extra-usage block.
+	// Active only when main armed the badge (ExtraActive) and the overage rounds
+	// to at least one cent. The badge attaches to a window currently at ≥100%; if
+	// both are maxed it goes to the one that resets later (holds overage longest).
+	extraOn5h, extraOn7d := false, false
+	if d.ExtraActive && d.ExtraUSD >= 0.01 {
+		reset5hTime, known5h := resolveReset(live5h, snap5hReset)
+		reset7dTime, known7d := resolveReset(live7d, snap7dReset)
+		at5h := pct5h >= 100.0
+		at7d := pct7d >= 100.0
+		switch {
+		case at5h && at7d:
+			if laterReset(reset7dTime, known7d, reset5hTime, known5h) {
+				extraOn7d = true
+			} else {
+				extraOn5h = true
+			}
+		case at5h:
+			extraOn5h = true
+		case at7d:
+			extraOn7d = true
+		}
+	}
+
+	// extraBlock renders the red "+$X[ extra[ usage]]" badge for the given level.
+	// Leading space separates it from the preceding reset countdown. Markers are
+	// gated on AnsiEnabled (plain callers never receive raw markers).
+	extraBlock := func(lvl Level) string {
+		var tail string
+		switch lvl {
+		case LevelFull:
+			tail = " extra usage"
+		case LevelCompact:
+			tail = " extra"
+		}
+		amt := fmt.Sprintf("+$%.2f%s", d.ExtraUSD, tail)
+		if t.AnsiEnabled {
+			return " {{color:red}}" + amt + "{{reset}}"
+		}
+		return " " + amt
+	}
+
 	switch level {
 	case LevelFull:
 		bar5h := renderer.ProgressBarColor(pct5h, t) +
@@ -153,6 +197,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 			renderer.ProgressBar10(pct7d) + colourReset
 		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
 		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
+		if extraOn5h {
+			val5h += extraBlock(LevelFull)
+		}
+		if extraOn7d {
+			val7d += extraBlock(LevelFull)
+		}
 		return fmt.Sprintf("5h: %s · 7d: %s%s", val5h, val7d, ageSuffix)
 	case LevelCompact:
 		bar5h := renderer.ProgressBarColor(pct5h, t) +
@@ -161,10 +211,25 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 			renderer.ProgressBar(pct7d) + colourReset
 		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
 		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
+		if extraOn5h {
+			val5h += extraBlock(LevelCompact)
+		}
+		if extraOn7d {
+			val7d += extraBlock(LevelCompact)
+		}
 		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	default: // LevelMinimal
+		// Minimal keeps the number even at ≥100% (it stands in place of the bar).
+		// The full quota-Minimal revision (bar-rule colour + reset countdown) is
+		// task 6.95.e; this branch only wires the extra-usage block (6.95.h).
 		val5h := boldRedWrap(pct5h, fmt.Sprintf("%d%%", pct5hInt))
 		val7d := boldRedWrap(pct7d, fmt.Sprintf("%d%%", pct7dInt))
+		if extraOn5h {
+			val5h += extraBlock(LevelMinimal)
+		}
+		if extraOn7d {
+			val7d += extraBlock(LevelMinimal)
+		}
 		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
 	}
 }
@@ -232,13 +297,7 @@ func resetColourMarker(remaining time.Duration, th resetThresholds) string {
 // unknown "↻ ??m" case. Colour markers are emitted as {{color:X}}…{{reset}} text
 // tokens; Apply()/renderer strip them when colour is off.
 func formatReset(liveRaw []byte, snapUnix int64, now time.Time, thresholds resetThresholds) string {
-	var resetTime time.Time
-	var known bool
-	if t, ok := stdin.ParseResetsAt(liveRaw); ok {
-		resetTime, known = t, true
-	} else if snapUnix > 0 {
-		resetTime, known = time.Unix(snapUnix, 0), true
-	}
+	resetTime, known := resolveReset(liveRaw, snapUnix)
 	if !known {
 		slog.Debug("quota.formatReset: reset time unknown (live + snapshot both absent); rendering ??m")
 		return "↻ ??m"
@@ -253,6 +312,39 @@ func formatReset(liveRaw []byte, snapUnix int64, now time.Time, thresholds reset
 		return text
 	}
 	return marker + text + "{{reset}}"
+}
+
+// resolveReset resolves a reset time from the freshest known source: live stdin
+// resets_at first, then the persisted snapshot reset unix. Returns (time, true)
+// when known, (zero, false) when neither source is available. Shared by
+// formatReset (countdown rendering) and the Phase 6.95.h extra-usage block
+// placement (which window resets later carries the badge).
+func resolveReset(liveRaw []byte, snapUnix int64) (time.Time, bool) {
+	if t, ok := stdin.ParseResetsAt(liveRaw); ok {
+		return t, true
+	}
+	if snapUnix > 0 {
+		return time.Unix(snapUnix, 0), true
+	}
+	return time.Time{}, false
+}
+
+// laterReset reports whether window A's reset is later than window B's, used to
+// decide which window carries the extra-usage badge when both are at 100%
+// (draft §5: attach to the window that resets later — it holds the overage
+// longest). A known reset always beats an unknown one; when both are unknown the
+// caller's A (the 7-day window) wins as the longer-lived default.
+func laterReset(a time.Time, aKnown bool, b time.Time, bKnown bool) bool {
+	switch {
+	case aKnown && bKnown:
+		return a.After(b)
+	case aKnown:
+		return true
+	case bKnown:
+		return false
+	default:
+		return true
+	}
 }
 
 // formatDuration renders a duration as "↻ <d>d.<h>h" when ≥24h,

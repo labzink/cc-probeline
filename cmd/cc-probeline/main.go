@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/mode"
@@ -310,6 +311,16 @@ func runRender(strict bool) int {
 		}
 		// C1: pass state to assembler for RenderUnified per-turn cost column.
 		d.State = captured
+
+		// Phase 6.95.h: extra-usage (paid overage). Trigger when a rate-limit
+		// window is at ≥100% AND ~/.claude.json has hasExtraUsageEnabled. On the
+		// first crossing ExtraUsageTick snapshots SessionTotal as the baseline;
+		// the overage shown is SessionTotal − baseline. Both windows below 100%
+		// clears the badge and resets the baseline (recomputed every refresh).
+		at100 := payload.RateLimits != nil &&
+			(payload.RateLimits.FiveHour.UsedPercentage >= 100 ||
+				payload.RateLimits.SevenDay.UsedPercentage >= 100)
+		d.ExtraActive, d.ExtraUSD = st.ExtraUsageTick(d.SessionTotal, at100, claudejson.HasExtraUsageEnabled())
 	}
 
 	// Detect git info for the current working directory.
