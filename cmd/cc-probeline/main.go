@@ -51,6 +51,7 @@ const (
 	modeCfgWidgets   // Phase 6.95.cfg: cc-probeline widgets <name> on|off
 	modeCfgRefresh   // Phase 6.95.cfg: cc-probeline refresh-interval <n>
 	modeCfgTableRows // Phase 6.95.cfg: cc-probeline table-rows <n>
+	modeCfgShow      // Phase 6.95.f3: cc-probeline config show
 	modeBad          // unknown flag: exit 64
 )
 
@@ -87,6 +88,8 @@ func run(args []string) int {
 		return runRefreshInterval(args[2:])
 	case modeCfgTableRows:
 		return runTableRows(args[2:])
+	case modeCfgShow:
+		return runConfigShow(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -128,6 +131,8 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeCfgRefresh, false, ""
 	case "table-rows":
 		return modeCfgTableRows, false, ""
+	case "config":
+		return modeCfgShow, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}

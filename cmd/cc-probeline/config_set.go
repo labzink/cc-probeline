@@ -9,6 +9,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,35 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/config"
 )
+
+// runConfigShow prints the effective configuration (after cascade resolution)
+// as indented JSON, so tooling such as the /cp-config wizard can read the
+// current values. Read-only: it never writes the config.
+// Usage: cc-probeline config show
+func runConfigShow(args []string) int {
+	return runConfigShowImpl(args, os.Stdout, os.Stderr)
+}
+
+func runConfigShowImpl(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 || args[0] != "show" {
+		fmt.Fprintln(stderr, "Usage: cc-probeline config show")
+		return 64
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	cfg, _, _ := config.LoadCascade(cwd)
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, "cc-probeline:", err)
+		return 2
+	}
+	fmt.Fprintln(stdout, string(data))
+	return 0
+}
 
 // runMode sets the display mode.
 // Usage: cc-probeline mode standard|super-compact

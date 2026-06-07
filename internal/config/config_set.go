@@ -14,6 +14,11 @@ import (
 // tableRowsCap is the maximum value accepted by SetTableRows.
 const tableRowsCap = 40
 
+// tableRowsFloor is the minimum value accepted by SetTableRows. Values below it
+// (including 0 and negatives) are raised to this floor so the table always
+// shows at least one row.
+const tableRowsFloor = 1
+
 // validModes lists the accepted values for SetMode.
 var validModes = []string{"standard", "super-compact"}
 
@@ -92,11 +97,16 @@ func SetRefreshInterval(path string, seconds int) error {
 }
 
 // SetTableRows atomically updates [general].table_rows in the TOML at path.
-// Values greater than tableRowsCap (40) are silently capped to tableRowsCap.
+// The value is clamped to [tableRowsFloor, tableRowsCap] = [1, 40]: values above
+// 40 are capped to 40, and values below 1 (including 0 and negatives) are raised
+// to 1 so the table always shows at least one row.
 // Round-trip semantics and file-creation behaviour mirror SetTutorialHints.
 func SetTableRows(path string, rows int) error {
 	if rows > tableRowsCap {
 		rows = tableRowsCap
+	}
+	if rows < tableRowsFloor {
+		rows = tableRowsFloor
 	}
 	cfg, err := readOrDefault(path)
 	if err != nil {

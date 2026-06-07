@@ -335,6 +335,51 @@ func TestSetTableRows_ExactlyAtCap(t *testing.T) {
 	}
 }
 
+// T-STR5: SetTableRows(0) is raised to the floor (1).
+func TestSetTableRows_Floor_0_Becomes_1(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "config.toml")
+
+	if err := config.SetTableRows(p, 0); err != nil {
+		t.Fatalf("SetTableRows(0): %v", err)
+	}
+
+	cfg := loadField(t, p)
+	if cfg.General.TableRows != 1 {
+		t.Errorf("TableRows after floor: got %d, want 1", cfg.General.TableRows)
+	}
+}
+
+// T-STR6: SetTableRows(-5) (negative) is raised to the floor (1).
+func TestSetTableRows_Floor_Negative_Becomes_1(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "config.toml")
+
+	if err := config.SetTableRows(p, -5); err != nil {
+		t.Fatalf("SetTableRows(-5): %v", err)
+	}
+
+	cfg := loadField(t, p)
+	if cfg.General.TableRows != 1 {
+		t.Errorf("TableRows after floor: got %d, want 1", cfg.General.TableRows)
+	}
+}
+
+// T-STR7: SetTableRows(1) — exactly at floor, no change.
+func TestSetTableRows_ExactlyAtFloor(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "config.toml")
+
+	if err := config.SetTableRows(p, 1); err != nil {
+		t.Fatalf("SetTableRows(1): %v", err)
+	}
+
+	cfg := loadField(t, p)
+	if cfg.General.TableRows != 1 {
+		t.Errorf("TableRows: got %d, want 1", cfg.General.TableRows)
+	}
+}
+
 // T-STR4: SetTableRows preserves other keys (round-trip).
 func TestSetTableRows_RoundTrip_OtherKeysPreserved(t *testing.T) {
 	tmp := t.TempDir()
