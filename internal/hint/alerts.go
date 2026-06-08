@@ -10,6 +10,12 @@ import (
 // AlertTexts maps each parser.CacheEventType to a printf-style template.
 // Templates that include a %s slot interpolate CacheEvent.Detail.
 //
+// Colour (embedded as {{color:X}}…{{reset}} text markers, converted by
+// renderer.Apply and stripped when colour is off): cache-rebuild and config
+// errors are red (attention/action — cache cost or a broken config), while a
+// context compaction is yellow (informational, recoverable). The %s slot sits
+// inside the markers; Detail carries no markers so interpolation is unaffected.
+//
 // Transient types (shown for 2 min, surfaced by the assembler's recency filter):
 //
 //	OrchTTL, ModelSwitched, SubagentCacheExpired, CompactHeuristic.
@@ -19,11 +25,11 @@ import (
 //
 //	ConfigError.
 var AlertTexts = map[parser.CacheEventType]string{
-	parser.OrchTTL:              "⚠ Cache rebuilt · 60-min idle TTL passed",
-	parser.ModelSwitched:        "⚠ Cache rebuilt · model switched (%s)",
-	parser.SubagentCacheExpired: "⚠ Subagent %s cache expired · 5-min gap",
-	parser.CompactHeuristic:     "⟳ Context compacted · cache rebuilt",
-	parser.ConfigError:          "⚠ Config error · run cc-probeline check-config",
+	parser.OrchTTL:              "{{color:red}}⚠ Cache rebuilt · 60-min idle TTL passed{{reset}}",
+	parser.ModelSwitched:        "{{color:red}}⚠ Cache rebuilt · model switched (%s){{reset}}",
+	parser.SubagentCacheExpired: "{{color:red}}⚠ Subagent %s cache expired · 5-min gap{{reset}}",
+	parser.CompactHeuristic:     "{{color:yellow}}⟳ Context compacted · cache rebuilt{{reset}}",
+	parser.ConfigError:          "{{color:red}}⚠ Config error · run cc-probeline check-config{{reset}}",
 }
 
 // BuildAlert returns the alert text to display, or "" when there are no events

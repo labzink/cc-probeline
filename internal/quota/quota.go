@@ -32,6 +32,12 @@ type Snapshot struct {
 	SevenDayPct   float64 // 7-day rate-limit window, used percentage (0–100)
 	FiveHourReset int64   // unix seconds when the 5-hour window resets; 0 = unknown
 	SevenDayReset int64   // unix seconds when the 7-day window resets; 0 = unknown
+
+	// HintStart is the rotating-hint starting index, persisted account-wide so it
+	// survives session_id changes and /clear. It rides in this existing global
+	// file (no separate store): each new session reads it as its first hint, then
+	// BumpHintStart advances it by one (mod hint count). Quota writes preserve it.
+	HintStart int `json:"hint_start"`
 }
 
 // quotaDir resolves the directory used for the global quota file.
@@ -154,6 +160,10 @@ func Update(s Snapshot) error {
 		return nil
 	}
 
+	// Preserve the hint-rotation offset: it is owned by Bump/HintStart, not by
+	// the quota payload, so a quota refresh must not reset it.
+	s.HintStart = existing.HintStart
+
 	data, err := json.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("quota.Update: encode: %w", err)
@@ -194,6 +204,72 @@ func Freshest() (Snapshot, bool) {
 
 	slog.Debug("quota.Freshest complete", "ts", s.TS)
 	return s, true
+}
+
+// HintStart returns the persisted rotating-hint starting index (0 when the
+// global file is absent or unreadable). Read-only: advancing the offset is the
+// job of BumpHintStart.
+func HintStart() int {
+	p := quotaPath()
+	if p == "" {
+		return 0
+	}
+	s, err := readFromPath(p)
+	if err != nil {
+		return 0
+	}
+	return s.HintStart
+}
+
+// BumpHintStart advances the persisted hint offset by one (mod total) so the
+// next session starts on the following hint. It is a no-op when total <= 0 or
+// when the global file does not yet exist — the offset rides inside quota.json
+// and we deliberately do not create that file just to hold the counter (doing so
+// would surface an empty quota block before any rate-limit data arrives).
+//
+// Read-modify-write under the same flock as Update; quota fields are preserved.
+// Fail-soft: errors are logged and swallowed (the offset is disposable).
+func BumpHintStart(total int) {
+	if total <= 0 {
+		return
+	}
+	p := quotaPath()
+	if p == "" {
+		return
+	}
+
+	fl := flock.New(p + ".lock")
+	if err := fl.Lock(); err != nil {
+		slog.Warn("quota.BumpHintStart: flock", "err", err)
+		return
+	}
+	defer fl.Unlock() //nolint:errcheck
+
+	existing, err := readFromPath(p)
+	if err != nil {
+		// Absent file → nothing to ride on yet; skip (see doc above).
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("quota.BumpHintStart: read existing", "err", err)
+		}
+		return
+	}
+
+	existing.HintStart = ((existing.HintStart % total) + 1) % total
+
+	data, err := json.Marshal(existing)
+	if err != nil {
+		slog.Warn("quota.BumpHintStart: encode", "err", err)
+		return
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		slog.Warn("quota.BumpHintStart: write tmp", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		_ = os.Remove(tmp)
+		slog.Warn("quota.BumpHintStart: rename", "err", err)
+	}
 }
 
 // readFromPath reads and decodes a Snapshot from the given file path.

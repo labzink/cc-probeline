@@ -1,0 +1,13 @@
+── hints (rotation 0–5, marker form) ──
+ℹ {{color:magenta}}Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max{{reset}}
+ℹ {{color:cyan}}⎇ git branch (worktree){{reset}} · {{color:yellow}}⚠ N modified files{{reset}}
+ℹ ctx N/M — context load (used / max window)
+ℹ {{color:green}}⏱ N — cache lives N after last request (orch ~60m · agent ~5m){{reset}}
+ℹ ↻ N — time until rate-limit reset (5h · 7d windows)
+ℹ {{dim}}⚙ /cc-probeline-config — customise your line: probes · table size · colours & more{{reset}}
+
+── alerts ──
+{{color:red}}⚠ Cache rebuilt · 60-min idle TTL passed{{reset}}
+{{color:red}}⚠ Subagent conceptualist cache expired · 5-min gap{{reset}}
+{{color:yellow}}⟳ Context compacted · cache rebuilt{{reset}}
+{{color:red}}⚠ Config error · run cc-probeline check-config{{reset}}

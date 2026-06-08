@@ -1,0 +1,4 @@
+{{dim}}me@example.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-probeline{{reset}}{{dim}} • {{reset}}5h: {{color:green}}███▒░░░░░░{{reset}} ↻ 3h:0m · 7d: {{color:green}}█▒░░░░░░░░{{reset}} ↻ 5d.0h
+opus-4-7{{dim}} • {{reset}}ctx {{color:green}}███░░░░░░░{{reset}} 60K/200K{{dim}} • {{reset}}cost: $11.39{{dim}} • {{reset}}time: 20:17{{dim}} • {{reset}}{{color:cyan}}⎇ main{{reset}}
+
+ℹ {{color:magenta}}Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max{{reset}}

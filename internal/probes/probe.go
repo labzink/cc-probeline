@@ -89,6 +89,12 @@ type Data struct {
 	// crossed 100% (SessionTotal − OverageBaseline). The extra block is shown only
 	// when ExtraActive && ExtraUSD ≥ $0.01.
 	ExtraUSD float64
+
+	// HintStart is the rotating-hint starting index for this session, read by main
+	// from quota.HintStart on the first render of a new session. The hint widget
+	// uses it only on that first render; subsequent renders follow per-session
+	// HintRotation. Account-wide so the opening hint shifts by one each session.
+	HintStart int
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

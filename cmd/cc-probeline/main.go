@@ -25,6 +25,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/cost"
+	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
@@ -368,9 +369,26 @@ func runRender(strict bool) int {
 		}
 	}
 
+	// Phase 6.95: rotating-hint start offset (account-wide, persisted in quota.json).
+	// On the first render of a new session (HintRotation not yet stamped) the
+	// opening hint is read from the global offset so it shifts by one per session
+	// (surviving /clear and new launches, which mint a fresh session_id).
+	hintFresh := st != nil && payload.SessionID != "" && st.HintRotation.LastSwitch.IsZero()
+	if hintFresh {
+		d.HintStart = quota.HintStart()
+	}
+
 	cols := renderer.DetectCols()
 	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
+
+	// Advance the account-wide offset only when the first slot was actually
+	// consumed this render (a critical alert can pre-empt it, leaving LastSwitch
+	// zero — then the next render consumes it instead). Keeps the shift exactly one
+	// per session.
+	if hintFresh && !st.HintRotation.LastSwitch.IsZero() {
+		quota.BumpHintStart(len(hint.DefaultHints))
+	}
 
 	// Phase 6.95.b: hint rotation now lives in state.Session (st.HintRotation),
 	// mutated during Render via d.State. Persist after Render so the rotation

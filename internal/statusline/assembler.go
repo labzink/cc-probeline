@@ -550,8 +550,9 @@ func (a *Assembler) hint(d probes.Data) string {
 	}
 
 	w := hint.Widget{
-		State:  rot,
-		Events: filteredEvents,
+		State:      rot,
+		StartIndex: d.HintStart,
+		Events:     filteredEvents,
 	}
 	// now was initialised above for the recency filter; reuse it here.
 	// (hypothesis insurance #3: deterministic clock for tests)

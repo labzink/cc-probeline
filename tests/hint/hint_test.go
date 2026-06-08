@@ -36,12 +36,12 @@ func TestWidget_Pick_FirstCall_RotatesToFirst(t *testing.T) {
 }
 
 // TestWidget_Pick_BeforeRotateInterval verifies that a second Pick call within
-// the 2-minute rotate interval returns the same text as the first.
+// the 60-second rotate interval returns the same text as the first.
 func TestWidget_Pick_BeforeRotateInterval(t *testing.T) {
 	w := hint.Widget{}
 	first := w.Pick(baseTime)
-	// Advance 1 minute — still within the 120-second interval.
-	second := w.Pick(baseTime.Add(1 * time.Minute))
+	// Advance 30 seconds — still within the 60-second interval.
+	second := w.Pick(baseTime.Add(30 * time.Second))
 	if first != second {
 		t.Errorf("Pick before interval changed: first=%q second=%q", first, second)
 	}
@@ -52,8 +52,8 @@ func TestWidget_Pick_BeforeRotateInterval(t *testing.T) {
 func TestWidget_Pick_AfterRotateInterval(t *testing.T) {
 	w := hint.Widget{}
 	_ = w.Pick(baseTime)
-	// Advance beyond the 120-second rotate interval.
-	got := w.Pick(baseTime.Add(2*time.Minute + 1*time.Second))
+	// Advance beyond the 60-second rotate interval.
+	got := w.Pick(baseTime.Add(60*time.Second + 1*time.Second))
 	want := hint.DefaultHints[1].Text
 	if got != want {
 		t.Errorf("Pick after interval = %q; want %q", got, want)
@@ -88,7 +88,7 @@ func TestWidget_Pick_CriticalOverride(t *testing.T) {
 		},
 	}
 	got := w.Pick(baseTime)
-	want := "⚠ Cache rebuilt · 60-min idle TTL passed"
+	want := "{{color:red}}⚠ Cache rebuilt · 60-min idle TTL passed{{reset}}"
 	if got != want {
 		t.Errorf("Pick(criticalOverride, allShown) = %q; want %q", got, want)
 	}
@@ -111,7 +111,7 @@ func TestWidget_Pick_CriticalBeforeRotation(t *testing.T) {
 	// Advance past rotate interval — without the critical override the widget
 	// would return DefaultHints[1].Text.
 	got := w.Pick(baseTime.Add(3 * time.Minute))
-	want := "⚠ Cache rebuilt · model switched (opus → sonnet)"
+	want := "{{color:red}}⚠ Cache rebuilt · model switched (opus → sonnet){{reset}}"
 	if got != want {
 		t.Errorf("Pick(criticalBeforeRotation) = %q; want %q", got, want)
 	}

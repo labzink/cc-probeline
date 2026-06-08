@@ -19,7 +19,7 @@ import (
 )
 
 // runConfigShow prints the effective configuration (after cascade resolution)
-// as indented JSON, so tooling such as the /cp-config wizard can read the
+// as indented JSON, so tooling such as the /cc-probeline-config wizard can read the
 // current values. Read-only: it never writes the config.
 // Usage: cc-probeline config show
 func runConfigShow(args []string) int {

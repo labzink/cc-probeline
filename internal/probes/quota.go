@@ -14,6 +14,31 @@ import (
 // stale. When the snapshot age exceeds this, an "as of Xm ago" suffix is added.
 const staleDuration = 10 * time.Minute
 
+// Window lengths used to decide whether a persisted snapshot's used-percentage
+// has rolled over. A snapshot is a point-in-time observation valid only until
+// its window resets; past that moment the stored percentage is meaningless.
+const (
+	fiveHourWindow = 5 * time.Hour
+	sevenDayWindow = 7 * 24 * time.Hour
+)
+
+// windowExpired reports whether a rate-limit window has rolled over since the
+// snapshot was taken, in which case its stored used-percentage must read 0
+// rather than the stale high value. Two independent signals:
+//
+//  1. reset known and in the past (reset>0 && now>=reset) — the window has
+//     definitely reset.
+//  2. reset unknown (reset==0, CC sent null) but the snapshot is older than the
+//     window length — it must have rolled over at least once.
+//
+// A window whose reset is still in the future keeps its stored percentage.
+func windowExpired(reset int64, snapTS time.Time, now time.Time, windowLen time.Duration) bool {
+	if reset > 0 {
+		return now.Unix() >= reset
+	}
+	return now.Sub(snapTS) > windowLen
+}
+
 // QuotaProbe renders quota usage for the 5-hour and 7-day rate-limit windows.
 // Data is sourced from quota.Freshest() (cross-session persistent file) with
 // d.Stdin.RateLimits as a fallback when no snapshot has been stored yet.
@@ -72,6 +97,16 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		if age > staleDuration {
 			mins := int(age.Minutes())
 			ageSuffix = fmt.Sprintf(" (as of %dm ago)", mins)
+		}
+		// A window that has rolled over since the snapshot was taken reads 0%:
+		// the stored high percentage belongs to a window that has already reset.
+		// This clears the stale-90% mirage seen after a laptop sleeps overnight
+		// or right after /clear, before CC sends a fresh rate_limits payload.
+		if windowExpired(snap.FiveHourReset, snapTime, d.Now, fiveHourWindow) {
+			pct5h = 0
+		}
+		if windowExpired(snap.SevenDayReset, snapTime, d.Now, sevenDayWindow) {
+			pct7d = 0
 		}
 		// Use current payload rate_limits for reset-countdown times (they are
 		// session-local and not stored in the snapshot).

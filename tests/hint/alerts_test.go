@@ -31,7 +31,7 @@ func TestBuildAlert_NoEvents_ReturnsEmpty(t *testing.T) {
 func TestBuildAlert_OrchTTL(t *testing.T) {
 	events := []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: alertBase}}
 	got := hint.BuildAlert(events)
-	want := "⚠ Cache rebuilt · 60-min idle TTL passed"
+	want := "{{color:red}}⚠ Cache rebuilt · 60-min idle TTL passed{{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(OrchTTL) = %q; want %q", got, want)
 	}
@@ -44,7 +44,7 @@ func TestBuildAlert_ModelSwitched_WithDetail(t *testing.T) {
 		{Type: parser.ModelSwitched, Detail: "opus-4-7 → sonnet-4-6", Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
-	want := "⚠ Cache rebuilt · model switched (opus-4-7 → sonnet-4-6)"
+	want := "{{color:red}}⚠ Cache rebuilt · model switched (opus-4-7 → sonnet-4-6){{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(ModelSwitched) = %q; want %q", got, want)
 	}
@@ -57,7 +57,7 @@ func TestBuildAlert_SubagentCacheExpired_WithDetail(t *testing.T) {
 		{Type: parser.SubagentCacheExpired, Detail: "test-writer:RED-6-9c", Timestamp: alertBase},
 	}
 	got := hint.BuildAlert(events)
-	want := "⚠ Subagent test-writer:RED-6-9c cache expired · 5-min gap"
+	want := "{{color:red}}⚠ Subagent test-writer:RED-6-9c cache expired · 5-min gap{{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(SubagentCacheExpired) = %q; want %q", got, want)
 	}
@@ -67,7 +67,7 @@ func TestBuildAlert_SubagentCacheExpired_WithDetail(t *testing.T) {
 func TestBuildAlert_CompactHeuristic_Plain(t *testing.T) {
 	events := []parser.CacheEvent{{Type: parser.CompactHeuristic, Timestamp: alertBase}}
 	got := hint.BuildAlert(events)
-	want := "⟳ Context compacted · cache rebuilt"
+	want := "{{color:yellow}}⟳ Context compacted · cache rebuilt{{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(CompactHeuristic) = %q; want %q", got, want)
 	}
@@ -97,7 +97,7 @@ func TestBuildAlert_NewestWins_SameType(t *testing.T) {
 		{Type: parser.ModelSwitched, Detail: "c→d", Timestamp: alertBase.Add(time.Second)},
 	}
 	got := hint.BuildAlert(events)
-	want := "⚠ Cache rebuilt · model switched (c→d)"
+	want := "{{color:red}}⚠ Cache rebuilt · model switched (c→d){{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(SameType/newest): got %q; want %q", got, want)
 	}
@@ -108,7 +108,7 @@ func TestBuildAlert_NewestWins_SameType(t *testing.T) {
 func TestBuildAlert_ConfigError_Fallback(t *testing.T) {
 	events := []parser.CacheEvent{{Type: parser.ConfigError}}
 	got := hint.BuildAlert(events)
-	want := "⚠ Config error · run cc-probeline check-config"
+	want := "{{color:red}}⚠ Config error · run cc-probeline check-config{{reset}}"
 	if got != want {
 		t.Errorf("BuildAlert(ConfigError) = %q; want %q", got, want)
 	}
@@ -142,6 +142,34 @@ func TestBuildAlert_CompactHeuristic_WithDetail_NoArtefact(t *testing.T) {
 	}
 	if strings.Contains(got, "%!") {
 		t.Errorf("BuildAlert(CompactHeuristic+Detail) produced fmt artefact: %q", got)
+	}
+}
+
+// TestBuildAlert_ColourByCategory pins the semantic colouring: cache-rebuild,
+// subagent-cache-expired and config-error alerts are red; context compaction is
+// yellow. Every alert type must carry exactly one colour marker.
+func TestBuildAlert_ColourByCategory(t *testing.T) {
+	cases := []struct {
+		typ        parser.CacheEventType
+		wantMarker string
+	}{
+		{parser.OrchTTL, "{{color:red}}"},
+		{parser.ModelSwitched, "{{color:red}}"},
+		{parser.SubagentCacheExpired, "{{color:red}}"},
+		{parser.CompactHeuristic, "{{color:yellow}}"},
+		{parser.ConfigError, "{{color:red}}"},
+	}
+	other := "{{color:yellow}}"
+	for _, tc := range cases {
+		events := []parser.CacheEvent{{Type: tc.typ, Detail: "x", Timestamp: alertBase}}
+		got := hint.BuildAlert(events)
+		if !strings.HasPrefix(got, tc.wantMarker) || !strings.HasSuffix(got, "{{reset}}") {
+			t.Errorf("type %v: want %s…{{reset}} wrap, got %q", tc.typ, tc.wantMarker, got)
+		}
+		// Must not carry the opposite colour marker.
+		if tc.wantMarker == "{{color:red}}" && strings.Contains(got, other) {
+			t.Errorf("type %v: unexpected yellow marker in %q", tc.typ, got)
+		}
 	}
 }
 
