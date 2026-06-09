@@ -407,4 +407,5 @@ func runRender(strict bool) int {
 // Stubs filled in by later subtasks.
 func runUninstall() int { return runUninstallImpl() } // delegated to uninstall.go (5.b)
 func runInstall() int   { return runInstallImpl() }   // delegated to install.go (5.e)
-func runCheck() int     { return 0 }                  // BL-14: --check subcommand not yet implemented
+// runCheck is implemented in check.go — delegates to runCheckImpl.
+// The stub (return 0) is removed; real validation is in check.go.
