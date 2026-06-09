@@ -19,7 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/stdin"
@@ -63,51 +62,7 @@ func TestCostProbe_UsesSessionTotal(t *testing.T) {
 	}
 }
 
-// TestCacheProbe_UsesLastRequestCost (C2+I3 / T-8) verifies that CacheProbe's
-// cost segment shows d.LastRequestCost (cost of the most recent prompt group),
-// NOT d.Stdin.Cost.TotalCostUSD.
-//
-// Setup:
-//   - d.Stdin.Cost.TotalCostUSD = 10.00  (raw cumulative)
-//   - d.LastRequestCost          = 1.25   (cost of latest prompt group)
-//
-// Expected: cost segment in output contains "$1.25", NOT "$10.00".
-//
-// RED: CacheProbe currently reads d.Stdin.Cost.TotalCostUSD → outputs "$10.00".
-func TestCacheProbe_UsesLastRequestCost(t *testing.T) {
-	p := &probes.CacheProbe{}
-	th := renderer.Theme{}
-	cfg := probes.Config{CacheEnabled: true, CostEnabled: true}
-
-	d := probes.Data{
-		Session: &parser.SessionStats{
-			Totals: parser.TokenCounts{
-				CacheRead:   5000,
-				CacheCreate: 1000,
-				Output:      2000,
-			},
-		},
-		Stdin: stdin.Payload{
-			Cost: stdin.Cost{
-				TotalCostUSD:       10.00, // raw cumulative — must NOT appear as cost in output
-				TotalAPIDurationMS: 60000,
-			},
-		},
-		LastRequestCost: 1.25, // last-request delta — must appear in output
-	}
-
-	for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
-		got := p.Render(d, cfg, th, level)
-
-		// Cost segment must show LastRequestCost.
-		if !strings.Contains(got, "$1.25") {
-			t.Errorf("C2+I3 CacheProbe.Render(level=%v): want '$1.25' (LastRequestCost) in cost segment, got %q"+
-				"\n  FIX: CacheProbe must read d.LastRequestCost, not d.Stdin.Cost.TotalCostUSD", level, got)
-		}
-		// Must NOT show the raw total.
-		if strings.Contains(got, "$10.00") {
-			t.Errorf("C2+I3 CacheProbe.Render(level=%v): must NOT show raw '$10.00' (TotalCostUSD), got %q"+
-				"\n  FIX: CacheProbe must read d.LastRequestCost", level, got)
-		}
-	}
-}
+// TestCacheProbe_UsesLastRequestCost (C2+I3 / T-8) was deleted in Phase 7 (BL-33):
+// CacheProbe was removed. The property it tested (last-request cost in the row-2
+// aggregate) is no longer relevant — the per-turn cost column in the unified
+// table is covered by tests in tests/renderer/table_redesign_test.go (T-T6).

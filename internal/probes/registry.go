@@ -31,7 +31,7 @@ var (
 
 	// Line2Registry is empty since Phase 6.9.e: the cache-aggregate row (line 2)
 	// was removed in favour of per-row cache columns + TTL suffix in the table
-	// (T-13). CacheProbe is retained for tests / config but no longer registered.
+	// (T-13). CacheProbe was deleted in Phase 7 (BL-33).
 	Line2Registry = []Probe{}
 
 	// SubagentRegistry holds the subagent status probe, rendered only in the

@@ -178,7 +178,6 @@ var (
 	_ Probe = (*EmailProbe)(nil)
 	_ Probe = (*TimeProbe)(nil)
 	_ Probe = (*CtxProbe)(nil)
-	_ Probe = (*CacheProbe)(nil)
 	_ Probe = (*QuotaProbe)(nil)
 	_ Probe = (*GitProbe)(nil)
 	_ Probe = (*SubagentProbe)(nil)

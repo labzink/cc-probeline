@@ -85,14 +85,6 @@ func dataWithCtx() probes.Data {
 	}
 }
 
-// dataWithCache returns a Data fixture that satisfies CacheProbe.Visible baseline:
-// Session is non-nil.
-func dataWithCache() probes.Data {
-	return probes.Data{
-		Session: &parser.SessionStats{},
-	}
-}
-
 // dataWithQuota returns a Data fixture that satisfies QuotaProbe.Visible:
 // QuotaEnabled=true (set via Config) AND RateLimits != nil.
 // Updated in Phase 6.5.b4: real rate_limits required for visibility.
@@ -237,13 +229,6 @@ var toggleOffCases = []probeToggleCase{
 		data:    dataWithCtx(),
 		disable: func(c *probes.Config) { c.CtxEnabled = false },
 	},
-	// T-WT9
-	{
-		name:    "T-WT9/TestToggle_CacheOff_NotVisible",
-		probe:   &probes.CacheProbe{},
-		data:    dataWithCache(),
-		disable: func(c *probes.Config) { c.CacheEnabled = false },
-	},
 	// T-WT10
 	{
 		name:    "T-WT10/TestToggle_QuotaOff_NotVisible",
@@ -280,34 +265,6 @@ func TestToggle_TableDriven_ToggleOff(t *testing.T) {
 				t.Errorf("%s: Visible() = true, want false when toggle disabled", tc.name)
 			}
 		})
-	}
-}
-
-// ----------------------------------------------------------------------------
-// T-WT16: CacheProbe dual-toggle: CacheEnabled=true, CostEnabled=false
-// ----------------------------------------------------------------------------
-
-// TestToggle_CacheDualToggle_CostHidden verifies that when CacheEnabled=true and
-// CostEnabled=false, CacheProbe.Render output does NOT contain '$' (the cost
-// segment is omitted). Documents the dual-toggle interaction.
-func TestToggle_CacheDualToggle_CostHidden(t *testing.T) {
-	p := &probes.CacheProbe{}
-	d := dataWithCache()
-	c := cfgAllOn()
-	c.CostEnabled = false // Cache on, Cost off
-
-	// Probe must be visible (CacheEnabled=true).
-	if !p.Visible(d, c) {
-		t.Fatalf("T-WT16: CacheProbe.Visible() = false, want true when CacheEnabled=true")
-	}
-
-	// Render at each level — cost segment ('$') must not appear.
-	for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
-		out := p.Render(d, c, renderer.Theme{}, level)
-		if strings.Contains(out, "$") {
-			t.Errorf("T-WT16: level %v: render output %q contains '$' (cost), want suppressed when CostEnabled=false",
-				level, out)
-		}
 	}
 }
 
@@ -438,11 +395,6 @@ func TestToggle_DefaultsAllOn_RegressionBaseline(t *testing.T) {
 	// CtxProbe: visible when ContextWindow.Size > 0.
 	if !(&probes.CtxProbe{}).Visible(dataWithCtx(), cfg) {
 		t.Error("T-WT14: CtxProbe.Visible() = false under Default() with Size>0; want true")
-	}
-
-	// CacheProbe: visible when Session is non-nil.
-	if !(&probes.CacheProbe{}).Visible(dataWithCache(), cfg) {
-		t.Error("T-WT14: CacheProbe.Visible() = false under Default() with non-nil Session; want true")
 	}
 
 	// QuotaProbe: visible when QuotaEnabled=true (already set in Default()).

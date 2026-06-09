@@ -492,40 +492,7 @@ func TestTime66_PriorityMinimal(t *testing.T) {
 	}
 }
 
-// ----------------------------------------------------------------------------
-// T-12: CacheProbe — Minimal contains TTL "⏱ Nm" when remaining > 0
-// ----------------------------------------------------------------------------
-
-// TestCache66_MinimalTTL verifies that CacheProbe.Render at LevelMinimal DOES
-// contain "⏱ Nm" when OrchTTLMinutes is set and the cache window has not expired.
-//
-// Setup: OrchTTLMinutes=60, d.Now=10:08:00, LastTimestamp=10:00:00 (8 min elapsed),
-// TurnCount=3. remaining = 60 − floor(8) = 52 → output must contain "⏱ 52m".
-//
-// RED: current CacheProbe always drops TTL from Minimal output.
-//
-// NOTE: This test conflicts with the EXISTING TestCacheProbe_TTL_Minimal which asserts
-// ⏱ is ABSENT from Minimal. That existing test reflects Phase 4.1 behaviour.
-// The GREEN dev must update TestCacheProbe_TTL_Minimal to reflect the new contract.
-func TestCache66_MinimalTTL(t *testing.T) {
-	p := &probes.CacheProbe{}
-	cfg := cfgAllOn()
-	cfg.OrchTTLMinutes = 60
-	th := renderer.Theme{}
-
-	now := time.Date(2024, 1, 1, 10, 8, 0, 0, time.UTC)
-	lastTS := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	// elapsed = 8 min → remaining = 60 - 8 = 52 → "⏱ 52m"
-	d := newCacheTTLData(1000, 2000, 500, 0.10, 60000, now, lastTS, 3)
-
-	gotMinimal := p.Render(d, cfg, th, probes.LevelMinimal)
-
-	// Minimal must now contain the TTL block.
-	if !strings.Contains(gotMinimal, "⏱ 52m") {
-		t.Errorf("Render(Minimal): want '⏱ 52m' in output, got %q", gotMinimal)
-	}
-	// Broader check: ⏱ glyph itself must be present.
-	if !strings.Contains(gotMinimal, "⏱") {
-		t.Errorf("Render(Minimal): want '⏱' TTL glyph in output, got %q", gotMinimal)
-	}
-}
+// T-12 (CacheProbe.Minimal TTL) was deleted in Phase 7 (BL-33): CacheProbe was
+// removed. The TTL colour property (green>30m, yellow≤30m, red≤10m) is covered
+// by TestCacheTTL_ColourGraduation in tests/renderer/cache_ttl_test.go, which
+// tests renderer.CacheTTL directly (the surviving component).

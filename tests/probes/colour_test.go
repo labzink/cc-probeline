@@ -380,87 +380,6 @@ func TestColour_Cost_Neutral(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
-// T-9: CacheProbe — ⏱ colour by remaining minutes
-// ----------------------------------------------------------------------------
-
-// TestColour_Cache_TTL_Colours (T-9) verifies that the ⏱Nm TTL block is
-// coloured by remaining time: ≤10m red, ≤30m yellow, >30m no colour.
-func TestColour_Cache_TTL_Colours(t *testing.T) {
-	p := &probes.CacheProbe{}
-	th := colourTheme()
-
-	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	// OrchTTL=60m. remaining = 60 - elapsed.
-	// For remaining=8m: elapsed = 52m → LastTimestamp = now - 52m.
-	// For remaining=25m: elapsed = 35m → LastTimestamp = now - 35m.
-	// For remaining=45m: elapsed = 15m → LastTimestamp = now - 15m.
-
-	cases := []struct {
-		name      string
-		remaining int // minutes remaining in TTL
-		wantESC   string
-		wantNoESC bool // true = must NOT contain ANY \x1b[
-	}{
-		{"8m remaining → red", 8, "\x1b[31m", false},
-		{"25m remaining → yellow", 25, "\x1b[33m", false},
-		{"45m remaining → no colour", 45, "", true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			orchTTL := 60
-			elapsed := orchTTL - tc.remaining
-			lastTS := now.Add(-time.Duration(elapsed) * time.Minute)
-
-			d := probes.Data{
-				Session: &parser.SessionStats{
-					Totals: parser.TokenCounts{
-						CacheRead:   1000,
-						CacheCreate: 500,
-						Output:      200,
-					},
-					LastTimestamp: lastTS,
-					TurnCount:     3,
-				},
-				Stdin: stdin.Payload{
-					Cost: stdin.Cost{
-						TotalCostUSD:       0.10,
-						TotalAPIDurationMS: 60000,
-					},
-				},
-				Now: now,
-			}
-			cfg := probes.Config{
-				CacheEnabled:   true,
-				CostEnabled:    true,
-				OrchTTLMinutes: orchTTL,
-			}
-
-			raw := p.Render(d, cfg, th, probes.LevelFull)
-			got := renderer.Apply(raw, th)
-
-			// Verify ⏱ is present (TTL block should appear).
-			if !strings.Contains(got, "⏱") {
-				t.Errorf("T-9 cache TTL (%s): output must contain ⏱, got %q", tc.name, got)
-			}
-
-			if tc.wantNoESC {
-				// The ⏱ segment must not be coloured.
-				// Check that no escape appears immediately before ⏱.
-				if strings.Contains(got, "\x1b[31m⏱") || strings.Contains(got, "\x1b[33m⏱") {
-					t.Errorf("T-9 cache TTL (%s): ⏱ must have no colour escape, got %q", tc.name, got)
-				}
-			} else {
-				if !strings.Contains(got, tc.wantESC) {
-					t.Errorf("T-9 cache TTL (%s): want %q around ⏱ in Apply output, got %q",
-						tc.name, tc.wantESC, got)
-				}
-			}
-		})
-	}
-}
-
-// ----------------------------------------------------------------------------
 // T-10: TimeProbe / EmailProbe / ProjectProbe — dim wrapper
 // ----------------------------------------------------------------------------
 
@@ -537,7 +456,6 @@ func TestColour_Regression_NoAnsi(t *testing.T) {
 	th := renderer.Theme{} // AnsiEnabled=false
 	now := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
 	resetsAt := json.RawMessage(fmt.Sprintf("%d", now.Add(2*time.Hour).Unix()))
-	lastTS := now.Add(-5 * time.Minute)
 
 	type renderFunc func() string
 
@@ -614,23 +532,6 @@ func TestColour_Regression_NoAnsi(t *testing.T) {
 				p := &probes.CostProbe{}
 				cfg := probes.Config{CostEnabled: true}
 				d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: 1.23}}}
-				return renderer.Apply(p.Render(d, cfg, th, probes.LevelFull), th)
-			},
-		},
-		{
-			"cache/ttl",
-			func() string {
-				p := &probes.CacheProbe{}
-				cfg := probes.Config{CacheEnabled: true, CostEnabled: true, OrchTTLMinutes: 60}
-				d := probes.Data{
-					Session: &parser.SessionStats{
-						Totals:        parser.TokenCounts{CacheRead: 1000, CacheCreate: 500, Output: 200},
-						LastTimestamp: lastTS,
-						TurnCount:     3,
-					},
-					Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: 0.10, TotalAPIDurationMS: 60000}},
-					Now:   now,
-				}
 				return renderer.Apply(p.Render(d, cfg, th, probes.LevelFull), th)
 			},
 		},
