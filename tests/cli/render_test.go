@@ -20,6 +20,55 @@ import (
 // binaryPath holds the path to the compiled binary built in TestMain.
 var binaryPath string
 
+// hermeticStrip lists environment keys that the host (notably GitHub Actions
+// runners) may set and that would otherwise defeat per-test HOME isolation:
+// globalConfigPath() honours XDG_CONFIG_HOME over $HOME, and CC_PROBELINE_CONFIG
+// short-circuits the whole cascade. We drop any inherited values for these so
+// only an explicit test override takes effect.
+var hermeticStrip = map[string]bool{
+	"XDG_CONFIG_HOME":     true,
+	"CC_PROBELINE_CONFIG": true,
+}
+
+// mergeEnv returns the parent environment with the given KEY=VALUE overrides
+// applied so that each key appears exactly once (override wins). Inherited
+// values for hermeticStrip keys are dropped unless an override re-adds them.
+//
+// Deduping matters because a child process with duplicate env keys has
+// platform-dependent getenv semantics (first vs last occurrence): without this,
+// a test's "HOME=<tmp>" override loses to the inherited HOME on some platforms,
+// and the binary resolves config against the real home instead of the temp one.
+func mergeEnv(overrides []string) []string {
+	vals := map[string]string{}
+	order := []string{}
+	put := func(kv string) {
+		i := strings.IndexByte(kv, '=')
+		if i < 0 {
+			return
+		}
+		k := kv[:i]
+		if _, seen := vals[k]; !seen {
+			order = append(order, k)
+		}
+		vals[k] = kv[i+1:]
+	}
+	for _, kv := range os.Environ() {
+		i := strings.IndexByte(kv, '=')
+		if i >= 0 && hermeticStrip[kv[:i]] {
+			continue
+		}
+		put(kv)
+	}
+	for _, kv := range overrides {
+		put(kv)
+	}
+	out := make([]string, 0, len(order))
+	for _, k := range order {
+		out = append(out, k+"="+vals[k])
+	}
+	return out
+}
+
 // TestMain builds the cc-probeline binary once, then runs all tests.
 // The binary is placed in a shared temp directory (not t.TempDir() so it
 // outlives individual sub-tests).
@@ -68,7 +117,7 @@ func run(t *testing.T, extraEnv []string, stdinData []byte, args ...string) (std
 	cmd := exec.Command(binaryPath, args...)
 	// Inject a fresh HOME so the binary does not touch the real ~/.claude.
 	home := t.TempDir()
-	cmd.Env = append(os.Environ(), append([]string{"HOME=" + home}, extraEnv...)...)
+	cmd.Env = mergeEnv(append([]string{"HOME=" + home}, extraEnv...))
 	if stdinData != nil {
 		cmd.Stdin = bytes.NewReader(stdinData)
 	}

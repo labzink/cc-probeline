@@ -46,7 +46,7 @@ func runCheckConfigInDir(t *testing.T, dir, home string, extraEnv []string, args
 	allArgs := append([]string{"check-config"}, args...)
 	cmd := exec.Command(binaryPath, allArgs...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), append([]string{"HOME=" + home}, extraEnv...)...)
+	cmd.Env = mergeEnv(append([]string{"HOME=" + home}, extraEnv...))
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
