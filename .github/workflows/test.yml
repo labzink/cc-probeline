@@ -1,0 +1,56 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l cmd/ internal/)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: unit tests
+        run: go test ./... -count=1
+
+      - name: perf gate (render cold-start budget = 100ms/op, specs §4.4 AC-4)
+        run: |
+          out=$(go test -tags integration -run '^$' -bench 'BenchmarkColdStart$' -benchtime=50x ./tests/integration/)
+          echo "$out"
+          ns=$(echo "$out" | awk '/^BenchmarkColdStart/ {print $3}')
+          budget=100000000
+          if [ -z "$ns" ]; then
+            echo "perf-gate: could not parse ns/op from bench output"
+            exit 1
+          fi
+          # ns/op may carry a decimal point; compare on the integer part.
+          ns_int=${ns%%.*}
+          if [ "$ns_int" -gt "$budget" ]; then
+            echo "perf-gate FAIL: ColdStart ${ns} ns/op exceeds budget ${budget} ns/op"
+            exit 1
+          fi
+          echo "perf-gate OK: ColdStart ${ns} ns/op (budget ${budget} ns/op)"

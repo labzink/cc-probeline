@@ -1,0 +1,61 @@
+# GoReleaser config — cc-probeline
+# Phase 7.0: minimal valid skeleton. The full 5-target build matrix, archives,
+# checksums, brews/scoops blocks are added in 7.a / 7.c.
+#
+# Pinned tool channel (use the same in CI / 7.b):
+#   go run github.com/goreleaser/goreleaser/v2@v2.16.0 check
+version: 2
+
+project_name: cc-probeline
+
+before:
+  hooks:
+    - go mod tidy
+
+# Explicit SCM target: the internal R&D repo has no git remote (it mirrors to the
+# public repo, where releases actually run). Declaring it explicitly keeps
+# `goreleaser check` valid regardless of the local remote.
+release:
+  github:
+    owner: labzink
+    name: cc-probeline
+
+builds:
+  - id: cc-probeline
+    main: ./cmd/cc-probeline/
+    binary: cc-probeline
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # windows/arm64 is not a target (5 platforms, not 6).
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.buildDate={{ .Date }}
+
+archives:
+  - id: cc-probeline
+    ids:
+      - cc-probeline
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
