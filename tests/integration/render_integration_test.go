@@ -2,20 +2,18 @@
 
 package integration_test
 
-// render_integration_test.go — end-to-end golden-file tests for the full
-// pipeline: JSONL fixture → parser.ParseLines+Aggregate → assembler.Render.
+// render_integration_test.go — end-to-end checks for the full render pipeline
+// (JSONL fixture → parser.ParseLines+Aggregate → assembler.Render) plus the
+// cold-start benchmark.
 //
-// Run against existing golden files:
-//
-//	go test -tags=integration ./tests/integration/ -run TestRender -v
-//
-// Re-generate golden files (after intentional output changes):
-//
-//	go test -tags=integration ./tests/integration/ -run TestRender -update -v
-//
-// Width-invariant check (every golden line fits within declared cols):
-//
-//	go test -tags=integration ./tests/integration/ -run TestGoldenWidthInvariant -v
+// NOTE (Phase 7.g, 2026-06-09): the former golden-file comparison tests
+// (TestRenderShort/Medium/Subagents/AllProbesOff + runRenderGolden + the
+// tests/fixtures/integration/golden/*.golden snapshots) were retired. Those
+// Phase 4–5 snapshots rotted across the 6.6–6.95 visual evolution and are fully
+// superseded by the maintained lean golden set in
+// tests/statusline/testdata/golden/s1..s9.txt. What remains here are the
+// non-snapshot pipeline checks (hint determinism, hint index-0 text, subagents
+// presence) and the cold-start benchmark consumed by the CI perf gate.
 //
 // Cold-start benchmark (AC-4, budget <100 ms):
 //
@@ -23,16 +21,12 @@ package integration_test
 
 import (
 	"context"
-	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/labzink/cc-probeline/internal/config"
-	"github.com/labzink/cc-probeline/internal/format"
 	"github.com/labzink/cc-probeline/internal/hint"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -41,16 +35,12 @@ import (
 	"github.com/labzink/cc-probeline/internal/statusline"
 )
 
-// updateGolden rewrites golden files instead of comparing when set to true.
-var updateGolden = flag.Bool("update", false, "rewrite golden files instead of comparing")
-
-// goldenCols is the fixed terminal width used for all golden renders.
-// Pinned so golden files remain stable across environments.
+// goldenCols is the fixed terminal width used for all pipeline renders here.
+// Pinned so output is stable across environments.
 const goldenCols = 80
 
-// goldenNow is the fixed timestamp injected via XDG_CACHE_HOME isolation and
-// hint.State seeding. Pinned to a date after the last fixture turn so hint
-// widget starts in its initial state (index 0, not rotated).
+// goldenNow is a fixed timestamp after the last fixture turn so the hint widget
+// starts in its initial state (index 0, not rotated).
 var goldenNow = time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 
 // ─── Fixture paths (relative to project root) ────────────────────────────────
@@ -60,96 +50,13 @@ const (
 	goldenFixtureMedium    = "tests/fixtures/integration/real-session-medium.jsonl"
 	goldenFixtureSubagents = "tests/fixtures/integration/real-session-subagents.jsonl"
 	goldenFixtureSubDir    = "tests/fixtures/integration/real-session-subagents"
-	goldenDir              = "tests/fixtures/integration/golden"
 )
-
-// ─── Top-level golden-file render tests ──────────────────────────────────────
-
-// defaultProbesCfg returns the probes.Config that matches config.Default()
-// (all widgets enabled). Used by golden tests to render the full pipeline as
-// users see it with no config file present.
-func defaultProbesCfg() probes.Config {
-	return config.ToProbesConfig(*config.Default())
-}
-
-// TestRenderShort tests the full pipeline on the short fixture (21 turns,
-// opus-only) in SuperCompact mode. §4.4.e AC-1.
-func TestRenderShort(t *testing.T) {
-	runRenderGolden(t, goldenFixtureShort, "", mode.SuperCompact, defaultProbesCfg(), "render-short.golden")
-}
-
-// TestRenderMedium tests the full pipeline on the medium fixture (25 turns,
-// opus-only) in Standard mode. §4.4.e AC-1.
-func TestRenderMedium(t *testing.T) {
-	runRenderGolden(t, goldenFixtureMedium, "", mode.Standard, defaultProbesCfg(), "render-medium.golden")
-}
-
-// TestRenderSubagents tests the full pipeline on the subagents fixture
-// (orchestrator + 5 subagents) in Standard mode. §4.4.e AC-1.
-func TestRenderSubagents(t *testing.T) {
-	runRenderGolden(t, goldenFixtureSubagents, goldenFixtureSubDir, mode.Standard, defaultProbesCfg(), "render-subagents.golden")
-}
-
-// TestRenderMedium_AllProbesOff verifies Phase 6 widget gating end-to-end:
-// with zero probes.Config (all XEnabled = false) the pipeline renders only
-// hint widget + subagents table. Probes (model, time, cost, cache, ...) MUST
-// be suppressed. Phase 6 §3 T-WT13 / spec-common §3 gating contract.
-func TestRenderMedium_AllProbesOff(t *testing.T) {
-	runRenderGolden(t, goldenFixtureMedium, "", mode.Standard, probes.Config{}, "render-medium-allprobes-off.golden")
-}
-
-// ─── Width-invariant check ────────────────────────────────────────────────────
-
-// TestGoldenWidthInvariant verifies that every line in every golden file has
-// visual length ≤ goldenCols. ANSI markers ({{...}}) must NOT appear in golden
-// files (plain-text invariant). §4.4.e AC-1 / §C-10.
-func TestGoldenWidthInvariant(t *testing.T) {
-	root := projectRoot(t)
-	dir := filepath.Join(root, goldenDir)
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		t.Skipf("golden directory %s not found; run -update first", dir)
-	}
-	if err != nil {
-		t.Fatalf("read golden dir: %v", err)
-	}
-
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".golden") {
-			continue
-		}
-		name := e.Name()
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(dir, name)
-			b, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
-			}
-			content := string(b)
-
-			// §C-10: golden files must not contain ANSI marker tokens.
-			if strings.Contains(content, "{{") {
-				t.Errorf("%s: contains marker token '{{...}}'; golden must be plain text", name)
-			}
-
-			// Each line must fit within goldenCols visual columns.
-			for i, line := range strings.Split(content, "\n") {
-				vl := format.VisualLen(line)
-				if vl > goldenCols {
-					t.Errorf("%s:%d: visual length %d > %d cols: %q",
-						name, i+1, vl, goldenCols, line)
-				}
-			}
-		})
-	}
-}
 
 // ─── Cold-start benchmark ─────────────────────────────────────────────────────
 
 // BenchmarkColdStart measures the full pipeline (open file → ParseLines →
 // Aggregate → Assembler.Render) on the medium fixture. Budget: <100 ms / op
-// (§4.4 AC-4). The test reports a FLAGGED FINDING when the budget is exceeded
-// but does not fail the build (deferred to Phase 7 optimization per plan).
+// (§4.4 AC-4). Consumed by the CI perf gate (.github/workflows/test.yml).
 func BenchmarkColdStart(b *testing.B) {
 	root := projectRootB(b)
 	path := filepath.Join(root, goldenFixtureMedium)
@@ -188,83 +95,6 @@ func BenchmarkColdStart(b *testing.B) {
 	if nsPerOp > budget {
 		b.Logf("FLAGGED: AC-4 perf SLA exceeded: %.1f ms/op > 100 ms budget (deferred to Phase 7)",
 			nsPerOp/1e6)
-	}
-}
-
-// ─── Core pipeline helper ─────────────────────────────────────────────────────
-
-// runRenderGolden runs the full pipeline for one fixture and either updates or
-// validates the corresponding golden file. subagentsDir is optional; when
-// non-empty, CollectSubagents is called to populate probes.Data.Subagents.
-// cfg controls Phase 6 widget gating — pass defaultProbesCfg() for the
-// all-widgets-on path or probes.Config{} for the all-off gating test.
-func runRenderGolden(t *testing.T, fixtureRel, subagentsDirRel string, m mode.Mode, cfg probes.Config, goldenName string) {
-	t.Helper()
-	root := projectRoot(t)
-
-	// Isolate hint state so each test starts with a fresh (zero) state.
-	// This ensures the hint widget always shows index 0 text and golden output
-	// is deterministic regardless of any on-disk state. §4.4.e step 2.
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-
-	// 1. Parse JSONL fixture.
-	jsonlPath := filepath.Join(root, fixtureRel)
-	records := mustOpenAndParseFile(t, jsonlPath)
-	deduped := parser.Dedup(records)
-	s := parser.Aggregate(deduped)
-
-	// 2. Optionally collect subagents.
-	var subagents []parser.SubagentStats
-	if subagentsDirRel != "" {
-		var err error
-		subagents, err = parser.CollectSubagents(context.Background(), filepath.Join(root, subagentsDirRel))
-		if err != nil {
-			t.Fatalf("CollectSubagents: %v", err)
-		}
-	}
-
-	// 3. Build probes.Data with pinned time and empty SessionID (no disk I/O
-	//    for hint state beyond the isolated XDG_CACHE_HOME tempdir).
-	d := probes.Data{
-		Session:   &s,
-		Subagents: subagents,
-		Now:       goldenNow,
-		SessionID: "golden-" + goldenName, // deterministic but non-empty
-	}
-
-	// 4. Render via Assembler with pinned Cols, zero Theme (plain text), and
-	//    Phase 6 widget gating config (passed by caller — see Test* funcs).
-	a := &statusline.Assembler{
-		Mode:   m,
-		Theme:  renderer.Theme{},
-		Cols:   goldenCols,
-		Config: cfg,
-	}
-	got := a.Render(d)
-
-	// 5. Apply theme (zero Theme → no ANSI codes emitted; output is plain text).
-	got = renderer.Apply(got, renderer.Theme{})
-
-	// 6. Compare with golden or update.
-	goldenPath := filepath.Join(root, goldenDir, goldenName)
-	if *updateGolden {
-		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("updated golden %s", goldenPath)
-		return
-	}
-
-	want, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("read golden %s (run with -update to create): %v", goldenPath, err)
-	}
-	if got != string(want) {
-		t.Errorf("render mismatch (golden=%s)\n--- want ---\n%s\n--- got ---\n%s",
-			goldenName, want, got)
 	}
 }
 
@@ -418,13 +248,3 @@ func projectRootB(b *testing.B) string {
 	}
 	return root
 }
-
-// visualLineLen returns the visual length of a line, stripping any embedded
-// marker tokens (should not appear in golden files, but guard defensively).
-func visualLineLen(line string) int {
-	return format.VisualLen(line)
-}
-
-// _ prevents "imported and not used" when visualLineLen is inlined by the compiler.
-var _ = fmt.Sprintf
-var _ = visualLineLen

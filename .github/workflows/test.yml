@@ -37,6 +37,9 @@ jobs:
       - name: unit tests
         run: go test ./... -count=1
 
+      - name: integration tests (golden snapshots)
+        run: go test -tags integration ./... -count=1
+
       - name: perf gate (render cold-start budget = 100ms/op, specs §4.4 AC-4)
         run: |
           out=$(go test -tags integration -run '^$' -bench 'BenchmarkColdStart$' -benchtime=50x ./tests/integration/)
