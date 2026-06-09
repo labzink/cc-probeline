@@ -13,8 +13,9 @@ import (
 	"time"
 )
 
-// ErrPlatformUnsupported is returned by ProjectSlug on Windows.
-// BL-9: Windows slug formula — not yet verified; deferred to Phase 7.
+// ErrPlatformUnsupported was returned by ProjectSlug on Windows before Phase 7.
+// Kept as an exported sentinel for callers that still reference it; ProjectSlug
+// no longer returns it (Windows now resolves a best-effort slug, see windowsSlug).
 var ErrPlatformUnsupported = errors.New("parser.detect: platform not supported (MVP: macOS/Linux only)")
 
 // SessionLocation is the result of DetectActiveSession.
@@ -60,22 +61,43 @@ type DetectInput struct {
 }
 
 // ProjectSlug converts an absolute CWD path to the slug Claude Code uses as
-// the directory name under ~/.claude/projects/.
+// the directory name under ~/.claude/projects/ (%USERPROFILE%\.claude\projects\
+// on Windows).
 //
 // Formula (Unix): replace every "/" in filepath.Clean(cwd) with "-".
 // Example: "/Users/me/Projects/foo" -> "-Users-me-Projects-foo".
 //
-// Returns ErrPlatformUnsupported on Windows (BL-9: formula deferred to Phase 7).
-// Returns a non-nil error if cwd is not an absolute path.
+// Formula (Windows): replace the drive colon and both path separators with "-"
+// (see windowsSlug). Example: `C:\Users\me\foo` -> "C--Users-me-foo".
+//
+// Returns a non-nil error if a Unix cwd is not an absolute path.
 func ProjectSlug(cwd string) (string, error) {
 	if runtime.GOOS == "windows" {
-		return "", ErrPlatformUnsupported
+		return windowsSlug(cwd), nil
 	}
 	clean := filepath.Clean(cwd)
 	if !filepath.IsAbs(clean) {
 		return "", fmt.Errorf("parser.detect: cwd must be absolute: %q", cwd)
 	}
 	return strings.ReplaceAll(clean, "/", "-"), nil
+}
+
+// windowsSlug canonicalizes a Windows working directory to the slug Claude Code
+// uses as the directory name under %USERPROFILE%\.claude\projects\.
+//
+// It replaces the drive-letter colon and both path separators ("\" and "/") with
+// "-": `C:\Users\me\foo` -> "C--Users-me-foo".
+//
+// BL-9 (partial): this formula is a best-effort match for Claude Code's Windows
+// canonicalization and is NOT yet verified against a real folder created on a
+// Windows install (no Windows machine was available for hands-on). It is a pure,
+// GOOS-independent string transform so it can be unit-tested cross-platform.
+//
+// Fail-soft contract: if the resolved slug does not match the real folder, the
+// caller (DetectActiveSession / main.go) finds no JSONL and renders without
+// session segments — it never crashes. When verified, drop the "partial" note.
+func windowsSlug(cwd string) string {
+	return strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(cwd)
 }
 
 // DetectActiveSession locates the JSONL transcript for the currently active
