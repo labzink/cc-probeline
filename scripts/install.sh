@@ -47,6 +47,90 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# download_release — when no local binary is found, fetch the release archive
+# for the current OS/arch from GitHub Releases, verify its SHA256 against
+# checksums.txt, extract the binary, and echo the path to the extracted binary.
+# Honours CC_PROBELINE_VERSION (e.g. "0.1.0") to pin a version; otherwise the
+# latest release is used. Diagnostics go to stderr; only the binary path is
+# written to stdout so callers can capture it.
+# ---------------------------------------------------------------------------
+REPO="labzink/cc-probeline"
+
+download_release() {
+    local rel_os="$1" rel_arch="$2"
+    local goos goarch
+    case "$rel_os" in
+        Darwin) goos=darwin ;;
+        Linux)  goos=linux ;;
+        *) echo "download_release: unsupported OS: $rel_os" >&2; return 1 ;;
+    esac
+    case "$rel_arch" in
+        x86_64|amd64)  goarch=amd64 ;;
+        arm64|aarch64) goarch=arm64 ;;
+        *) echo "download_release: unsupported arch: $rel_arch" >&2; return 1 ;;
+    esac
+
+    local ver base
+    ver="${CC_PROBELINE_VERSION:-}"
+    if [ -n "$ver" ]; then
+        ver="${ver#v}"
+        base="https://github.com/${REPO}/releases/download/v${ver}"
+    else
+        base="https://github.com/${REPO}/releases/latest/download"
+        # The archive name embeds the version, so resolve the latest tag first.
+        ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+              | grep '"tag_name"' | head -1 \
+              | sed -E 's/.*"tag_name":[[:space:]]*"v?([^"]+)".*/\1/' || true)
+        if [ -z "$ver" ]; then
+            echo "download_release: could not resolve the latest release version" >&2
+            return 1
+        fi
+    fi
+
+    local asset="cc-probeline_${ver}_${goos}_${goarch}.tar.gz"
+    local dldir
+    dldir=$(mktemp -d)
+
+    if ! curl -fsSL -o "${dldir}/${asset}" "${base}/${asset}"; then
+        echo "download_release: failed to download ${asset} from ${base}" >&2
+        return 1
+    fi
+    if ! curl -fsSL -o "${dldir}/checksums.txt" "${base}/checksums.txt"; then
+        echo "download_release: failed to download checksums.txt from ${base}" >&2
+        return 1
+    fi
+
+    # Verify SHA256 against checksums.txt (goreleaser format: "<sha256>  <file>").
+    local want got
+    want=$(grep " ${asset}\$" "${dldir}/checksums.txt" | awk '{print $1}' | head -1 || true)
+    if [ -z "$want" ]; then
+        echo "download_release: ${asset} not listed in checksums.txt" >&2
+        return 1
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        got=$(sha256sum "${dldir}/${asset}" | awk '{print $1}')
+    else
+        got=$(shasum -a 256 "${dldir}/${asset}" | awk '{print $1}')
+    fi
+    if [ "$want" != "$got" ]; then
+        echo "download_release: SHA256 mismatch for ${asset}" >&2
+        echo "  expected: $want" >&2
+        echo "  actual:   $got" >&2
+        return 1
+    fi
+
+    if ! tar -xzf "${dldir}/${asset}" -C "${dldir}"; then
+        echo "download_release: failed to extract ${asset}" >&2
+        return 1
+    fi
+    if [ ! -x "${dldir}/cc-probeline" ]; then
+        echo "download_release: cc-probeline binary not found inside ${asset}" >&2
+        return 1
+    fi
+    echo "${dldir}/cc-probeline"
+}
+
+# ---------------------------------------------------------------------------
 # Step 1: detect OS + arch.
 # ---------------------------------------------------------------------------
 os=$(uname -s)
@@ -68,8 +152,14 @@ if [ ! -x "$src" ]; then
     src="$proj_dir/cc-probeline-$os-$arch"
 fi
 if [ ! -x "$src" ]; then
-    echo "Binary not found near $self_dir; build with: go build -o cc-probeline ./cmd/cc-probeline/" >&2
-    exit 1
+    # No binary next to the script — fall back to downloading a release asset
+    # from GitHub and verifying its checksum before install.
+    echo "No local binary found; downloading from GitHub Releases..." >&2
+    src=$(download_release "$os" "$arch") || {
+        echo "Binary not found near $self_dir and release download failed." >&2
+        echo "Build locally with: go build -o cc-probeline ./cmd/cc-probeline/" >&2
+        exit 1
+    }
 fi
 
 # ---------------------------------------------------------------------------

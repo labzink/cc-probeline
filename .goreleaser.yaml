@@ -59,3 +59,28 @@ archives:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
+
+# Homebrew tap (macOS/Linux). goreleaser v2 publishes a cask (the old `brews`
+# formula key is deprecated). On a real tagged release goreleaser pushes the
+# cask to labzink/homebrew-tap using TAP_GITHUB_TOKEN (a PAT with write access
+# to that repo). On --snapshot it only renders the cask into dist/.
+homebrew_casks:
+  - name: cc-probeline
+    repository:
+      owner: labzink
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/labzink/cc-probeline"
+    description: "Status line plugin for Claude Code — model, tokens, cost, subagents"
+
+# Scoop bucket (Windows). Pushes the manifest to labzink/scoop-bucket on a real
+# release; renders into dist/ on --snapshot.
+scoops:
+  - name: cc-probeline
+    repository:
+      owner: labzink
+      name: scoop-bucket
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/labzink/cc-probeline"
+    description: "Status line plugin for Claude Code — model, tokens, cost, subagents"
+    license: MIT
