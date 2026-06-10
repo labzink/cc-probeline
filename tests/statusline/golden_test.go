@@ -248,6 +248,25 @@ func TestGoldenPlainInvariant(t *testing.T) {
 
 func renderScenario(t *testing.T, sc scenario) string {
 	t.Helper()
+	d, cfg := scenarioData(t, sc)
+
+	// Colour scenarios: render with a token theme (markers stay as {{...}}) and
+	// DO NOT Apply — the raw marker stream is the snapshot. Plain scenarios:
+	// render with the zero theme then Apply to strip everything to text.
+	if sc.colour {
+		a := statusline.Assembler{Mode: sc.mode, Theme: markerTheme(), Cols: sc.cols, Config: cfg}
+		return a.Render(d)
+	}
+	a := statusline.Assembler{Mode: sc.mode, Theme: renderer.Theme{}, Cols: sc.cols, Config: cfg}
+	return renderer.Apply(a.Render(d), renderer.Theme{})
+}
+
+// scenarioData builds the hermetic probes.Data + resolved probes.Config for a
+// scenario, mirroring cmd/cc-probeline runRender. Shared by renderScenario
+// (golden snapshots, marker/plain themes) and the SVG-frame emitter
+// (svgframes_test.go, real ANSI palette) so both observe the same pipeline.
+func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
+	t.Helper()
 	root := testutil.ProjectRoot(t)
 	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir()) // empty ⇒ quota reads payload RateLimits
 
@@ -312,16 +331,7 @@ func renderScenario(t *testing.T, sc scenario) string {
 	if cfg.EmailEnabled {
 		cfg.Email = "me@example.com"
 	}
-
-	// Colour scenarios: render with a token theme (markers stay as {{...}}) and
-	// DO NOT Apply — the raw marker stream is the snapshot. Plain scenarios:
-	// render with the zero theme then Apply to strip everything to text.
-	if sc.colour {
-		a := statusline.Assembler{Mode: sc.mode, Theme: markerTheme(), Cols: sc.cols, Config: cfg}
-		return a.Render(d)
-	}
-	a := statusline.Assembler{Mode: sc.mode, Theme: renderer.Theme{}, Cols: sc.cols, Config: cfg}
-	return renderer.Apply(a.Render(d), renderer.Theme{})
+	return d, cfg
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
