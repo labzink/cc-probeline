@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "cc-probeline",
+  "displayName": "cc-probeline",
+  "version": "0.1.0",
+  "description": "Status line upgrade for Claude Code: live tokens, approximate session cost, quota warnings, active subagents.",
+  "author": {
+    "name": "Konstantin Labzin",
+    "email": "labzin.k@gmail.com"
+  },
+  "homepage": "https://github.com/labzink/cc-probeline",
+  "repository": "https://github.com/labzink/cc-probeline",
+  "license": "MIT",
+  "keywords": ["statusline", "claude-code", "tokens", "cost", "quota", "observability"]
+}
