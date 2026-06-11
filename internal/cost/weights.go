@@ -20,6 +20,7 @@ type Weights struct {
 // familyWeights maps model family names to their relative weight table.
 // Values from the Phase 6.9 design doc "Model weights" section.
 var familyWeights = map[string]Weights{
+	"fable":  {In: 10, CacheRead: 1, CacheCreate: 12.50, Out: 50},
 	"opus":   {In: 15, CacheRead: 1.5, CacheCreate: 18.75, Out: 75},
 	"sonnet": {In: 3, CacheRead: 0.30, CacheCreate: 3.75, Out: 15},
 	"haiku":  {In: 0.80, CacheRead: 0.08, CacheCreate: 1, Out: 4},
@@ -31,6 +32,7 @@ var defaultWeights = familyWeights["sonnet"]
 
 // ModelWeights returns the relative Weights for the given model string.
 // Resolution uses family-prefix matching (version-fallback):
+//   - contains "fable"  → fable family
 //   - contains "opus"   → opus family
 //   - contains "sonnet" → sonnet family
 //   - contains "haiku"  → haiku family
@@ -38,6 +40,8 @@ var defaultWeights = familyWeights["sonnet"]
 func ModelWeights(model string) Weights {
 	lower := strings.ToLower(model)
 	switch {
+	case strings.Contains(lower, "fable"):
+		return familyWeights["fable"]
 	case strings.Contains(lower, "opus"):
 		return familyWeights["opus"]
 	case strings.Contains(lower, "haiku"):

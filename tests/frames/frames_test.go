@@ -51,9 +51,17 @@ import (
 
 // ─── Master fixture (own copy of the path constants) ─────────────────────────
 
+// Frames own a private copy of the master fixture (tests/frames/testdata/master)
+// so token/timestamp tuning for README screenshots never touches the golden
+// snapshot fixture (tests/fixtures/integration/golden-master).
 const (
-	fxMaster    = "tests/fixtures/integration/golden-master.jsonl"
-	fxMasterDir = "tests/fixtures/integration/golden-master"
+	fxMaster    = "tests/frames/testdata/master/master.jsonl"
+	fxMasterDir = "tests/frames/testdata/master/sidecar"
+	// fable variant: same master, orchestrator model = claude-fable-5 (frame 5
+	// shows the cache-rebuild cost at Fable 5 prices). Kept separate so frames
+	// 1/3 stay on Opus 4.8.
+	fxFable    = "tests/frames/testdata/master-fable/master.jsonl"
+	fxFableDir = "tests/frames/testdata/master-fable/sidecar"
 )
 
 // frameNow pins the observation moment, independent of the golden harness. Same
@@ -93,18 +101,32 @@ func scenarios() []scenario {
 	rich := richProbesCfg()
 	gitDirty := &parser.GitStatus{Branch: "agent/dev/phase-7", ModifiedCount: 3}
 	gitClean := &parser.GitStatus{Branch: "main", ModifiedCount: 0}
-	opus := stdin.Model{ID: "claude-opus-4-7", Name: "Opus 4.7"}
+	opus := stdin.Model{ID: "claude-opus-4-8", Name: "Opus 4.8"}
+	sonnet46 := stdin.Model{ID: "claude-sonnet-4-6", Name: "Sonnet 4.6"}
+	fable5 := stdin.Model{ID: "claude-fable-5", Name: "Fable 5"}
 	ctxNormal := ctxWindow(200_000, 60_000)
 	ctxWarn := ctxWindow(200_000, 156_000)
+	// Opus 4.8 advertises a 1M context window; the master session has grown to
+	// ~323K read (the newest turn), so the header bar reads 323K/1000K, matching
+	// the largest cache-read row in the table.
+	ctxOpus1M := ctxWindow(1_000_000, 323_000)
 
 	master := func(s scenario) scenario {
-		s.fixture, s.subDir = fxMaster, fxMasterDir
-		s.model = opus
+		if s.fixture == "" {
+			s.fixture, s.subDir = fxMaster, fxMasterDir
+		}
+		if s.model.ID == "" {
+			s.model = opus
+		}
 		if s.mode == "" {
 			s.mode = mode.Standard
 		}
 		if s.ccTotalUSD == 0 {
-			s.ccTotalUSD, s.durMS = 11.39, 1_217_000
+			// Honest total of the master at real Opus/Sonnet $/Mtok (== cost
+			// weights) over all 18 orch turns + 3 subagents. Reconcile distributes
+			// it ⇒ each per-turn $ is that turn's real price; header = Σ visible
+			// table + ~$0.30 (the 3 aged-off turns #1–#3 not shown).
+			s.ccTotalUSD, s.durMS = 11.27, 1_217_000
 		}
 		return s
 	}
@@ -113,22 +135,34 @@ func scenarios() []scenario {
 		// frame 1 + frame 2: full dashboard at full width.
 		master(scenario{
 			name: "s1-rich-baseline", cols: 120, cfg: rich,
-			git: gitDirty, ctx: ctxNormal, effort: stdin.Effort{Level: "high"},
-			rl: rl(35, 15, 3*time.Hour, 5*24*time.Hour),
+			git: gitDirty, ctx: ctxOpus1M, effort: stdin.Effort{Level: "high"},
+			rl: rl(30, 75, 3*time.Hour, 2*24*time.Hour), // 5h 30% (round) · 7d 75% ⇒ orange, ~2d
 		}),
-		// frame 4: two quota zones (5h red+near-reset, 7d orange), ctx warn, alert.
+		// frame 4: quota warning header — rendered WIDE (full bars). Model = Sonnet 4.6.
 		master(scenario{
-			name: "s3-quota-split-ctx-warn", cols: 80, cfg: rich,
-			git: gitClean, ctx: ctxWarn,
+			name: "s3-quota-split-ctx-warn", cols: 130, cfg: rich,
+			git: gitClean, ctx: ctxWarn, model: sonnet46,
 			rl:     rl(98, 72, 8*time.Minute, 30*time.Hour),
 			events: []parser.CacheEvent{{Type: parser.SubagentCacheExpired, Timestamp: frameNow, Detail: "conceptualist"}},
 		}),
-		// frame 3 + frame 5: both windows 100% (extra-usage + commit badge + alert).
+		// frame 3: extra-usage header — WIDE. Overage +$3.80, session $48.27, time 52:17.
 		master(scenario{
-			name: "s4-quota-100-extra-commit", cols: 80, cfg: rich,
+			name: "s4-quota-100-extra-commit", cols: 130, cfg: rich,
 			git: gitClean, ctx: ctxNormal,
 			rl:          rl(100, 100, 2*time.Hour, 5*24*time.Hour),
-			extraActive: true, extraUSD: 0.80, commitBadge: 2,
+			extraActive: true, extraUSD: 3.80, commitBadge: 2,
+			ccTotalUSD: 48.27, durMS: 3_137_000, // header cost $48.27 · time 52:17
+			events: []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: frameNow}},
+		}),
+		// frame 5: cache-rebuild table close-up — WIDE. Orchestrator = Fable 5;
+		// shows the 240K cache reread priced at Fable rates (write $12.50/MTok ⇒
+		// rebuild ≈ $3.03). Own fable fixture + honest Fable/Sonnet total.
+		master(scenario{
+			name: "s5-cache-rebuild", cols: 130, cfg: rich,
+			fixture: fxFable, subDir: fxFableDir, model: fable5,
+			git: gitClean, ctx: ctxNormal,
+			rl:         rl(100, 100, 2*time.Hour, 5*24*time.Hour),
+			ccTotalUSD: 7.72, durMS: 1_217_000,
 			events: []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: frameNow}},
 		}),
 	}
@@ -246,7 +280,11 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 // request groups (and their subagent ↳ rows) surface in the frames.
 func richProbesCfg() probes.Config {
 	c := config.ToProbesConfig(*config.Default())
-	c.TableRows = 20
+	// 18 orch turns + 3 subagents = 21 rows; cap 18 shows the newest 18 = turns
+	// #4–#18 (15) + the 3 subagents, dropping the 3 oldest (#1–#3) so the table
+	// reads as a sliding window (3 turns scrolled off the top, numbering starts
+	// at #4, not #1).
+	c.TableRows = 18
 	return c
 }
 
