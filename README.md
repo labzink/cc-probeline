@@ -17,7 +17,6 @@ brew install labzink/homebrew-tap/cc-probeline
 <sub>probe your Claude Code — [all install options](#install)</sub>
 
 ![cc-probeline full dashboard: per-turn cost table with subagent rows, cache read/write, 5h and 7d limits, context and git in a Claude Code status line](assets/screenshots/01.png)
-**Your whole session — in one line.**
 
 ## What the probe pulls out
 
@@ -25,24 +24,25 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 
 - **Every turn, priced** — not one opaque session total: a live table where each step lands with its own cost.
 - **What your subagents spend** — subagent work is invisible while it runs. The probe puts each agent on the bill, live, next to your own turns.
-- **Cache rebuilds, in dollars** — idle past the TTL, and your next turn quietly rewrites the whole cache. The probe ages it live (⏱ 60m → 0m) and prices the rebuild when it hits.
+- **Cache rebuilds, in dollars** — idle past the TTL (60 min for the orchestrator, 5 for subagents), and your next turn quietly rewrites the whole cache. The probe ages it live (⏱ 60m → 0m) and prices the rebuild when it hits.
 - **Extra usage in money, not percent** — past 100% of your plan, the overage shows up in dollars before the invoice does.
 - **5h / 7d limits with reset clocks** — watch them fill, know exactly when they free up.
+- **Colour-coded zones** — numbers shift colour as they enter warning and critical territory, so the line catches your eye exactly when it should.
 - Plus the table stakes: model, context, git, session time.
 
 ![Turn-by-turn cost table: orchestrator and subagent rows side by side, cache read/write per turn, per-turn dollars, config hint at the bottom](assets/screenshots/02.png)
-**Where your tokens and dollars actually go — turn by turn.** Orchestrator and subagents in one stream, every step priced.
+**Where the money actually goes — every turn priced, subagents included.**
 
-Make the line yours: the `/cc-probeline-config` wizard (that hint at the bottom of the frame) tunes probes, table size and colours — and writes the config for you.
+**Make it yours:** the `/cc-probeline-config` wizard (that hint at the bottom of the frame) tunes probes, table size and colours — and writes the config for you.
 
 ![Status line past the plan limit: +$3.80 extra usage shown in red next to a filled 5h bar](assets/screenshots/03.png)
-**The overage in dollars — before the invoice.** Cross 100% and the meter keeps counting: `+$3.80 extra usage`, live.
+**The moment you cross 100%, you'll see it — and the extra bill stays under your control.**
 
 ![Quota warning: 5h window at 98% with its reset clock, plus a subagent cache-expired alert](assets/screenshots/04.png)
-**A heads-up before you hit the wall.** The 5h window at 98% with its reset clock — and a subagent's cache expiring, flagged as it happens.
+**You get warned while there's still time to act — not after you've hit the wall.**
 
 ![Cache rebuild caught live: 240K tokens rewritten for $3.02, TTL countdown showing fresh 60m next to stale 0m](assets/screenshots/05.png)
-**What a cache rebuild actually costs.** One idle hour past the TTL → 240K tokens rewritten → $3.02. You see the price — and the countdown that would have warned you.
+**Cache rebuilds stop being silent — you see the price the moment they happen.**
 
 All of this comes from a single Go binary reading one local file in ~5 ms. No network calls, no credentials, nothing leaves your machine — that's [why it's called a probe](#why-its-called-a-probe).
 
@@ -128,11 +128,13 @@ brew uninstall cc-probeline      # Homebrew
 scoop uninstall cc-probeline     # Scoop
 rm "$(which cc-probeline)"       # manual / curl install
 ```
-<!-- W5: verify uninstall lines -->
+
+The installer remembers the status line you had before — uninstalling puts it back.
+<!-- W5: verify uninstall lines + the restore mechanics wording -->
 
 ## How it was built
 
-cc-probeline is an AI-built, operator-led project. A month of real product work: competitor research, a written spec, phased design and implementation. Claude wrote every line of code and produced every design; the operator owned the vision, reviewed every detail, and made every call. The full process is visible in the public commit history — you can follow it from the first planning commit forward.
+cc-probeline is an AI-built, operator-led project — a few weeks of spare-time product work: competitor research, a written spec, phased design and implementation. Claude wrote every line of code and produced every design; the operator owned the vision, reviewed every detail, and made every call. The commit history is public and reads like a build log — phase by phase, you can watch the product take shape.
 
 **Contributing:** bug reports and ideas are welcome — open an issue. Code contributions are possible, but they're not the primary path: the codebase is developed through an AI pipeline in tight collaboration with the author, so pull requests need to fit that workflow. When in doubt, open an issue first.
 
