@@ -33,6 +33,14 @@ type Snapshot struct {
 	FiveHourReset int64   // unix seconds when the 5-hour window resets; 0 = unknown
 	SevenDayReset int64   // unix seconds when the 7-day window resets; 0 = unknown
 
+	// DataTS is epoch-ms of the moment the quota DATA last actually changed
+	// (any of pct/reset differs from the previously stored snapshot). It is
+	// preserved across freshest-by-data tie-break writes that bump TS on
+	// identical data every tick (fresher() returns true via the TS tie-break).
+	// The staleness "(as of Xm ago)" suffix is computed from DataTS, not TS, so
+	// an idle machine whose data never changes correctly ages out. Phase 7.45 B1.
+	DataTS int64 `json:"data_ts"`
+
 	// HintStart is the rotating-hint starting index, persisted account-wide so it
 	// survives session_id changes and /clear. It rides in this existing global
 	// file (no separate store): each new session reads it as its first hint, then
@@ -117,6 +125,17 @@ func fresher(s, stored Snapshot) bool {
 	return false
 }
 
+// dataChanged reports whether the quota data of s differs from stored in any
+// dimension that matters for staleness: either used-percentage or reset-window.
+// Used by Update to decide whether DataTS advances (real change) or is preserved
+// (TS tie-break on identical data).
+func dataChanged(s, stored Snapshot) bool {
+	return s.FiveHourPct != stored.FiveHourPct ||
+		s.SevenDayPct != stored.SevenDayPct ||
+		s.FiveHourReset != stored.FiveHourReset ||
+		s.SevenDayReset != stored.SevenDayReset
+}
+
 // Update persists s to disk only if s carries fresher quota data than any
 // already-stored snapshot. Freshness is determined by data quality (reset
 // window, then used percentage) rather than observation timestamp alone.
@@ -163,6 +182,24 @@ func Update(s Snapshot) error {
 	// Preserve the hint-rotation offset: it is owned by Bump/HintStart, not by
 	// the quota payload, so a quota refresh must not reset it.
 	s.HintStart = existing.HintStart
+
+	// DataTS: timestamp of the last actual data change. We only reach this point
+	// when fresher() accepted the write — that is either a real data change OR a
+	// no-op TS tie-break on identical data (the bug B1 fixes). Preserve DataTS
+	// across the tie-break so the staleness age reflects when the numbers last
+	// moved, not the write time. err != nil ⇒ no readable prior snapshot ⇒ this
+	// observation originates the data.
+	switch {
+	case err != nil:
+		s.DataTS = s.TS
+	case dataChanged(s, existing):
+		s.DataTS = s.TS
+	default:
+		s.DataTS = existing.DataTS
+		if s.DataTS == 0 {
+			s.DataTS = existing.TS // migrate snapshots written before DataTS existed
+		}
+	}
 
 	data, err := json.Marshal(s)
 	if err != nil {

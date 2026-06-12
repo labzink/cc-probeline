@@ -91,9 +91,17 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	if hasFresh {
 		pct5h = snap.FiveHourPct
 		pct7d = snap.SevenDayPct
-		// Compute age suffix when snapshot is stale.
+		// snapTime is the observation time (used below for window rollover).
 		snapTime := time.UnixMilli(snap.TS)
-		age := d.Now.Sub(snapTime)
+		// Staleness age is measured from DataTS — the moment the numbers last
+		// actually changed — not the write time, which the freshest-by-data
+		// tie-break bumps to "now" every tick on unchanged data (Phase 7.45 B1).
+		// Fall back to TS for snapshots written before DataTS existed.
+		dataTime := snapTime
+		if snap.DataTS != 0 {
+			dataTime = time.UnixMilli(snap.DataTS)
+		}
+		age := d.Now.Sub(dataTime)
 		if age > staleDuration {
 			mins := int(age.Minutes())
 			ageSuffix = fmt.Sprintf(" (as of %dm ago)", mins)

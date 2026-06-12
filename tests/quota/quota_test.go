@@ -293,6 +293,59 @@ func TestQuota_Freshest(t *testing.T) {
 	})
 }
 
+// TestQuotaUpdate_DataTSFrozenOnIdenticalData (Phase 7.45 B1) verifies the
+// staleness anchor. When two payloads carry IDENTICAL data but a newer TS, the
+// freshest-by-data tie-break accepts the write and bumps TS to "now" — but DataTS
+// (the moment the numbers last actually changed) must stay pinned to the first
+// observation, so the "(as of Xm ago)" age keeps growing instead of resetting to
+// ~0 every 5-second tick.
+func TestQuotaUpdate_DataTSFrozenOnIdenticalData(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
+	t0 := time.Now().UnixMilli()
+	first := quota.Snapshot{
+		TS: t0, FiveHourPct: 55.0, SevenDayPct: 40.0,
+		FiveHourReset: 1000, SevenDayReset: 2000,
+	}
+	if err := quota.Update(first); err != nil {
+		t.Fatalf("Update(first): %v", err)
+	}
+	got, _ := quota.Freshest()
+	if got.DataTS != t0 {
+		t.Fatalf("after first write: DataTS=%d; want %d (origin)", got.DataTS, t0)
+	}
+
+	// Same data, newer TS (a tick 10 minutes later with no usage change). The
+	// tie-break accepts it and bumps TS; DataTS must NOT move.
+	t1 := t0 + 10*60*1000
+	same := first
+	same.TS = t1
+	if err := quota.Update(same); err != nil {
+		t.Fatalf("Update(same): %v", err)
+	}
+	got2, _ := quota.Freshest()
+	if got2.TS != t1 {
+		t.Errorf("TS: want %d (bumped by tie-break), got %d", t1, got2.TS)
+	}
+	if got2.DataTS != t0 {
+		t.Errorf("DataTS: want %d (frozen at origin), got %d — identical data must not reset the staleness anchor", t0, got2.DataTS)
+	}
+
+	// A real data change (higher pct in same window) advances DataTS.
+	t2 := t1 + 1000
+	changed := quota.Snapshot{
+		TS: t2, FiveHourPct: 60.0, SevenDayPct: 40.0,
+		FiveHourReset: 1000, SevenDayReset: 2000,
+	}
+	if err := quota.Update(changed); err != nil {
+		t.Fatalf("Update(changed): %v", err)
+	}
+	got3, _ := quota.Freshest()
+	if got3.DataTS != t2 {
+		t.Errorf("DataTS after real change: want %d, got %d — a genuine data change must advance the anchor", t2, got3.DataTS)
+	}
+}
+
 // TestQuotaUpdate_WindowResetAccepted (R1) verifies that when a 5h window resets
 // — incoming reset becomes 0 (null resets_at, next window not ticking) and used%
 // drops — the fresh near-zero snapshot is accepted, clearing the stale high pct.
