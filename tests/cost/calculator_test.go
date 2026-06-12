@@ -392,7 +392,7 @@ func TestReconcile_WeightedSumEqualsDelta(t *testing.T) {
 // This confirms the weight table is applied (not output-proportional fallback).
 func TestReconcile_WeightedShare(t *testing.T) {
 	// Given: two turns with identical output tokens but different model families.
-	// opus out-weight=75, haiku out-weight=4 → opus gets ~94.9% of delta.
+	// Phase 7.45 B3-1: opus out-weight=25, haiku out-weight=5 → opus gets 5/6 of delta.
 	st := &state.Session{Initialized: false}
 	ts := time.Now()
 	turns := []parser.Turn{
@@ -418,12 +418,11 @@ func TestReconcile_WeightedShare(t *testing.T) {
 		t.Errorf("TestReconcile_WeightedShare: opus cost (%.6f) must be > haiku cost (%.6f) for equal out tokens",
 			opusCost, haikuCost)
 	}
-	// Sanity: ratio should reflect weight ratio 75:4 ≈ 18.75.
-	// Allow loose check (just > 10x) to be robust to minor table changes.
+	// Sanity: ratio reflects the corrected weight ratio 25:5 = 5 (Phase 7.45 B3-1).
 	if haikuCost > 0 {
 		ratio := opusCost / haikuCost
-		if ratio < 10 {
-			t.Errorf("TestReconcile_WeightedShare: opus/haiku cost ratio = %.2f; want ≥ 10 (weights 75:4 ≈ 18.75x)", ratio)
+		if !approxEqual(ratio, 5.0) {
+			t.Errorf("TestReconcile_WeightedShare: opus/haiku cost ratio = %.4f; want 5.0 (weights 25:5)", ratio)
 		}
 	}
 }

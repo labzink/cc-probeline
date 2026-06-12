@@ -1,16 +1,16 @@
 
 
 {{dim}}┌────┬──────────────┬────────────┬─────────────┬───────┬─────────┬─────────────┐{{reset}}
-{{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.54 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
-{{dim}}│{{reset}} 14 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 276K     1K {{dim}}│{{reset}}   760 {{dim}}│{{reset}}   $0.53 {{dim}}│{{reset}} Read        {{dim}}│{{reset}}
-{{dim}}│{{reset}}↳6  {{dim}}│{{reset}} {{color:yellow}}general…urpos{{reset}}{{dim}}│{{reset}} sonnet-4-6 {{dim}}│{{reset}} 80K      1K {{dim}}│{{reset}}    2K {{dim}}│{{reset}} Σ $0.37 {{dim}}│{{reset}} WebFetch    {{dim}}│{{reset}}
-{{dim}}│{{reset}} 13 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 274K     1K {{dim}}│{{reset}}   640 {{dim}}│{{reset}}   $0.52 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
-{{dim}}│{{reset}} 12 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 272K     1K {{dim}}│{{reset}}   520 {{dim}}│{{reset}}   $0.51 {{dim}}│{{reset}} Edit        {{dim}}│{{reset}}
-{{dim}}├{{reset}} 11 {{dim}}┼{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}┼{{reset}} opus-4-7   {{dim}}┼{{reset}} 270K     1K {{dim}}┼{{reset}}   400 {{dim}}┼{{reset}}   $0.50 {{dim}}┼{{reset}} thinking... {{dim}}┤{{reset}}
-{{dim}}│ 10 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 262K     1K │   640 │   $0.50 │ Edit        │{{reset}}
-{{dim}}│  9 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 260K     1K │   520 │   $0.49 │ thinking... │{{reset}}
-{{dim}}├  8 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.48 ┼ thinking... ┤{{reset}}
-{{dim}}│↳4  │ {{color:yellow}}general…urpos{{reset}}{{dim}}│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.15 │ Bash        │{{reset}}
+{{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.48 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
+{{dim}}│{{reset}} 14 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 276K     1K {{dim}}│{{reset}}   760 {{dim}}│{{reset}}   $0.47 {{dim}}│{{reset}} Read        {{dim}}│{{reset}}
+{{dim}}│{{reset}}↳6  {{dim}}│{{reset}} {{color:yellow}}general…urpos{{reset}}{{dim}}│{{reset}} sonnet-4-6 {{dim}}│{{reset}} 80K      1K {{dim}}│{{reset}}    2K {{dim}}│{{reset}} Σ $0.99 {{dim}}│{{reset}} WebFetch    {{dim}}│{{reset}}
+{{dim}}│{{reset}} 13 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 274K     1K {{dim}}│{{reset}}   640 {{dim}}│{{reset}}   $0.46 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
+{{dim}}│{{reset}} 12 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 272K     1K {{dim}}│{{reset}}   520 {{dim}}│{{reset}}   $0.45 {{dim}}│{{reset}} Edit        {{dim}}│{{reset}}
+{{dim}}├{{reset}} 11 {{dim}}┼{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}┼{{reset}} opus-4-7   {{dim}}┼{{reset}} 270K     1K {{dim}}┼{{reset}}   400 {{dim}}┼{{reset}}   $0.44 {{dim}}┼{{reset}} thinking... {{dim}}┤{{reset}}
+{{dim}}│ 10 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 262K     1K │   640 │   $0.44 │ Edit        │{{reset}}
+{{dim}}│  9 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 260K     1K │   520 │   $0.43 │ thinking... │{{reset}}
+{{dim}}├  8 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.43 ┼ thinking... ┤{{reset}}
+{{dim}}│↳4  │ {{color:yellow}}general…urpos{{reset}}{{dim}}│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.40 │ Bash        │{{reset}}
 {{dim}}├────┼──────────────┼────────────┼─────────────┼───────┼─────────┼─────────────┤{{reset}}
 {{dim}}│{{reset}}  # {{dim}}│{{reset}} role         {{dim}}│{{reset}} model      {{dim}}│{{reset}} cache r/w   {{dim}}│{{reset}}   out {{dim}}│{{reset}}    cost {{dim}}│{{reset}} tool        {{dim}}│{{reset}}
 {{dim}}└────┴──────────────┴────────────┴─────────────┴───────┴─────────┴─────────────┘{{reset}}

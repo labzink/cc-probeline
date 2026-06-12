@@ -21,15 +21,15 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestModelWeights_VersionFallback verifies that ModelWeights resolves model
-// strings to the correct family weight table using prefix-based fallback:
-//   - "opus-*"   → opus family   (out=75, in=15, cache_read=1.5, cache_create=18.75)
+// strings to the correct family weight table using prefix-based fallback
+// (Phase 7.45 B3-1 refreshed opus/haiku and changed the default to opus):
+//   - "opus-*"   → opus family   (out=25, in=5, cache_read=0.5, cache_create=6.25)
 //   - "sonnet-*" → sonnet family (out=15, in=3, cache_read=0.30, cache_create=3.75)
-//   - "haiku-*"  → haiku family  (out=4, in=0.80, cache_read=0.08, cache_create=1)
-//   - unknown    → sonnet (default fallback)
+//   - "haiku-*"  → haiku family  (out=5, in=1, cache_read=0.10, cache_create=1.25)
+//   - unknown    → opus (default fallback — err upward for unrecognised models)
 //
-// Weight values are taken verbatim from the design table; they are relative
-// (scale does not matter, only ratios), so these assertions encode the
-// documented table as the contract.
+// Weight values are relative (scale does not matter, only ratios), so these
+// assertions encode the current model-generation table as the contract.
 func TestModelWeights_VersionFallback(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -43,10 +43,10 @@ func TestModelWeights_VersionFallback(t *testing.T) {
 		{
 			name:            "opus canonical",
 			model:           "claude-opus-4",
-			wantOut:         75,
-			wantIn:          15,
-			wantCacheRead:   1.5,
-			wantCacheCreate: 18.75,
+			wantOut:         25,
+			wantIn:          5,
+			wantCacheRead:   0.5,
+			wantCacheCreate: 6.25,
 		},
 		{
 			name:            "sonnet canonical",
@@ -59,27 +59,27 @@ func TestModelWeights_VersionFallback(t *testing.T) {
 		{
 			name:            "haiku canonical",
 			model:           "claude-haiku-3-5",
-			wantOut:         4,
-			wantIn:          0.80,
-			wantCacheRead:   0.08,
-			wantCacheCreate: 1,
+			wantOut:         5,
+			wantIn:          1,
+			wantCacheRead:   0.10,
+			wantCacheCreate: 1.25,
 		},
 		// Version-fallback: future model versions must inherit family weights.
 		{
 			name:            "opus future version opus-4-9",
 			model:           "claude-opus-4-9",
-			wantOut:         75,
-			wantIn:          15,
-			wantCacheRead:   1.5,
-			wantCacheCreate: 18.75,
+			wantOut:         25,
+			wantIn:          5,
+			wantCacheRead:   0.5,
+			wantCacheCreate: 6.25,
 		},
 		{
 			name:            "opus future major version opus-5",
 			model:           "claude-opus-5",
-			wantOut:         75,
-			wantIn:          15,
-			wantCacheRead:   1.5,
-			wantCacheCreate: 18.75,
+			wantOut:         25,
+			wantIn:          5,
+			wantCacheRead:   0.5,
+			wantCacheCreate: 6.25,
 		},
 		{
 			name:            "sonnet future version sonnet-5",
@@ -92,27 +92,27 @@ func TestModelWeights_VersionFallback(t *testing.T) {
 		{
 			name:            "haiku future version haiku-5",
 			model:           "claude-haiku-5",
-			wantOut:         4,
-			wantIn:          0.80,
-			wantCacheRead:   0.08,
-			wantCacheCreate: 1,
+			wantOut:         5,
+			wantIn:          1,
+			wantCacheRead:   0.10,
+			wantCacheCreate: 1.25,
 		},
-		// Unknown model must fall back to sonnet (documented default).
+		// Unknown / empty model must fall back to opus (documented default, B3-1).
 		{
-			name:            "unknown model falls back to sonnet",
+			name:            "unknown model falls back to opus",
 			model:           "claude-mythos-1",
-			wantOut:         15,
-			wantIn:          3,
-			wantCacheRead:   0.30,
-			wantCacheCreate: 3.75,
+			wantOut:         25,
+			wantIn:          5,
+			wantCacheRead:   0.5,
+			wantCacheCreate: 6.25,
 		},
 		{
-			name:            "empty model string falls back to sonnet",
+			name:            "empty model string falls back to opus",
 			model:           "",
-			wantOut:         15,
-			wantIn:          3,
-			wantCacheRead:   0.30,
-			wantCacheCreate: 3.75,
+			wantOut:         25,
+			wantIn:          5,
+			wantCacheRead:   0.5,
+			wantCacheCreate: 6.25,
 		},
 	}
 
