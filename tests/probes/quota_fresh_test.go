@@ -4,9 +4,12 @@
 // across sessions and applies bold_red colour when usage exceeds 95%.
 //
 // T-Q3: probe renders the freshest snapshot stored via quota.Update; when the
-//        snapshot is stale, renders "as of Xm ago" suffix.
+//
+//	snapshot is stale, renders "as of Xm ago" suffix.
+//
 // T-Q4: FiveHourPct > 95 or SevenDayPct > 95 → {{color:bold_red}} in raw render;
-//        at or below 95 → no bold_red marker.
+//
+//	at or below 95 → no bold_red marker.
 //
 // Isolation: CC_PROBELINE_QUOTA_DIR is set to t.TempDir() so tests do not
 // touch real user state files.
@@ -128,10 +131,10 @@ func TestQuotaProbe_BoldRedAbove95(t *testing.T) {
 	const boldRedMarker = "{{color:bold_red}}"
 
 	cases := []struct {
-		name         string
-		fiveHourPct  float64
-		sevenDayPct  float64
-		wantBoldRed  bool
+		name        string
+		fiveHourPct float64
+		sevenDayPct float64
+		wantBoldRed bool
 	}{
 		{
 			name:        "five_hour_above_95_triggers_bold_red",
@@ -194,5 +197,56 @@ func TestQuotaProbe_BoldRedAbove95(t *testing.T) {
 					tc.name, tc.fiveHourPct, tc.sevenDayPct, boldRedMarker, raw)
 			}
 		})
+	}
+}
+
+// TestQuotaProbe_FiveHourRoundsHalfUp (Phase 7.45 B5) verifies the asymmetric
+// display rounding: the 5-hour window rounds the shown percentage half-up (99.6
+// → "100%") so the number stops parking on 99 right before the wall, while the
+// 7-day window keeps truncation (99.6 → "99%"). Both windows carry the same
+// 99.6 here, so a single render proves the per-window difference.
+//
+// The rounding is display-only: it must NOT arm the paid-overage badge. The
+// badge is driven by d.ExtraActive (set in main from the RAW payload pct, never
+// from this rounded number), so with ExtraActive unset no "+$"/"extra" appears
+// even though the 5h number reads "100%".
+func TestQuotaProbe_FiveHourRoundsHalfUp(t *testing.T) {
+	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
+
+	p := &probes.QuotaProbe{}
+	cfg := probes.Config{QuotaEnabled: true}
+	th := renderer.Theme{} // plain-text: assert on bare digits, no colour markers
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	snap := quota.Snapshot{
+		TS:          now.UnixMilli(),
+		FiveHourPct: 99.6,
+		SevenDayPct: 99.6,
+	}
+	if err := quota.Update(snap); err != nil {
+		t.Fatalf("quota.Update: %v", err)
+	}
+
+	d := probes.Data{Now: now, Stdin: stdin.Payload{RateLimits: &stdin.RateLimits{
+		FiveHour: stdin.RateWindow{UsedPercentage: 99.6},
+		SevenDay: stdin.RateWindow{UsedPercentage: 99.6},
+	}}}
+
+	got := p.Render(d, cfg, th, probes.LevelMinimal)
+
+	// Output is "<5h> · <7d>"; split so each window is asserted independently.
+	parts := strings.SplitN(got, " · ", 2)
+	if len(parts) != 2 {
+		t.Fatalf("render %q: want two windows split by ' · '", got)
+	}
+	if !strings.Contains(parts[0], "100%") {
+		t.Errorf("5h at 99.6 must round half-up to 100%%, got %q", parts[0])
+	}
+	if !strings.Contains(parts[1], "99%") || strings.Contains(parts[1], "100%") {
+		t.Errorf("7d at 99.6 must truncate to 99%% (no rounding), got %q", parts[1])
+	}
+	// Rounded display must not leak into the paid-overage badge.
+	if strings.Contains(got, "+$") || strings.Contains(got, "extra") {
+		t.Errorf("rounded 5h display must not arm the overage badge, got %q", got)
 	}
 }

@@ -39,6 +39,24 @@ func windowExpired(reset int64, snapTS time.Time, now time.Time, windowLen time.
 	return now.Sub(snapTS) > windowLen
 }
 
+// displayPctInt converts a used-percentage to the integer shown in the status
+// line. By default it truncates (matching every other percentage display). When
+// roundUp is true it rounds half-up, so the number flips to 100 at 99.5 instead
+// of parking on 99 until a literal 100.0.
+//
+// Phase 7.45 B5: applied to the 5-hour window only. The 5h window is the one
+// that throttles soonest, so a small nudge toward "100" right before the wall is
+// worth the slight asymmetry; the 7-day window keeps truncation (its scale is
+// long enough that an early 100 would mislead, not warn). Display-only: it never
+// feeds the overage trigger or colour thresholds, which stay on the raw float —
+// so the paid-overage badge cannot fire early off a rounded number.
+func displayPctInt(pct float64, roundUp bool) int {
+	if roundUp {
+		return int(pct + 0.5) // pct is always ≥ 0, so +0.5+truncate == round-half-up
+	}
+	return int(pct)
+}
+
 // QuotaProbe renders quota usage for the 5-hour and 7-day rate-limit windows.
 // Data is sourced from quota.Freshest() (cross-session persistent file) with
 // d.Stdin.RateLimits as a fallback when no snapshot has been stored yet.
@@ -168,11 +186,11 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	// Spec §2.3: colour = ProgressBarColor(pct,t); >95 → bold_red.
 	// Phase 6.95.h: at pct ≥ 100 the number is dropped (the full bar already
 	// conveys 100%) and the extra-usage block stands in its place.
-	pctSuffix := func(pct float64) string {
+	pctSuffix := func(pct float64, roundUp bool) string {
 		if pct < 90.0 || pct >= 100.0 {
 			return ""
 		}
-		pctStr := fmt.Sprintf("%d%%", int(pct))
+		pctStr := fmt.Sprintf("%d%%", displayPctInt(pct, roundUp))
 		if pct > 95.0 {
 			return " {{color:bold_red}}" + pctStr + "{{reset}}"
 		}
@@ -216,8 +234,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	// (<50 green · <70 yellow · <90 orange · ≥90 red); pct > 95 overrides to
 	// bold_red (same rule boldRedWrap applies in Full/Compact). Markers are gated
 	// on AnsiEnabled so plain callers receive an uncoloured "NN%".
-	minimalPctColour := func(pct float64) string {
-		pctStr := fmt.Sprintf("%d%%", int(pct))
+	minimalPctColour := func(pct float64, roundUp bool) string {
+		pctStr := fmt.Sprintf("%d%%", displayPctInt(pct, roundUp))
 		if !t.AnsiEnabled {
 			return pctStr
 		}
@@ -261,8 +279,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 			renderer.ProgressBar10(pct5h) + colourReset
 		bar7d := renderer.ProgressBarColor(pct7d, t) +
 			renderer.ProgressBar10(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, true), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, false), reset7d))
 		if extraOn5h {
 			val5h += extraBlock(LevelFull)
 		}
@@ -275,8 +293,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 			renderer.ProgressBar(pct5h) + colourReset
 		bar7d := renderer.ProgressBarColor(pct7d, t) +
 			renderer.ProgressBar(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h), reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d), reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, true), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, false), reset7d))
 		if extraOn5h {
 			val5h += extraBlock(LevelCompact)
 		}
@@ -289,8 +307,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		// same rules the bar would use, and the reset countdown is kept like
 		// Compact (6.95.e). The number stays even at ≥100% — it is the only quota
 		// signal at this level (6.95.h hides it only when a bar is present).
-		val5h := minimalPctColour(pct5h) + " " + reset5h
-		val7d := minimalPctColour(pct7d) + " " + reset7d
+		val5h := minimalPctColour(pct5h, true) + " " + reset5h
+		val7d := minimalPctColour(pct7d, false) + " " + reset7d
 		if extraOn5h {
 			val5h += extraBlock(LevelMinimal)
 		}
