@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -123,69 +124,70 @@ func TestSessionTotal(t *testing.T) {
 //             does not re-compute already-fixed turns.
 // ---------------------------------------------------------------------------
 
-// TestPerTurn_DeltaStable verifies that:
-//  1. After Reconcile, per-turn costs are proportional to each turn's output tokens.
-//  2. A second Reconcile call does not overwrite already-fixed PerTurnCost entries.
+// TestPerTurn_DeltaStable verifies the stateless distribution (Phase 7.45 B2):
+//  1. Per-turn costs are proportional to each turn's output tokens (same model).
+//  2. When a new turn appears, the whole map is recomputed from SessionTotal —
+//     every in-session turn reflects the current pool (no frozen/immutable
+//     entries), and Σ PerTurn == SessionTotal.
 func TestPerTurn_DeltaStable(t *testing.T) {
-	// Given: two turns with output tokens 3000 and 1000 (3:1 ratio).
-	// First Reconcile: baseline=0, ccTotal=2.00 → delta=2.00 (all goes to turns).
-	// Expected split: turn-A gets 2.00 * (3000/4000) = 1.50, turn-B gets 0.50.
+	ts := time.Now()
+	// Given: two turns with output tokens 3000 and 1000 (3:1 ratio), newer than
+	// the baseline (primed with an empty turn slice so BaselineTurnTime=zero).
 	turns := []parser.Turn{
-		{UUID: "turn-A", Tokens: parser.TokenCounts{Output: 3000}},
-		{UUID: "turn-B", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-A", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
+		{UUID: "turn-B", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
 	}
 	st := &state.Session{Initialized: false}
-	ccTotal1 := 2.00
 
-	// Prime: first observation only initialises baseline (delta=0, cost fix).
-	cost.Reconcile(st, 0.0, int64(0), turns)
-	// When: the next Reconcile distributes the delta (ccTotal 0 → 2.00).
-	cost.Reconcile(st, ccTotal1, int64(0), turns)
+	// Prime: first observation captures baseline=0 with no in-session turns.
+	cost.Reconcile(st, 0.0, int64(0), nil)
+	// When: SessionTotal becomes 2.00, spread over the two turns.
+	cost.Reconcile(st, 2.00, int64(0), turns)
 
-	// Then: PerTurnCost is populated with output-proportional shares.
 	gotA, okA := cost.PerTurn(st, "turn-A")
 	if !okA {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-A) not found after first Reconcile")
+		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-A) not found")
 	}
 	gotB, okB := cost.PerTurn(st, "turn-B")
 	if !okB {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-B) not found after first Reconcile")
+		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-B) not found")
 	}
-	// delta=2.00, total output=4000; turn-A: 3000/4000*2.00=1.50; turn-B: 1000/4000*2.00=0.50.
+	// SessionTotal=2.00, total output=4000; A: 3000/4000*2.00=1.50; B: 0.50.
 	if !approxEqual(gotA, 1.50) {
-		t.Errorf("PerTurn(turn-A) = %.6f; want 1.50 (3/4 of delta 2.00)", gotA)
+		t.Errorf("PerTurn(turn-A) = %.6f; want 1.50 (3/4 of SessionTotal 2.00)", gotA)
 	}
 	if !approxEqual(gotB, 0.50) {
-		t.Errorf("PerTurn(turn-B) = %.6f; want 0.50 (1/4 of delta 2.00)", gotB)
+		t.Errorf("PerTurn(turn-B) = %.6f; want 0.50 (1/4 of SessionTotal 2.00)", gotB)
 	}
 
-	// When: second Reconcile with new delta (ccTotal goes from 2.00 to 3.00).
-	// Turn-A and turn-B are already fixed; only a new turn-C gets the new delta.
+	// When: a new turn-C appears and SessionTotal grows to 3.00. The map is
+	// recomputed over the full pool {A,B,C} with outputs 3000/1000/2000 = 6000.
 	turns2 := []parser.Turn{
-		{UUID: "turn-A", Tokens: parser.TokenCounts{Output: 3000}},
-		{UUID: "turn-B", Tokens: parser.TokenCounts{Output: 1000}},
-		{UUID: "turn-C", Tokens: parser.TokenCounts{Output: 2000}},
+		{UUID: "turn-A", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
+		{UUID: "turn-B", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-C", Timestamp: ts, Tokens: parser.TokenCounts{Output: 2000}},
 	}
-	ccTotal2 := 3.00
-	cost.Reconcile(st, ccTotal2, int64(0), turns2)
+	cost.Reconcile(st, 3.00, int64(0), turns2)
 
-	// Then: turn-A and turn-B must remain unchanged (immutable once fixed).
 	gotA2, _ := cost.PerTurn(st, "turn-A")
 	gotB2, _ := cost.PerTurn(st, "turn-B")
-	if !approxEqual(gotA2, 1.50) {
-		t.Errorf("PerTurn(turn-A) changed on second Reconcile: got %.6f; want 1.50 (must be immutable)", gotA2)
-	}
-	if !approxEqual(gotB2, 0.50) {
-		t.Errorf("PerTurn(turn-B) changed on second Reconcile: got %.6f; want 0.50 (must be immutable)", gotB2)
-	}
-
-	// Turn-C should now have the new delta (1.00) since it is the only new turn.
 	gotC, okC := cost.PerTurn(st, "turn-C")
 	if !okC {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-C) not found after second Reconcile")
+		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-C) not found")
+	}
+	// A: 3000/6000*3.00=1.50; B: 1000/6000*3.00=0.50; C: 2000/6000*3.00=1.00.
+	if !approxEqual(gotA2, 1.50) {
+		t.Errorf("PerTurn(turn-A) = %.6f; want 1.50 (3/6 of SessionTotal 3.00)", gotA2)
+	}
+	if !approxEqual(gotB2, 0.50) {
+		t.Errorf("PerTurn(turn-B) = %.6f; want 0.50 (1/6 of SessionTotal 3.00)", gotB2)
 	}
 	if !approxEqual(gotC, 1.00) {
-		t.Errorf("PerTurn(turn-C) = %.6f; want 1.00 (full delta for single new turn)", gotC)
+		t.Errorf("PerTurn(turn-C) = %.6f; want 1.00 (2/6 of SessionTotal 3.00)", gotC)
+	}
+	// Invariant: Σ PerTurn == SessionTotal.
+	if got, want := gotA2+gotB2+gotC, cost.SessionTotal(st, 3.00); !approxEqual(got, want) {
+		t.Errorf("Σ PerTurn = %.6f; want == SessionTotal %.6f", got, want)
 	}
 }
 
@@ -351,15 +353,16 @@ func TestReconcile_WeightedSumEqualsDelta(t *testing.T) {
 	// different models; the only tokens are output tokens to keep the scenario
 	// focused on the out-weight ratio.
 	st := &state.Session{Initialized: false}
+	ts := time.Now()
 	turns := []parser.Turn{
-		{UUID: "turn-opus-A", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
-		{UUID: "turn-haiku-B", Model: "claude-haiku-3-5", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-opus-A", Model: "claude-opus-4", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-haiku-B", Model: "claude-haiku-3-5", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
 	}
 	delta := 2.00
 
-	// Prime: first observation only initialises baseline (delta=0, cost fix).
-	cost.Reconcile(st, 0.0, int64(1000), turns)
-	// When: the next Reconcile distributes the full delta from baseline 0.
+	// Prime: first observation captures baseline=0 with no in-session turns.
+	cost.Reconcile(st, 0.0, int64(1000), nil)
+	// When: the next Reconcile spreads SessionTotal (=2.00) over the two turns.
 	cost.Reconcile(st, delta, int64(1000), turns)
 
 	// Then: the sum of per-turn costs must equal delta exactly (within 1e-9).
@@ -391,14 +394,15 @@ func TestReconcile_WeightedShare(t *testing.T) {
 	// Given: two turns with identical output tokens but different model families.
 	// opus out-weight=75, haiku out-weight=4 → opus gets ~94.9% of delta.
 	st := &state.Session{Initialized: false}
+	ts := time.Now()
 	turns := []parser.Turn{
-		{UUID: "turn-opus", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 100}},
-		{UUID: "turn-haiku", Model: "claude-haiku-3-5", Tokens: parser.TokenCounts{Output: 100}},
+		{UUID: "turn-opus", Model: "claude-opus-4", Timestamp: ts, Tokens: parser.TokenCounts{Output: 100}},
+		{UUID: "turn-haiku", Model: "claude-haiku-3-5", Timestamp: ts, Tokens: parser.TokenCounts{Output: 100}},
 	}
 
-	// Prime: first observation only initialises baseline (delta=0, cost fix).
-	cost.Reconcile(st, 0.0, int64(500), turns)
-	// When: the next Reconcile distributes delta=1.00 from baseline 0.
+	// Prime: first observation captures baseline=0 with no in-session turns.
+	cost.Reconcile(st, 0.0, int64(500), nil)
+	// When: the next Reconcile spreads SessionTotal (=1.00) over the two turns.
 	cost.Reconcile(st, 1.00, int64(500), turns)
 
 	// Then: opus share > haiku share (weight ratio 75:4).
@@ -436,24 +440,27 @@ func TestReconcile_WeightedShare(t *testing.T) {
 func TestReconcile_SubagentTurnsInPool(t *testing.T) {
 	// Given: one orchestrator turn and one sidechain (subagent) turn.
 	st := &state.Session{Initialized: false}
+	ts := time.Now()
 	turns := []parser.Turn{
 		{
 			UUID:        "orch-turn-1",
 			Model:       "claude-sonnet-4-6",
 			IsSidechain: false,
+			Timestamp:   ts,
 			Tokens:      parser.TokenCounts{Output: 500},
 		},
 		{
 			UUID:        "sub-turn-1",
 			Model:       "claude-haiku-3-5",
 			IsSidechain: true,
+			Timestamp:   ts,
 			Tokens:      parser.TokenCounts{Output: 500},
 		},
 	}
 
-	// Prime: first observation only initialises baseline (delta=0, cost fix).
-	cost.Reconcile(st, 0.0, int64(2000), turns)
-	// When: the next Reconcile distributes delta=3.00 across both turns.
+	// Prime: first observation captures baseline=0 with no in-session turns.
+	cost.Reconcile(st, 0.0, int64(2000), nil)
+	// When: the next Reconcile spreads SessionTotal (=3.00) across both turns.
 	cost.Reconcile(st, 3.00, int64(2000), turns)
 
 	// Then: both turns must have a PerTurnCost entry (sidechain is in the pool).

@@ -4,6 +4,7 @@ package cost_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -35,14 +36,15 @@ func TestReconcile_NegativeDelta(t *testing.T) {
 // TestReconcile_ZeroOutputTokens verifies equal distribution when all new turns
 // have 0 output tokens (fallback from proportional to equal-share).
 func TestReconcile_ZeroOutputTokens(t *testing.T) {
+	ts := time.Now()
 	turns := []parser.Turn{
-		{UUID: "turn-1", Tokens: parser.TokenCounts{Output: 0}},
-		{UUID: "turn-2", Tokens: parser.TokenCounts{Output: 0}},
+		{UUID: "turn-1", Timestamp: ts, Tokens: parser.TokenCounts{Output: 0}},
+		{UUID: "turn-2", Timestamp: ts, Tokens: parser.TokenCounts{Output: 0}},
 	}
 	st := &state.Session{Initialized: false}
-	// Prime: first observation only initialises baseline (delta=0, cost fix).
-	cost.Reconcile(st, 0.0, int64(0), turns)
-	// delta = 2.0 distributed equally between 2 turns → 1.0 each.
+	// Prime: first observation captures baseline=0 with no in-session turns.
+	cost.Reconcile(st, 0.0, int64(0), nil)
+	// SessionTotal=2.0 with zero weighted units → equal split → 1.0 each.
 	cost.Reconcile(st, 2.0, int64(0), turns)
 
 	got1, ok1 := cost.PerTurn(st, "turn-1")

@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/labzink/cc-probeline/internal/hint"
@@ -39,12 +40,21 @@ type Session struct {
 	// BaselineDurMS is the session duration (ms) captured alongside BaselineCost.
 	BaselineDurMS int64
 
-	// LastSeenTotal is the last ccTotal value passed to Reconcile. Used to
-	// compute the delta for per-turn cost distribution.
+	// BaselineTurnTime is the timestamp of the newest turn present at the first
+	// Reconcile call (observation start). Turns strictly newer than this are the
+	// "in-session" pool that shares SessionTotal; turns at or before it predate
+	// observation (their cost is folded into BaselineCost) and render "—".
+	// Phase 7.45 B2: replaces the incremental PerTurnCost accumulation.
+	BaselineTurnTime time.Time `json:"baseline_turn_time"`
+
+	// LastSeenTotal is the last ccTotal value passed to Reconcile. Monotonic
+	// high-water mark; used only to baseline prompt groups for LastRequest.
 	LastSeenTotal float64
 
-	// PerTurnCost maps turn UUID to its finalized USD cost. Once a turn is
-	// recorded it is never re-computed (immutable by design).
+	// PerTurnCost maps turn UUID to its USD cost for the current render. Phase
+	// 7.45 B2: recomputed from scratch each Reconcile (SessionTotal × weighted
+	// share), no longer an immutable accumulation. Persisted as a transport cache
+	// (overwritten every tick).
 	PerTurnCost map[string]float64
 
 	// PromptCost maps GroupID (1-based) to the ccTotal at the start of that

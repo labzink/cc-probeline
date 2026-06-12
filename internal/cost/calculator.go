@@ -17,145 +17,122 @@ import (
 	"github.com/labzink/cc-probeline/internal/state"
 )
 
-// Reconcile distributes the new cost delta between the previous LastSeenTotal
-// and the current ccTotal across turns that do not yet have a PerTurnCost entry.
-// Distribution is weighted by model family weights × token counts (see weights.go).
-// All turns (orchestrator and subagent/sidechain) are included in the pool.
+// Reconcile recomputes the per-turn cost map from scratch on every call
+// (Phase 7.45 B2 — stateless distribution). Instead of accumulating per-turn
+// deltas (which mis-attributed cost to the wrong turn when CC reported a turn's
+// price one tick after the turn first appeared), each tick spreads the whole
+// SessionTotal across the in-session turn pool, weighted by model family
+// weights × token counts:
 //
-// First call (st.Initialized=false): captures BaselineCost=ccTotal and
-// BaselineDurMS=durMS, sets Initialized=true. Delta = ccTotal − st.LastSeenTotal
-// (zero value = 0) is distributed among all turns present.
+//	PerTurnCost[turn] = SessionTotal × units(turn) / Σ units(pool)
 //
-// Subsequent calls: delta = ccTotal − LastSeenTotal is distributed among turns
-// whose UUID is not yet present in st.PerTurnCost. Already-fixed entries are
-// immutable (idempotent reconciliation).
+// The pool is every turn (orchestrator and subagent/sidechain) strictly newer
+// than st.BaselineTurnTime. This guarantees Σ PerTurnCost == SessionTotal
+// exactly and that the turn with the largest weighted tokens carries the
+// largest cost. No residual branch, no off-by-one, no immutability.
 //
-// LastSeenTotal is updated to ccTotal after every call.
+// First call (st.Initialized=false): captures BaselineCost=ccTotal,
+// BaselineDurMS=durMS, BaselineTurnTime=newest turn timestamp, sets
+// Initialized=true. SessionTotal is 0 at this point, so the recomputed map is
+// empty (the visible turns predate observation and render "—").
+//
+// LastSeenTotal is kept as a monotonic high-water mark used only to baseline
+// prompt groups for LastRequest; it never drives the per-turn distribution.
 func Reconcile(st *state.Session, ccTotal float64, durMS int64, turns []parser.Turn) {
 	slog.Debug("cost.Reconcile start", "initialized", st.Initialized, "ccTotal", ccTotal, "durMS", durMS, "turns", len(turns))
 
 	if !st.Initialized {
-		// First observation for this session_id: capture baselines and record
-		// LastSeenTotal=ccTotal so the first delta is 0. Distributing ccTotal here
-		// would dump the entire pre-session cost onto whatever turns happen to be
-		// visible at first render — and re-dump it on every re-initialisation —
-		// inflating Σ PerTurnCost far beyond ccTotal (observed $389 vs $116).
-		// Per-turn costs accrue only from subsequent ccTotal deltas.
 		st.BaselineCost = ccTotal
 		st.BaselineDurMS = durMS
+		st.BaselineTurnTime = maxTurnTime(turns)
 		st.LastSeenTotal = ccTotal
 		st.Initialized = true
-		slog.Info("cost.Reconcile baseline captured", "baseline", ccTotal, "baselineDurMS", durMS)
+		recomputePerTurn(st, ccTotal, turns)
+		slog.Info("cost.Reconcile baseline captured", "baseline", ccTotal, "baselineDurMS", durMS, "baselineTurnTime", st.BaselineTurnTime)
 		return
 	}
 
-	// Compute the cost delta since last reconcile. LastSeenTotal is a monotonic
-	// high-water mark: if ccTotal dropped below it (a transient CC value, or a
-	// /clear that wrongly reused the session_id), do NOT lower LastSeenTotal and
-	// distribute nothing. Lowering it would make a later rise back to the mark
-	// look like a fresh delta and re-distribute already-attributed cost — the
-	// dip→rise double-count that inflated Σ PerTurnCost to $229 vs ccTotal $129.
-	delta := ccTotal - st.LastSeenTotal
-	if delta <= 0 {
-		slog.Warn("cost.Reconcile ccTotal at/below high-water mark; skipping", "ccTotal", ccTotal, "lastSeen", st.LastSeenTotal)
-		return
+	// Record PromptCost[groupID] = cost at the start of each newly seen group,
+	// using the pre-rise LastSeenTotal (the running total when the group began).
+	// LastRequest = ccTotal − PromptCost[group].
+	if st.PromptCost == nil {
+		st.PromptCost = make(map[int]float64)
 	}
-
-	// Collect turns without a PerTurnCost entry (new turns only).
-	var newTurns []parser.Turn
 	for _, t := range turns {
-		if _, fixed := st.PerTurnCost[t.UUID]; !fixed {
-			newTurns = append(newTurns, t)
-		}
-	}
-
-	// Record PromptCost[groupID] = cost at the start of each new group.
-	// The start-of-group cost is st.LastSeenTotal (cost before this delta).
-	// Only record groups not yet tracked (first time we see turns from that group).
-	if len(newTurns) > 0 {
-		if st.PromptCost == nil {
-			st.PromptCost = make(map[int]float64)
-		}
-		for _, t := range newTurns {
-			if t.GroupID > 0 {
-				if _, seen := st.PromptCost[t.GroupID]; !seen {
-					st.PromptCost[t.GroupID] = st.LastSeenTotal
-				}
+		if t.GroupID > 0 {
+			if _, seen := st.PromptCost[t.GroupID]; !seen {
+				st.PromptCost[t.GroupID] = st.LastSeenTotal
 			}
 		}
 	}
 
-	if len(newTurns) > 0 {
-		if st.PerTurnCost == nil {
-			st.PerTurnCost = make(map[string]float64, len(newTurns))
-		}
-
-		// Compute weighted units for each new turn using model family weights.
-		type weightedTurn struct {
-			turn  parser.Turn
-			units float64
-		}
-		weighted := make([]weightedTurn, len(newTurns))
-		var totalUnits float64
-		for i, t := range newTurns {
-			w := ModelWeights(t.Model)
-			units := float64(t.Tokens.Input)*w.In +
-				float64(t.Tokens.CacheRead)*w.CacheRead +
-				float64(t.Tokens.CacheCreate)*w.CacheCreate +
-				float64(t.Tokens.Output)*w.Out
-			weighted[i] = weightedTurn{turn: t, units: units}
-			totalUnits += units
-		}
-
-		if totalUnits > 0 {
-			// Distribute delta proportionally to weighted units: Σ cost = Δ exactly.
-			for _, wt := range weighted {
-				share := wt.units / totalUnits
-				st.PerTurnCost[wt.turn.UUID] = delta * share
-			}
-		} else {
-			// All new turns have zero token counts: distribute equally (spec §2.3 Σunits=0 fallback).
-			perTurn := delta / float64(len(newTurns))
-			for _, wt := range weighted {
-				st.PerTurnCost[wt.turn.UUID] = perTurn
-			}
-		}
-		slog.Debug("cost.Reconcile distributed", "delta", delta, "newTurns", len(newTurns), "totalUnits", totalUnits)
-	} else {
-		// Residual delta with no new turns (variant A): the cost accrued on an
-		// already-fixed turn — its streaming cost landed after we first recorded it.
-		// Attribute the whole delta to the most recent turn so Σ PerTurnCost stays
-		// equal to SessionTotal (= LastSeenTotal − BaselineCost). Without this the
-		// delta was silently dropped while LastSeenTotal still advanced, leaking the
-		// table-vs-cost gap (observed ~$0.40 across 90 turns).
-		if uuid := latestTurnUUID(turns); uuid != "" {
-			if st.PerTurnCost == nil {
-				st.PerTurnCost = make(map[string]float64, 1)
-			}
-			st.PerTurnCost[uuid] += delta
-			slog.Debug("cost.Reconcile residual delta to latest turn", "delta", delta, "uuid", uuid)
-		}
+	// LastSeenTotal is a monotonic high-water mark: a transient CC dip must not
+	// lower it, else a later rise back would mis-baseline a prompt group.
+	if ccTotal > st.LastSeenTotal {
+		st.LastSeenTotal = ccTotal
 	}
 
-	st.LastSeenTotal = ccTotal
+	recomputePerTurn(st, ccTotal, turns)
 }
 
-// latestTurnUUID returns the UUID of the turn with the greatest Timestamp.
-// Used to attribute a residual cost delta (no new turns this cycle) to the turn
-// still accruing cost. Returns "" when turns is empty or all UUIDs are blank.
-func latestTurnUUID(turns []parser.Turn) string {
-	var uuid string
-	var latest time.Time
+// recomputePerTurn rebuilds st.PerTurnCost for the current tick: SessionTotal
+// (ccTotal − BaselineCost, clamped at 0) spread across the pool of turns newer
+// than BaselineTurnTime, weighted by model family weights × token counts. When
+// the pool has zero total weighted units it falls back to an equal split; an
+// empty pool yields an empty map (every visible turn renders "—").
+func recomputePerTurn(st *state.Session, ccTotal float64, turns []parser.Turn) {
+	sessionTotal := ccTotal - st.BaselineCost
+	if sessionTotal < 0 {
+		sessionTotal = 0
+	}
+
+	type weightedTurn struct {
+		uuid  string
+		units float64
+	}
+	var pool []weightedTurn
+	var totalUnits float64
 	for _, t := range turns {
-		if t.UUID == "" {
+		if t.UUID == "" || !t.Timestamp.After(st.BaselineTurnTime) {
 			continue
 		}
-		if uuid == "" || t.Timestamp.After(latest) {
-			uuid = t.UUID
-			latest = t.Timestamp
+		w := ModelWeights(t.Model)
+		units := float64(t.Tokens.Input)*w.In +
+			float64(t.Tokens.CacheRead)*w.CacheRead +
+			float64(t.Tokens.CacheCreate)*w.CacheCreate +
+			float64(t.Tokens.Output)*w.Out
+		pool = append(pool, weightedTurn{uuid: t.UUID, units: units})
+		totalUnits += units
+	}
+
+	m := make(map[string]float64, len(pool))
+	switch {
+	case len(pool) == 0:
+		// nothing in session yet
+	case totalUnits > 0:
+		for _, p := range pool {
+			m[p.uuid] = sessionTotal * p.units / totalUnits
+		}
+	default:
+		per := sessionTotal / float64(len(pool))
+		for _, p := range pool {
+			m[p.uuid] = per
 		}
 	}
-	return uuid
+	st.PerTurnCost = m
+	slog.Debug("cost.recomputePerTurn", "sessionTotal", sessionTotal, "pool", len(pool), "totalUnits", totalUnits)
+}
+
+// maxTurnTime returns the newest Timestamp among the given turns, or the zero
+// time when turns is empty. Used to fix BaselineTurnTime at observation start.
+func maxTurnTime(turns []parser.Turn) time.Time {
+	var max time.Time
+	for _, t := range turns {
+		if t.Timestamp.After(max) {
+			max = t.Timestamp
+		}
+	}
+	return max
 }
 
 // SessionDuration returns the API duration elapsed since the baseline was
