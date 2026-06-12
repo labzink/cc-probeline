@@ -85,6 +85,14 @@ type Session struct {
 	// OverageActive reports whether the extra-usage badge is currently armed: a
 	// rate-limit window is at ≥100% AND ~/.claude.json has hasExtraUsageEnabled.
 	OverageActive bool `json:"overage_active"`
+
+	// PrevQuotaPct and PrevQuotaTotal record the previous refresh's binding quota
+	// percentage (max of the two windows) and SessionTotal. They let the first
+	// 100%-crossing count only the portion of the crossing turn's cost that lies
+	// above the 100% line, proportional to how far past 100 the window moved this
+	// tick (Phase 7.45 B4). Recorded every tick, independent of the badge state.
+	PrevQuotaPct   float64 `json:"prev_quota_pct"`
+	PrevQuotaTotal float64 `json:"prev_quota_total"`
 }
 
 // CommitBadge is the transient post-commit indicator state. Count is the number
@@ -119,15 +127,39 @@ func (s *Session) CommitBadgeTick(prevModified, currModified int, gitOK bool) in
 // ExtraUsageTick advances the extra-usage (paid overage) state for one refresh
 // and returns whether the badge is active and the overage USD to display.
 //
-// trigger = at100 (a rate-limit window ≥100%) AND hasExtra (~/.claude.json
-// hasExtraUsageEnabled). On the first refresh where trigger holds, sessionTotal
-// is snapshotted as the baseline; the overage returned is sessionTotal − baseline
-// (clamped at 0). When trigger is false the badge clears and the baseline resets
-// to 0 — recomputed every refresh, never sticky.
-func (s *Session) ExtraUsageTick(sessionTotal float64, at100, hasExtra bool) (active bool, usd float64) {
-	if at100 && hasExtra {
+// pct is the binding rate-limit percentage (max of the 5h/7d windows); the badge
+// arms when pct ≥ 100 AND hasExtra (~/.claude.json hasExtraUsageEnabled).
+//
+// Phase 7.45 B4 — proportional crossing tail. On the first refresh that crosses
+// 100%, the cost added this tick (sessionTotal − prevTotal) is the crossing
+// turn's cost; only the fraction of it that lies above the 100% line counts as
+// extra:
+//
+//	tail = (sessionTotal − prevTotal) × (pct − 100) / (pct − prevPct)
+//
+// so the baseline is sessionTotal − tail (not the full sessionTotal as before,
+// which silently dropped the crossing turn's overage). If CC clips pct at 100 the
+// fraction is 0 → tail 0 → identical to the old behaviour. The tail is only taken
+// when a genuine sub-100 previous reading exists (prevPct in (0,100)); a cold
+// start (prevPct == 0) or an already-over window takes no tail.
+//
+// When the trigger is false the badge clears and the baseline resets to 0 —
+// recomputed every refresh, never sticky.
+func (s *Session) ExtraUsageTick(sessionTotal, pct float64, hasExtra bool) (active bool, usd float64) {
+	prevPct, prevTotal := s.PrevQuotaPct, s.PrevQuotaTotal
+	// Record this tick for the next call — always, so the reading immediately
+	// before a crossing is available regardless of badge state.
+	s.PrevQuotaPct, s.PrevQuotaTotal = pct, sessionTotal
+
+	if pct >= 100 && hasExtra {
 		if !s.OverageActive {
-			s.OverageBaseline = sessionTotal
+			tail := 0.0
+			if prevPct > 0 && prevPct < 100 && pct > prevPct {
+				if turnCost := sessionTotal - prevTotal; turnCost > 0 {
+					tail = turnCost * (pct - 100) / (pct - prevPct)
+				}
+			}
+			s.OverageBaseline = sessionTotal - tail
 			s.OverageActive = true
 		}
 		over := sessionTotal - s.OverageBaseline

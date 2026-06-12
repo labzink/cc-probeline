@@ -323,10 +323,17 @@ func runRender(strict bool) int {
 		// first crossing ExtraUsageTick snapshots SessionTotal as the baseline;
 		// the overage shown is SessionTotal − baseline. Both windows below 100%
 		// clears the badge and resets the baseline (recomputed every refresh).
-		at100 := payload.RateLimits != nil &&
-			(payload.RateLimits.FiveHour.UsedPercentage >= 100 ||
-				payload.RateLimits.SevenDay.UsedPercentage >= 100)
-		d.ExtraActive, d.ExtraUSD = st.ExtraUsageTick(d.SessionTotal, at100, claudejson.HasExtraUsageEnabled())
+		// B4 (Phase 7.45): pass the binding quota percentage (max of the two
+		// windows) so the first 100%-crossing counts the proportional tail of the
+		// crossing turn (see state.ExtraUsageTick). nil payload reports pct 0.
+		quotaPct := 0.0
+		if payload.RateLimits != nil {
+			quotaPct = payload.RateLimits.FiveHour.UsedPercentage
+			if payload.RateLimits.SevenDay.UsedPercentage > quotaPct {
+				quotaPct = payload.RateLimits.SevenDay.UsedPercentage
+			}
+		}
+		d.ExtraActive, d.ExtraUSD = st.ExtraUsageTick(d.SessionTotal, quotaPct, claudejson.HasExtraUsageEnabled())
 	}
 
 	// Detect git info for the current working directory.
