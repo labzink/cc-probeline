@@ -99,8 +99,9 @@ type scenario struct {
 	commitBadge int
 	events      []parser.CacheEvent
 
-	model  stdin.Model
-	effort stdin.Effort
+	model     stdin.Model
+	effort    stdin.Effort
+	hintStart int // hint.DefaultHints index this frame opens on (0 = Reasoning legend)
 }
 
 // scenarios returns ONLY the scenarios the README frames are built from. Edit
@@ -146,11 +147,20 @@ func scenarios() []scenario {
 	}
 
 	return []scenario{
-		// frame 1 + frame 2: full dashboard at full width.
+		// frame 1: full dashboard at full width. Hint = Reasoning legend (#0).
 		master(scenario{
 			name: "s1-rich-baseline", cols: 120, cfg: rich,
 			git: gitDirty, ctx: ctxOpus1M, effort: stdin.Effort{Level: "high"},
 			rl: rl(30, 75, 3*time.Hour, 2*24*time.Hour), // 5h 30% (round) · 7d 75% ⇒ orange, ~2d
+		}),
+		// frame 2: same dashboard, cropped to the table close-up. Distinct hint —
+		// the config tip (#5: ⚙ /cc-probeline-config) so it doesn't repeat the
+		// Reasoning legend frame 1 already shows.
+		master(scenario{
+			name: "s2-table-config-hint", cols: 120, cfg: rich,
+			git: gitDirty, ctx: ctxOpus1M, effort: stdin.Effort{Level: "high"},
+			rl:        rl(30, 75, 3*time.Hour, 2*24*time.Hour),
+			hintStart: 5,
 		}),
 		// frame 4: quota warning header — rendered WIDE (full bars). Model = Sonnet 4.6.
 		master(scenario{
@@ -275,6 +285,7 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 		CommitBadgeCount: sc.commitBadge,
 		ExtraActive:      sc.extraActive,
 		ExtraUSD:         sc.extraUSD,
+		HintStart:        sc.hintStart,
 	}
 	d.SessionTotal = cost.SessionTotal(st, sc.ccTotalUSD)
 	d.SessionDurMS = cost.SessionDuration(st, sc.durMS)
