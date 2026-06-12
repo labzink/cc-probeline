@@ -27,7 +27,7 @@ package frames_test
 //	frame 2 (table close-up)                → s1-rich-baseline        (crop table)
 //	frame 3 (extra-usage red)               → s4-quota-100-extra-commit
 //	frame 4 (quota warning)                 → s3-quota-split-ctx-warn
-//	frame 5 (cache lifetime / TTL)          → s4 (OrchTTL) + table
+//	frame 5 (cache rebuild close-up)        → s5-cache-rebuild (truncated fable)
 
 import (
 	"context"
@@ -62,6 +62,14 @@ const (
 	// 1/3 stay on Opus 4.8.
 	fxFable    = "tests/frames/testdata/master-fable/master.jsonl"
 	fxFableDir = "tests/frames/testdata/master-fable/sidecar"
+	// fable-rebuild variant: the fable log TRUNCATED at the 240K rebuild turn so
+	// that turn (#8) becomes the freshest request — rendered bright (no dim), at
+	// the top of its own short table with a real top border. The cache-rebuild
+	// close-up (frame 5) reads as "the rebuild just happened on the current turn".
+	// No subagents (orchestrator-only) — instead cache_read ramps #1→#7 up to 240K
+	// so the table itself shows WHY #8 rebuilds: the cache had grown to 240K (read
+	// on #7), the idle TTL passed, so #8 rewrites all 240K (read drops to 6K).
+	fxFableRebuild = "tests/frames/testdata/master-fable-rebuild/master.jsonl"
 )
 
 // frameNow pins the observation moment, independent of the golden harness. Same
@@ -99,6 +107,11 @@ type scenario struct {
 // these freely to tune the frames — nothing here feeds the golden snapshots.
 func scenarios() []scenario {
 	rich := richProbesCfg()
+	// frame 5 shows only the newest 8 rows (#11–#18): a narrow cache-rebuild window
+	// with the first 10 turns scrolled off the top, so #11 already carries a large
+	// cache_read built up off-screen.
+	richWin8 := richProbesCfg()
+	richWin8.TableRows = 8
 	gitDirty := &parser.GitStatus{Branch: "agent/dev/phase-7", ModifiedCount: 3}
 	gitClean := &parser.GitStatus{Branch: "main", ModifiedCount: 0}
 	opus := stdin.Model{ID: "claude-opus-4-8", Name: "Opus 4.8"}
@@ -122,11 +135,12 @@ func scenarios() []scenario {
 			s.mode = mode.Standard
 		}
 		if s.ccTotalUSD == 0 {
-			// Honest total of the master at real Opus/Sonnet $/Mtok (== cost
-			// weights) over all 18 orch turns + 3 subagents. Reconcile distributes
-			// it ⇒ each per-turn $ is that turn's real price; header = Σ visible
-			// table + ~$0.30 (the 3 aged-off turns #1–#3 not shown).
-			s.ccTotalUSD, s.durMS = 11.27, 1_217_000
+			// Honest bottom-up total of the master fixture computed from its own
+			// token data at the current cost weights (Phase 7.45 B3-1 refreshed
+			// opus → Opus 4.8): 18 opus orch turns = $3.54 + 3 sonnet subagents
+			// (13 turns) = $0.64 ⇒ $4.18. Reconcile distributes it so each per-turn
+			// $ equals that turn's real token price (ccTotal == Σ weights ⇒ identity).
+			s.ccTotalUSD, s.durMS = 4.18, 1_217_000
 		}
 		return s
 	}
@@ -154,15 +168,20 @@ func scenarios() []scenario {
 			ccTotalUSD: 48.27, durMS: 3_137_000, // header cost $48.27 · time 52:17
 			events: []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: frameNow}},
 		}),
-		// frame 5: cache-rebuild table close-up — WIDE. Orchestrator = Fable 5;
-		// shows the 240K cache reread priced at Fable rates (write $12.50/MTok ⇒
-		// rebuild ≈ $3.03). Own fable fixture + honest Fable/Sonnet total.
+		// frame 5: cache-rebuild close-up — a scrolled window showing the newest 8
+		// turns (#11–#18); the first 10 are off the top (TableRows=8). The cache was
+		// built up off-screen, so #11 already reads 182K and the visible dim turns
+		// #11→#17 only inch up (uneven ~8–12K cache_creation each) to 240K. Then the
+		// idle TTL passes and #18 (freshest → bright) rewrites the whole 240K
+		// (6K read / 240K write ≈ $3.02). Token flow is consistent end-to-end:
+		// read[N+1] = read[N] + write[N]. ccTotal ≈ Σ all 18 weights so the split
+		// keeps #18 at ~$3.02 (the rebuild's intrinsic Fable write price).
 		master(scenario{
-			name: "s5-cache-rebuild", cols: 130, cfg: rich,
-			fixture: fxFable, subDir: fxFableDir, model: fable5,
+			name: "s5-cache-rebuild", cols: 130, cfg: richWin8,
+			fixture: fxFableRebuild, model: fable5,
 			git: gitClean, ctx: ctxNormal,
 			rl:         rl(100, 100, 2*time.Hour, 5*24*time.Hour),
-			ccTotalUSD: 7.72, durMS: 1_217_000,
+			ccTotalUSD: 8.71, durMS: 1_217_000,
 			events: []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: frameNow}},
 		}),
 	}
