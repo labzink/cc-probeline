@@ -173,7 +173,7 @@ func scenarios() []scenario {
 		master(scenario{
 			name: "s4-quota-100-extra-commit", cols: 130, cfg: rich,
 			git: gitClean, ctx: ctxNormal,
-			rl:          rl(100, 100, 2*time.Hour, 5*24*time.Hour),
+			rl:          rl(100, 100, 2*time.Hour, 24*time.Hour),
 			extraActive: true, extraUSD: 3.80, commitBadge: 2,
 			ccTotalUSD: 48.27, durMS: 3_137_000, // header cost $48.27 · time 52:17
 			events: []parser.CacheEvent{{Type: parser.OrchTTL, Timestamp: frameNow}},
