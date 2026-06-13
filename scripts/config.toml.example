@@ -51,10 +51,8 @@ project  = true
 email    = true
 time     = true
 ctx      = true
-cache    = true
 quota    = true
 git      = true
-subagent = true
 
 [thresholds]
 # Session cost warning threshold ($). 0 disables.

@@ -4,9 +4,11 @@
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-555)
 <!-- W5: badges resolve once the repo is public; the release badge lights up after the first tag -->
 
-# See the waste. Stop paying for it.
+# See where it leaks. Stop paying for it.
 
-A live dashboard, right in your Claude Code status line — everything it hides: the cost of every turn, what your subagents spend, how long your cache stays alive, plus the standard stuff (limits, context, git) and more. So you stop overpaying for inefficiency you can't see, and spend your limits on purpose.
+A live dashboard right in your status line — surfacing what Claude Code hides: the cost of every turn, what your subagents spend, how long your cache stays alive, plus the usual limits, context and git.
+
+**Stop overpaying for inefficiency you can't see. Spend your limits on purpose.**
 
 **Install in one command:**
 
@@ -14,7 +16,7 @@ A live dashboard, right in your Claude Code status line — everything it hides:
 brew install labzink/homebrew-tap/cc-probeline
 ```
 <!-- W5: verify the hero install command against the released tap -->
-<sub>probe your Claude Code — [all install options](#install)</sub>
+**[See all install options →](#install)**
 
 ![cc-probeline full dashboard: per-turn cost table with subagent rows, cache read/write, 5h and 7d limits, context and git in a Claude Code status line](assets/screenshots/01.png)
 
@@ -26,14 +28,15 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 - **What your subagents spend** — subagent work is invisible while it runs. The probe puts each agent on the bill, live, next to your own turns.
 - **Cache rebuilds, in dollars** — idle past the TTL (60 min for the orchestrator, 5 for subagents), and your next turn quietly rewrites the whole cache. The probe ages it live (⏱ 60m → 0m) and prices the rebuild when it hits.
 - **Extra usage in money, not percent** — past 100% of your plan, the overage shows up in dollars before the invoice does.
+- **Prices that stay correct** — every dollar above is only as honest as the price table behind it. The probe refreshes pricing automatically, so when Anthropic changes rates your numbers self-heal — no reinstall, no silently-wrong totals.
 - **5h / 7d limits with reset clocks** — watch them fill, know exactly when they free up.
 - **Colour-coded zones** — numbers shift colour as they enter warning and critical territory, so the line catches your eye exactly when it should.
 - Plus the table stakes: model, context, git, session time.
 
 ![Turn-by-turn cost table: orchestrator and subagent rows side by side, cache read/write per turn, per-turn dollars, config hint at the bottom](assets/screenshots/02.png)
-**Where the money actually goes — every turn priced, subagents included.**
+**Every turn lands on its own line — orchestrator and subagents alike — priced as it happens. Finally you see where every dollar of your reasoning actually goes.**
 
-**Make it yours:** the `/cc-probeline-config` wizard (that hint at the bottom of the frame) tunes probes, table size and colours — and writes the config for you.
+**Built to fit your terminal.** Don't like a segment, the colours, or the width? The `/cc-probeline-config` wizard walks you through it and writes the config for you — no hand-editing TOML. (That's the hint at the bottom of the dashboard above.)
 
 ![Status line past the plan limit: +$3.80 extra usage shown in red next to a filled 5h bar](assets/screenshots/03.png)
 **The moment you cross 100%, you'll see it — and the extra bill stays under your control.**
@@ -44,14 +47,15 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 ![Cache rebuild caught live: 240K tokens rewritten for $3.02, TTL countdown showing fresh 60m next to stale 0m](assets/screenshots/05.png)
 **Cache rebuilds stop being silent — you see the price the moment they happen.**
 
-All of this comes from a single Go binary reading one local file in ~5 ms. No network calls, no credentials, nothing leaves your machine — that's [why it's called a probe](#why-its-called-a-probe).
+And nothing about your session ever leaves your machine — that's [why it's called a probe](#why-its-called-a-probe).
 
 ## Why it's called a probe
 
-A probe is an instrument of observation, not intervention. Everything cc-probeline does is read and display: two local sources, nothing else.
+A probe is an instrument of observation, not intervention. Everything cc-probeline does is read and display — it never reaches into your account or reports on you.
 
 - **What it reads:** your session's JSONL log (`~/.claude/projects/…`) and the status-line payload Claude Code pipes directly to it.
-- **What it doesn't touch:** credentials, keychain, OAuth tokens. No network calls. Nothing leaves your machine.
+- **What it doesn't touch:** credentials, keychain, OAuth tokens. No telemetry, no network on every render.
+- **The one request it makes:** an optional once-a-day public check for a new version and the current pricing table — so your dollar figures self-heal when Anthropic changes prices, and you hear about updates. It sends nothing about you or your session, and you can turn it off.
 - **The binary:** single compiled Go binary, no runtime dependencies, one run ≈ 5 ms.
 - **Auditable:** MIT license, open source, reproducible builds, releases published with SHA256 checksums.
 
@@ -109,14 +113,23 @@ Run the interactive wizard from inside Claude Code:
 It walks you through probes, table size and colours — and writes the TOML for you. Or edit `~/.config/cc-probeline/config.toml` directly (validate with `cc-probeline check-config`):
 
 ```toml
-[widgets]
-git = true                  # any segment on/off
+[general]
+table_rows = 10             # rows in the per-turn cost table (max 40)
+no_color   = false          # true = plain monochrome output
+
+[widgets]                   # flip any segment on/off
+model = true
+effort = true
+cost = true
+ctx = true
+quota = true
+git = true
+project = true
+email = true
+time = true
 
 [thresholds]
-cost_budget_usd = 25        # warn when the session passes $25
-
-[theme]
-name = "high-contrast"      # or "default", "minimal"
+cost_budget_usd = 25        # turn the cost segment red past $25
 ```
 
 Full reference: [`scripts/config.toml.example`](scripts/config.toml.example).
@@ -132,9 +145,11 @@ rm "$(which cc-probeline)"       # manual / curl install
 The installer remembers the status line you had before — uninstalling puts it back.
 <!-- W5: verify uninstall lines + the restore mechanics wording -->
 
-## How it was built
+## The experiment
 
-cc-probeline is an AI-built, operator-led project — a few weeks of spare-time product work: competitor research, a written spec, phased design and implementation. Claude wrote every line of code and produced every design; the operator owned the vision, reviewed every detail, and made every call. The commit history is public and reads like a build log — phase by phase, you can watch the product take shape.
+cc-probeline is a personal experiment: can you hand programming over to AI **entirely** — every line of code, every design decision — and still end up with a product that matches the operator's vision **exactly**?
+
+This is the answer. Claude wrote all of it; the operator never touched the code. What the operator owned was everything that decides whether it's any good: the vision, the spec, the design direction, and every single call — reviewed detail by detail until the result was exactly right. A few weeks of spare-time work — competitor research, a written spec, phased design and implementation. The commit history is public and reads like a build log: you can watch the product take shape, phase by phase.
 
 **Contributing:** bug reports and ideas are welcome — open an issue. Code contributions are possible, but they're not the primary path: the codebase is developed through an AI pipeline in tight collaboration with the author, so pull requests need to fit that workflow. When in doubt, open an issue first.
 
