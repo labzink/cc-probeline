@@ -28,6 +28,10 @@ nerd_font = false
 # Default: 5 (seconds)
 refresh_interval_hint = 5
 
+# Maximum number of per-turn rows in the cost table. Capped at 40.
+# Default: 10
+table_rows = 10
+
 [widgets]
 # Per-widget on/off toggles. All true by default.
 model    = true
