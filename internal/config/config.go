@@ -140,12 +140,18 @@ type Thresholds struct {
 	// cost exceeds this value the cost probe turns red. 0 disables the check.
 	CostBudgetUSD float64 `toml:"cost_budget_usd" json:"cost_budget_usd"`
 
+	// CtxNoticeRatio is the context-window fill ratio at which the Ctx probe
+	// first turns yellow (the lower of two warning levels). Range: (0, 1).
+	// Default: 0.50. Must satisfy notice < warn < critical.
+	CtxNoticeRatio float64 `toml:"ctx_notice_ratio" json:"ctx_notice_ratio"`
+
 	// CtxWarnRatio is the context-window fill ratio at which the Ctx probe
-	// switches to warning colour. Range: (0, 1). Default: 0.70.
+	// switches to orange (the upper warning level). Range: (0, 1). Default: 0.70.
+	// Must satisfy notice < warn < critical.
 	CtxWarnRatio float64 `toml:"ctx_warn_ratio" json:"ctx_warn_ratio"`
 
 	// CtxCriticalRatio is the fill ratio at which the Ctx probe turns red.
-	// Must be > CtxWarnRatio. Range: (0, 1). Default: 0.90.
+	// Range: (0, 1). Default: 0.90. Must satisfy notice < warn < critical.
 	CtxCriticalRatio float64 `toml:"ctx_critical_ratio" json:"ctx_critical_ratio"`
 
 	// OrchTTLMinutes is the orchestrator idle timeout in minutes. The

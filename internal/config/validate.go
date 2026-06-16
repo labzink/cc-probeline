@@ -75,6 +75,17 @@ func Validate(cfg *Config) []Error {
 		}
 	}
 
+	// Thresholds.CtxNoticeRatio: must be in [0.0, 1.0].
+	if cfg.Thresholds.CtxNoticeRatio < 0.0 || cfg.Thresholds.CtxNoticeRatio > 1.0 {
+		hint := suggestFor("thresholds.ctx_notice_ratio", cfg.Thresholds.CtxNoticeRatio, nil)
+		errs = append(errs, Error{
+			Severity: SeverityError,
+			Field:    "thresholds.ctx_notice_ratio",
+			Message:  "ratio must be in [0.0, 1.0]",
+			Hint:     hint,
+		})
+	}
+
 	// Thresholds.CtxWarnRatio: must be in [0.0, 1.0].
 	if cfg.Thresholds.CtxWarnRatio < 0.0 || cfg.Thresholds.CtxWarnRatio > 1.0 {
 		hint := suggestFor("thresholds.ctx_warn_ratio", cfg.Thresholds.CtxWarnRatio, nil)
@@ -86,7 +97,7 @@ func Validate(cfg *Config) []Error {
 		})
 	}
 
-	// Thresholds.CtxCriticalRatio: must be in [0.0, 1.0] and >= CtxWarnRatio.
+	// Thresholds.CtxCriticalRatio: must be in [0.0, 1.0].
 	if cfg.Thresholds.CtxCriticalRatio < 0.0 || cfg.Thresholds.CtxCriticalRatio > 1.0 {
 		hint := suggestFor("thresholds.ctx_critical_ratio", cfg.Thresholds.CtxCriticalRatio, nil)
 		errs = append(errs, Error{
@@ -95,14 +106,23 @@ func Validate(cfg *Config) []Error {
 			Message:  "ratio must be in [0.0, 1.0]",
 			Hint:     hint,
 		})
-	} else if cfg.Thresholds.CtxCriticalRatio < cfg.Thresholds.CtxWarnRatio {
+	}
+
+	// Strict ordering notice < warn < critical. Only checked when all three are
+	// individually in range, so out-of-range values do not double-fire here.
+	if inUnitInterval(cfg.Thresholds.CtxNoticeRatio) &&
+		inUnitInterval(cfg.Thresholds.CtxWarnRatio) &&
+		inUnitInterval(cfg.Thresholds.CtxCriticalRatio) &&
+		!(cfg.Thresholds.CtxNoticeRatio < cfg.Thresholds.CtxWarnRatio &&
+			cfg.Thresholds.CtxWarnRatio < cfg.Thresholds.CtxCriticalRatio) {
 		errs = append(errs, Error{
 			Severity: SeverityError,
 			Field:    "thresholds.ctx_critical_ratio",
 			Message: fmt.Sprintf(
-				"critical ratio must be >= warn ratio (%.2f < %.2f)",
-				cfg.Thresholds.CtxCriticalRatio,
+				"ctx ratios must strictly increase: notice (%.2f) < warn (%.2f) < critical (%.2f)",
+				cfg.Thresholds.CtxNoticeRatio,
 				cfg.Thresholds.CtxWarnRatio,
+				cfg.Thresholds.CtxCriticalRatio,
 			),
 		})
 	}
@@ -155,6 +175,9 @@ func Validate(cfg *Config) []Error {
 	return errs
 }
 
+// inUnitInterval reports whether v lies within the closed unit interval [0, 1].
+func inUnitInterval(v float64) bool { return v >= 0.0 && v <= 1.0 }
+
 // ApplyRangeFix mutates cfg in place, replacing each field that Validate
 // would flag as SeverityError with the default value. Used by lenient callers
 // (runRender) before passing cfg to ToProbesConfig/ToTheme.
@@ -203,6 +226,12 @@ func ApplyRangeFix(cfg *Config) []string {
 		}
 	}
 
+	// Thresholds.CtxNoticeRatio.
+	if cfg.Thresholds.CtxNoticeRatio < 0.0 || cfg.Thresholds.CtxNoticeRatio > 1.0 {
+		cfg.Thresholds.CtxNoticeRatio = def.Thresholds.CtxNoticeRatio
+		fixed = append(fixed, "thresholds.ctx_notice_ratio")
+	}
+
 	// Thresholds.CtxWarnRatio.
 	if cfg.Thresholds.CtxWarnRatio < 0.0 || cfg.Thresholds.CtxWarnRatio > 1.0 {
 		cfg.Thresholds.CtxWarnRatio = def.Thresholds.CtxWarnRatio
@@ -213,9 +242,18 @@ func ApplyRangeFix(cfg *Config) []string {
 	if cfg.Thresholds.CtxCriticalRatio < 0.0 || cfg.Thresholds.CtxCriticalRatio > 1.0 {
 		cfg.Thresholds.CtxCriticalRatio = def.Thresholds.CtxCriticalRatio
 		fixed = append(fixed, "thresholds.ctx_critical_ratio")
-	} else if cfg.Thresholds.CtxCriticalRatio < cfg.Thresholds.CtxWarnRatio {
+	}
+
+	// Strict ordering notice < warn < critical. The three are interdependent, so
+	// when (after the individual range clamps above) they are not strictly
+	// increasing, reset the whole trio to defaults — a known-good monotonic set.
+	if !(cfg.Thresholds.CtxNoticeRatio < cfg.Thresholds.CtxWarnRatio &&
+		cfg.Thresholds.CtxWarnRatio < cfg.Thresholds.CtxCriticalRatio) {
+		cfg.Thresholds.CtxNoticeRatio = def.Thresholds.CtxNoticeRatio
+		cfg.Thresholds.CtxWarnRatio = def.Thresholds.CtxWarnRatio
 		cfg.Thresholds.CtxCriticalRatio = def.Thresholds.CtxCriticalRatio
-		fixed = append(fixed, "thresholds.ctx_critical_ratio")
+		fixed = append(fixed, "thresholds.ctx_notice_ratio",
+			"thresholds.ctx_warn_ratio", "thresholds.ctx_critical_ratio")
 	}
 
 	// Thresholds.OrchTTLMinutes.

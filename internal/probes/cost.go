@@ -37,10 +37,18 @@ func (p *CostProbe) Visible(d Data, c Config) bool {
 // the 7.45 dancing-number bug — that came from redistributing the lagging ccTotal
 // across turns, not from a monotonic session-clipped header.
 //
+// Budget signal: when c.CostBudgetUSD > 0 and the session cost has reached or
+// exceeded it, the figure is painted bold_red (config-honesty, Phase 7.47).
+// A budget of 0 (the default) disables the check and the figure stays plain.
+//
 //	Full:              "cost: $<value>"
 //	Compact/Minimal:   "$<value>"
-func (p *CostProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
-	value := fmt.Sprintf("$%.2f", officialSessionCost(d))
+func (p *CostProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
+	cost := officialSessionCost(d)
+	value := fmt.Sprintf("$%.2f", cost)
+	if c.CostBudgetUSD > 0 && cost >= c.CostBudgetUSD && t.AnsiEnabled {
+		value = "{{color:bold_red}}" + value + "{{reset}}"
+	}
 	if level == LevelFull {
 		return "cost: " + value
 	}

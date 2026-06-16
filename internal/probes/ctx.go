@@ -46,28 +46,41 @@ func (p *CtxProbe) Visible(d Data, c Config) bool {
 	return d.Stdin.ContextWindow.Size > 0
 }
 
+// effectiveCtxRatios resolves the three configurable ctx colour thresholds
+// (notice/warn/critical) from config, falling back to the baked defaults
+// 0.50/0.70/0.90 when the provided trio is not a strictly-increasing set within
+// (0, 1]. This mirrors config.Default so probes invoked without sanitisation
+// (e.g. unit tests passing a zero Config) still colour correctly; in production
+// config.ApplyRangeFix has already enforced the same invariant.
+func effectiveCtxRatios(c Config) (notice, warn, critical float64) {
+	notice, warn, critical = c.CtxNoticeRatio, c.CtxWarnRatio, c.CtxCriticalRatio
+	if notice > 0 && notice < warn && warn < critical && critical <= 1 {
+		return notice, warn, critical
+	}
+	return 0.50, 0.70, 0.90
+}
+
 // ctxNumberMarker returns the semantic colour marker token for the usedK number
-// when AnsiEnabled=true. Uses bold_red above 95%, otherwise falls back to the
-// ProgressBarColor threshold (green/yellow/orange/red).
-func ctxNumberMarker(pct float64, t renderer.Theme) string {
+// (and, in the Full ANSI path, the progress bar) when AnsiEnabled=true. Above
+// 95% it is always bold_red (a fixed "almost full" cap); otherwise it escalates
+// green → yellow → orange → red across the three configurable thresholds
+// notice → warn → critical.
+func ctxNumberMarker(pct float64, c Config, t renderer.Theme) string {
 	if !t.AnsiEnabled {
 		return ""
 	}
-	if pct > 95 {
-		return "{{color:bold_red}}"
-	}
-	// Reuse ProgressBarColor thresholds for the remaining bands.
-	// ProgressBarColor returns ANSI codes, but we need marker tokens.
-	// Map the same thresholds manually.
+	notice, warn, critical := effectiveCtxRatios(c)
 	switch {
-	case pct < 50:
-		return "{{color:green}}"
-	case pct < 70:
-		return "{{color:yellow}}"
-	case pct < 90:
-		return "{{color:orange}}"
-	default:
+	case pct > 95:
+		return "{{color:bold_red}}"
+	case pct >= critical*100:
 		return "{{color:red}}"
+	case pct >= warn*100:
+		return "{{color:orange}}"
+	case pct >= notice*100:
+		return "{{color:yellow}}"
+	default:
+		return "{{color:green}}"
 	}
 }
 
@@ -119,7 +132,7 @@ func (p *CtxProbe) Render(d Data, c Config, t renderer.Theme, level Level) strin
 	if t.AnsiEnabled {
 		// T-15: colour ONLY the bar; usedK number is rendered plain (no marker).
 		// ctxNumberMarker returns a {{color:X}} token for the bar colour band.
-		marker := ctxNumberMarker(pct, t)
+		marker := ctxNumberMarker(pct, c, t)
 		return fmt.Sprintf("ctx %s%s{{reset}} %s/%s", marker, bar, usedK, sizeK)
 	}
 

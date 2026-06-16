@@ -51,6 +51,7 @@ func ToProbesConfig(cfg Config) probes.Config {
 		Email: cfg.Probes.Email.Address,
 
 		CostBudgetUSD:      cfg.Thresholds.CostBudgetUSD,
+		CtxNoticeRatio:     cfg.Thresholds.CtxNoticeRatio,
 		CtxWarnRatio:       cfg.Thresholds.CtxWarnRatio,
 		CtxCriticalRatio:   cfg.Thresholds.CtxCriticalRatio,
 		OrchTTLMinutes:     cfg.Thresholds.OrchTTLMinutes,

@@ -58,7 +58,10 @@ git      = true
 # Session cost warning threshold ($). 0 disables.
 cost_budget_usd     = 0
 
-# Context window usage ratio for warn/critical color flips.
+# Context window fill ratios for the three colour flips (yellow/orange/red).
+# Must strictly increase: notice < warn < critical. Invalid values fall back to
+# these defaults (the status line never breaks on a bad config).
+ctx_notice_ratio    = 0.50
 ctx_warn_ratio      = 0.70
 ctx_critical_ratio  = 0.90
 

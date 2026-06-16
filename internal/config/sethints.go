@@ -40,8 +40,12 @@ func SetTutorialHints(path string, value bool) error {
 	}
 
 	// 2. Parse the existing TOML — must be valid, do not clobber on error.
-	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	// Start from Default() so sections omitted from the file keep their default
+	// values instead of being round-tripped to zero, which would write a
+	// dishonest config (e.g. ctx_*_ratio = 0.0 or table_rows = 0) that no longer
+	// reflects the effective behaviour.
+	cfg := Default()
+	if err := toml.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("existing config is invalid; run 'cc-probeline check-config' for details, then fix or remove %s: %w", path, err)
 	}
 
@@ -49,7 +53,7 @@ func SetTutorialHints(path string, value bool) error {
 	cfg.General.TutorialHints = value
 
 	// 4. Marshal back. Comments are lost here — see godoc above.
-	out, err := toml.Marshal(&cfg)
+	out, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

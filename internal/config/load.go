@@ -41,6 +41,7 @@ func Default() *Config {
 		},
 		Thresholds: Thresholds{
 			CostBudgetUSD:      0,
+			CtxNoticeRatio:     0.50,
 			CtxWarnRatio:       0.70,
 			CtxCriticalRatio:   0.90,
 			OrchTTLMinutes:     60,

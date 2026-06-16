@@ -129,6 +129,7 @@ type Config struct {
 
 	// Threshold values (Phase 6 — from config.Thresholds).
 	CostBudgetUSD      float64
+	CtxNoticeRatio     float64
 	CtxWarnRatio       float64
 	CtxCriticalRatio   float64
 	OrchTTLMinutes     int
