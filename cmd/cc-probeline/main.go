@@ -281,7 +281,7 @@ func runRender(strict bool) int {
 	_ = config.ApplyRangeFix(ccfg)
 	pcfg := config.ToProbesConfig(*ccfg)
 	pcfg.Email = config.ResolveEmail(ccfg, payload.Cwd)
-	theme := config.ToTheme(*ccfg, baseTheme)
+	theme := baseTheme
 	configAlerts := config.ToCacheEvents(configErrs)
 	slog.Debug("config loaded", "source", source, "errors", len(configErrs))
 

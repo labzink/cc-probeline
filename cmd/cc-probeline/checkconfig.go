@@ -282,16 +282,6 @@ func collectConfigFields(cfg, def *config.Config, verbose bool) []configField {
 	add("general.table_rows", cfg.General.TableRows, def.General.TableRows)
 	add("general.mode", cfg.General.Mode, def.General.Mode)
 
-	// Theme.
-	add("theme.name", cfg.Theme.Name, def.Theme.Name)
-	add("theme.colors.cyan", cfg.Theme.Colors.Cyan, def.Theme.Colors.Cyan)
-	add("theme.colors.yellow", cfg.Theme.Colors.Yellow, def.Theme.Colors.Yellow)
-	add("theme.colors.red", cfg.Theme.Colors.Red, def.Theme.Colors.Red)
-	add("theme.colors.green", cfg.Theme.Colors.Green, def.Theme.Colors.Green)
-	add("theme.colors.orange", cfg.Theme.Colors.Orange, def.Theme.Colors.Orange)
-	add("theme.colors.magenta", cfg.Theme.Colors.Magenta, def.Theme.Colors.Magenta)
-	add("theme.colors.dim", cfg.Theme.Colors.Dim, def.Theme.Colors.Dim)
-
 	// Widgets.
 	add("widgets.model", cfg.Widgets.Model, def.Widgets.Model)
 	add("widgets.effort", cfg.Widgets.Effort, def.Widgets.Effort)

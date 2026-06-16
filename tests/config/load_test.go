@@ -25,9 +25,6 @@ func TestLoad_EmptyPath(t *testing.T) {
 	if cfg.General.TutorialHints != def.General.TutorialHints {
 		t.Errorf("T-L1: TutorialHints: got %v, want %v", cfg.General.TutorialHints, def.General.TutorialHints)
 	}
-	if cfg.Theme.Name != def.Theme.Name {
-		t.Errorf("T-L1: Theme.Name: got %q, want %q", cfg.Theme.Name, def.Theme.Name)
-	}
 	if cfg.Thresholds.CtxWarnRatio != def.Thresholds.CtxWarnRatio {
 		t.Errorf("T-L1: CtxWarnRatio: got %v, want %v", cfg.Thresholds.CtxWarnRatio, def.Thresholds.CtxWarnRatio)
 	}
@@ -45,8 +42,8 @@ func TestLoad_NonExistent(t *testing.T) {
 	}
 	// cfg should be Default()
 	def := config.Default()
-	if cfg.Theme.Name != def.Theme.Name {
-		t.Errorf("T-L2: Theme.Name: got %q, want %q (should be Default)", cfg.Theme.Name, def.Theme.Name)
+	if cfg.General.TutorialHints != def.General.TutorialHints {
+		t.Errorf("T-L2: TutorialHints: got %v, want %v (should be Default)", cfg.General.TutorialHints, def.General.TutorialHints)
 	}
 	if len(errs) == 0 {
 		t.Fatal("T-L2: expected 1+ error, got 0")
@@ -98,12 +95,8 @@ func TestLoad_ValidComplete(t *testing.T) {
 	if cfg.General.RefreshIntervalHint != 10 {
 		t.Errorf("T-L3: RefreshIntervalHint: got %d, want 10", cfg.General.RefreshIntervalHint)
 	}
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("T-L3: Theme.Name: got %q, want %q", cfg.Theme.Name, "high-contrast")
-	}
-	if cfg.Theme.Colors.Cyan != "#00FFFF" {
-		t.Errorf("T-L3: Colors.Cyan: got %q, want %q", cfg.Theme.Colors.Cyan, "#00FFFF")
-	}
+	// Note: [theme] section in valid-complete.toml is now an unknown section
+	// (config.Theme was removed in Phase 7.47); it produces a warning but no error.
 	if cfg.Widgets.Effort != false {
 		t.Errorf("T-L3: Widgets.Effort: got true, want false")
 	}
@@ -144,9 +137,6 @@ func TestLoad_ValidPartial(t *testing.T) {
 
 	// All other fields must match Default() (partial parse preserves defaults).
 	def := config.Default()
-	if cfg.Theme.Name != def.Theme.Name {
-		t.Errorf("T-L4: Theme.Name: got %q, want %q (default)", cfg.Theme.Name, def.Theme.Name)
-	}
 	if cfg.Thresholds.CtxWarnRatio != def.Thresholds.CtxWarnRatio {
 		t.Errorf("T-L4: CtxWarnRatio: got %v, want %v (default)", cfg.Thresholds.CtxWarnRatio, def.Thresholds.CtxWarnRatio)
 	}
@@ -175,8 +165,8 @@ func TestLoad_MalformedTOML(t *testing.T) {
 	}
 	// Must return Default() on fatal parse error.
 	def := config.Default()
-	if cfg.Theme.Name != def.Theme.Name {
-		t.Errorf("T-L5: Theme.Name: got %q, want %q (Default)", cfg.Theme.Name, def.Theme.Name)
+	if cfg.General.TutorialHints != def.General.TutorialHints {
+		t.Errorf("T-L5: TutorialHints: got %v, want %v (Default)", cfg.General.TutorialHints, def.General.TutorialHints)
 	}
 
 	if len(errs) == 0 {

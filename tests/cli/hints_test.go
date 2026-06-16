@@ -115,11 +115,14 @@ func TestHints_Idempotent(t *testing.T) {
 }
 
 // T-H5: hints off with an existing config that has other fields — other fields preserved.
+// NOTE: [theme] section was removed from config.Config in Phase 7.47 and is no longer
+// preserved across the pelletier round-trip. We use no_color (a real General field)
+// as the "other field" preservation check instead.
 func TestHints_PreservesOtherFields(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := globalConfigFile(tmp)
 
-	// Create parent dir and write existing config with a theme setting.
+	// Create parent dir and write existing config with a real General field.
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -127,9 +130,7 @@ func TestHints_PreservesOtherFields(t *testing.T) {
 
 [general]
 tutorial_hints = true
-
-[theme]
-name = "high-contrast"
+no_color = true
 `
 	if err := os.WriteFile(cfgPath, []byte(existing), 0o644); err != nil {
 		t.Fatalf("write existing config: %v", err)
@@ -148,9 +149,9 @@ name = "high-contrast"
 	if !strings.Contains(content, "tutorial_hints = false") {
 		t.Errorf("tutorial_hints not updated to false:\n%s", content)
 	}
-	// theme.name must still be present.
-	if !strings.Contains(content, "high-contrast") {
-		t.Errorf("theme.name 'high-contrast' was lost:\n%s", content)
+	// no_color must still be present (proves other General fields survive the round-trip).
+	if !strings.Contains(content, "no_color = true") {
+		t.Errorf("no_color = true was lost after hints off:\n%s", content)
 	}
 }
 

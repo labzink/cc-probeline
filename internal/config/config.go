@@ -14,11 +14,6 @@ type Config struct {
 	// without touching individual widget settings.
 	General General `toml:"general" json:"general"`
 
-	// Theme selects a named colour palette and allows per-colour overrides.
-	// Set Name to "default", "high-contrast", or "minimal"; leave individual
-	// Colors fields empty to use the palette default.
-	Theme Theme `toml:"theme" json:"theme"`
-
 	// Widgets controls which probes are rendered. Set a field to false to
 	// permanently hide the corresponding status-line widget. All widgets are
 	// visible by default to preserve Phase 4-5 behaviour.
@@ -62,44 +57,6 @@ type General struct {
 	// CORE reads this field to switch the assembler layout. Setters write it
 	// via SetMode; the legacy per-session mode file is superseded by this field.
 	Mode string `toml:"mode" json:"mode"`
-}
-
-// Theme selects a named palette and allows per-field hex overrides.
-type Theme struct {
-	// Name is the built-in palette name. Recognised values: "default",
-	// "high-contrast", "minimal". Unknown names fall back to "default" (the
-	// validator emits a warning separately so the adapter stays pure).
-	Name string `toml:"name" json:"name"`
-
-	// Colors holds optional hex overrides for individual semantic colours.
-	// Any non-empty string replaces the palette value for that colour role.
-	// Empty strings (the default) keep the palette colour unchanged.
-	Colors ThemeColors `toml:"colors" json:"colors"`
-}
-
-// ThemeColors holds per-field hex colour overrides for the active palette.
-// All fields are optional. An empty string means "use the palette default".
-type ThemeColors struct {
-	// Cyan overrides the cyan semantic colour (git branch, orch label).
-	Cyan string `toml:"cyan" json:"cyan"`
-
-	// Yellow overrides the yellow semantic colour (warnings, agent IDs).
-	Yellow string `toml:"yellow" json:"yellow"`
-
-	// Red overrides the red semantic colour (critical state, cache miss).
-	Red string `toml:"red" json:"red"`
-
-	// Green overrides the green semantic colour (healthy state, low cost).
-	Green string `toml:"green" json:"green"`
-
-	// Orange overrides the orange semantic colour (progress 70-90%).
-	Orange string `toml:"orange" json:"orange"`
-
-	// Magenta overrides the magenta semantic colour ([high] effort indicator).
-	Magenta string `toml:"magenta" json:"magenta"`
-
-	// Dim overrides the dim/muted colour used for secondary text separators.
-	Dim string `toml:"dim" json:"dim"`
 }
 
 // Widgets controls visibility for each status-line probe widget.

@@ -30,8 +30,8 @@ func TestLoadCascade_DefaultsWhenNothingExists(t *testing.T) {
 	}
 	// Spot-check Default values.
 	def := config.Default()
-	if cfg.Theme.Name != def.Theme.Name {
-		t.Errorf("T-C1: Theme.Name: got %q, want %q", cfg.Theme.Name, def.Theme.Name)
+	if cfg.Thresholds.CtxWarnRatio != def.Thresholds.CtxWarnRatio {
+		t.Errorf("T-C1: CtxWarnRatio: got %v, want %v", cfg.Thresholds.CtxWarnRatio, def.Thresholds.CtxWarnRatio)
 	}
 }
 

@@ -33,9 +33,6 @@ func TestDefault_AllFieldsMatchSpec(t *testing.T) {
 		{"General.RefreshIntervalHint", d.General.RefreshIntervalHint, 5},
 		{"General.TableRows", d.General.TableRows, 10},
 		{"General.Mode", d.General.Mode, "standard"},
-		{"Theme.Name", d.Theme.Name, "default"},
-		{"Theme.Colors.Cyan", d.Theme.Colors.Cyan, ""},
-		{"Theme.Colors.Red", d.Theme.Colors.Red, ""},
 		{"Thresholds.CostBudgetUSD", d.Thresholds.CostBudgetUSD, 0.0},
 		{"Thresholds.CtxWarnRatio", d.Thresholds.CtxWarnRatio, 0.70},
 		{"Thresholds.CtxCriticalRatio", d.Thresholds.CtxCriticalRatio, 0.90},
@@ -96,7 +93,7 @@ func TestDefault_NotMutating(t *testing.T) {
 
 	// Mutate a.
 	a.General.TutorialHints = false
-	a.Theme.Name = "high-contrast"
+	a.General.NoColor = true
 	a.Thresholds.CostBudgetUSD = 999.99
 	a.Widgets.Model = false
 
@@ -104,8 +101,8 @@ func TestDefault_NotMutating(t *testing.T) {
 	if !b.General.TutorialHints {
 		t.Error("T-T3: mutating a.General.TutorialHints affected b")
 	}
-	if b.Theme.Name != "default" {
-		t.Errorf("T-T3: mutating a.Theme.Name affected b: got %q", b.Theme.Name)
+	if b.General.NoColor != false {
+		t.Error("T-T3: mutating a.General.NoColor affected b")
 	}
 	if b.Thresholds.CostBudgetUSD != 0.0 {
 		t.Errorf("T-T3: mutating a.Thresholds.CostBudgetUSD affected b: got %v", b.Thresholds.CostBudgetUSD)

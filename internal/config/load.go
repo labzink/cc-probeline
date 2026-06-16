@@ -24,10 +24,6 @@ func Default() *Config {
 			TableRows:           10,
 			Mode:                "standard",
 		},
-		Theme: Theme{
-			Name:   "default",
-			Colors: ThemeColors{},
-		},
 		Widgets: Widgets{
 			Model:   true,
 			Effort:  true,

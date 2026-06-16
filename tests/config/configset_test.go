@@ -142,9 +142,9 @@ func TestSetMode_RoundTrip_OtherKeysPreserved(t *testing.T) {
 	if cfg.General.RefreshIntervalHint != 10 {
 		t.Errorf("RefreshIntervalHint: got %d, want 10", cfg.General.RefreshIntervalHint)
 	}
-	// theme preserved
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("Theme.Name: got %q, want high-contrast", cfg.Theme.Name)
+	// nerd_font preserved (theme section is now unknown and dropped by round-trip)
+	if !cfg.General.NerdFont {
+		t.Error("NerdFont: got false, want true (preserved)")
 	}
 	// widget preserved
 	if cfg.Widgets.Quota {
@@ -171,8 +171,8 @@ func TestSetNoColor_True_RoundTrip(t *testing.T) {
 	if !cfg.General.TutorialHints {
 		t.Error("TutorialHints should be preserved (true)")
 	}
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("Theme.Name: got %q, want high-contrast", cfg.Theme.Name)
+	if !cfg.General.NerdFont {
+		t.Error("NerdFont: got false, want true (preserved)")
 	}
 }
 
@@ -273,8 +273,8 @@ func TestSetRefreshInterval_RoundTrip(t *testing.T) {
 	if !cfg.General.TutorialHints {
 		t.Error("TutorialHints should be preserved (true)")
 	}
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("Theme.Name: got %q, want high-contrast", cfg.Theme.Name)
+	if !cfg.General.NerdFont {
+		t.Error("NerdFont: got false, want true (preserved)")
 	}
 }
 
@@ -397,7 +397,7 @@ func TestSetTableRows_RoundTrip_OtherKeysPreserved(t *testing.T) {
 	if cfg.General.RefreshIntervalHint != 10 {
 		t.Errorf("RefreshIntervalHint: got %d, want 10 (preserved)", cfg.General.RefreshIntervalHint)
 	}
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("Theme.Name: got %q, want high-contrast (preserved)", cfg.Theme.Name)
+	if !cfg.General.NerdFont {
+		t.Error("NerdFont: got false, want true (preserved)")
 	}
 }

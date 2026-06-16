@@ -160,9 +160,9 @@ model = false
 	if cfg.General.NoColor != true {
 		t.Errorf("NoColor: expected true (preserved), got %v", cfg.General.NoColor)
 	}
-	if cfg.Theme.Name != "high-contrast" {
-		t.Errorf("Theme.Name: expected 'high-contrast' (preserved), got %q", cfg.Theme.Name)
-	}
+	// Note: [theme] section is now unknown (config.Theme removed in Phase 7.47),
+	// so it is not preserved across the pelletier round-trip. We verify NoColor
+	// and Widgets.Model instead as the round-trip fidelity check.
 	if cfg.Widgets.Model != false {
 		t.Errorf("Widgets.Model: expected false (preserved), got %v", cfg.Widgets.Model)
 	}

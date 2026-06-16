@@ -5,9 +5,6 @@ import (
 	"regexp"
 )
 
-// hexColorRe matches a valid #RRGGBB hex colour string.
-var hexColorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-
 // emailRe is a simple sanity check: at least one non-@ on each side of '@'.
 var emailRe = regexp.MustCompile(`^[^@]+@[^@]+$`)
 
@@ -23,56 +20,6 @@ func Validate(cfg *Config) []Error {
 			Field:    "version",
 			Message:  fmt.Sprintf("unsupported version: %d (Phase 6 supports version 1)", cfg.Version),
 		})
-	}
-
-	// Theme.Name: must be one of the known values.
-	validThemeNames := map[string]bool{
-		"":              true,
-		"default":       true,
-		"high-contrast": true,
-		"minimal":       true,
-	}
-	if !validThemeNames[cfg.Theme.Name] {
-		hint := suggestFor("theme.name", cfg.Theme.Name, nil)
-		if hint == "" {
-			// Always provide a hint listing valid options when no Levenshtein match.
-			hint = "valid theme names: default, high-contrast, minimal"
-		}
-		errs = append(errs, Error{
-			Severity: SeverityError,
-			Field:    "theme.name",
-			Message:  fmt.Sprintf("unknown theme: %q. Valid: default, high-contrast, minimal", cfg.Theme.Name),
-			Hint:     hint,
-		})
-	}
-
-	// Theme.Colors: each non-empty color must be a valid #RRGGBB hex string.
-	type colorField struct {
-		name  string
-		value string
-	}
-	colorFields := []colorField{
-		{"theme.colors.cyan", cfg.Theme.Colors.Cyan},
-		{"theme.colors.yellow", cfg.Theme.Colors.Yellow},
-		{"theme.colors.red", cfg.Theme.Colors.Red},
-		{"theme.colors.green", cfg.Theme.Colors.Green},
-		{"theme.colors.orange", cfg.Theme.Colors.Orange},
-		{"theme.colors.magenta", cfg.Theme.Colors.Magenta},
-		{"theme.colors.dim", cfg.Theme.Colors.Dim},
-	}
-	for _, cf := range colorFields {
-		if cf.value == "" {
-			continue // empty == use palette default, OK
-		}
-		if !hexColorRe.MatchString(cf.value) {
-			hint := suggestFor(cf.name, cf.value, nil)
-			errs = append(errs, Error{
-				Severity: SeverityError,
-				Field:    cf.name,
-				Message:  fmt.Sprintf("invalid hex color: %q (expected #RRGGBB)", cf.value),
-				Hint:     hint,
-			})
-		}
 	}
 
 	// Thresholds.CtxNoticeRatio: must be in [0.0, 1.0].
@@ -240,7 +187,7 @@ func fixRatioTrio(prefix string, notice, warn, critical *float64, defN, defW, de
 
 // ApplyRangeFix mutates cfg in place, replacing each field that Validate
 // would flag as SeverityError with the default value. Used by lenient callers
-// (runRender) before passing cfg to ToProbesConfig/ToTheme.
+// (runRender) before passing cfg to ToProbesConfig.
 // Returns the list of fields that were fixed (for slog debugging).
 func ApplyRangeFix(cfg *Config) []string {
 	def := Default()
@@ -250,40 +197,6 @@ func ApplyRangeFix(cfg *Config) []string {
 	if cfg.Version != 0 && cfg.Version != 1 {
 		cfg.Version = def.Version
 		fixed = append(fixed, "version")
-	}
-
-	// Theme.Name.
-	validThemeNames := map[string]bool{
-		"":              true,
-		"default":       true,
-		"high-contrast": true,
-		"minimal":       true,
-	}
-	if !validThemeNames[cfg.Theme.Name] {
-		cfg.Theme.Name = def.Theme.Name
-		fixed = append(fixed, "theme.name")
-	}
-
-	// Theme.Colors — fix individual invalid color overrides.
-	type colorPtr struct {
-		name string
-		ptr  *string
-		defv string
-	}
-	colorPtrs := []colorPtr{
-		{"theme.colors.cyan", &cfg.Theme.Colors.Cyan, def.Theme.Colors.Cyan},
-		{"theme.colors.yellow", &cfg.Theme.Colors.Yellow, def.Theme.Colors.Yellow},
-		{"theme.colors.red", &cfg.Theme.Colors.Red, def.Theme.Colors.Red},
-		{"theme.colors.green", &cfg.Theme.Colors.Green, def.Theme.Colors.Green},
-		{"theme.colors.orange", &cfg.Theme.Colors.Orange, def.Theme.Colors.Orange},
-		{"theme.colors.magenta", &cfg.Theme.Colors.Magenta, def.Theme.Colors.Magenta},
-		{"theme.colors.dim", &cfg.Theme.Colors.Dim, def.Theme.Colors.Dim},
-	}
-	for _, cp := range colorPtrs {
-		if *cp.ptr != "" && !hexColorRe.MatchString(*cp.ptr) {
-			*cp.ptr = cp.defv
-			fixed = append(fixed, cp.name)
-		}
 	}
 
 	// Thresholds.CtxNoticeRatio.

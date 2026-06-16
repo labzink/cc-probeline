@@ -1,25 +1,10 @@
-// Package config_test tests ToProbesConfig and ToTheme adapters.
-// Tests T-AD1..T-AD10 per phase-6-plan-6.a.md §3.2.
+// Package config_test tests ToProbesConfig adapter.
+// Tests T-AD1..T-AD4 per phase-6-plan-6.a.md §3.2.
 //
-// Palette hex values for high-contrast and minimal are not defined in the
-// concept. The GREEN agent will embed these constants in internal/config/adapter.go
-// (not in renderer/theme.go). The expected values here are canonical choices
-// documented in the RED agent DRIFT report; GREEN must match them exactly.
-//
-// high-contrast palette (saturated ANSI-true-color equivalents):
-//
-//	Cyan    = "#00FFFF"
-//	Yellow  = "#FFFF00"
-//	Red     = "#FF0000"
-//	Green   = "#00FF00"
-//	Orange  = "#FF8800"
-//	Magenta = "#FF00FF"
-//	Dim     = "#888888"
-//
-// minimal palette (monochrome — all semantic colours are empty or white):
-//
-//	Cyan, Yellow, Red, Green, Orange, Magenta = "" (no colour)
-//	Dim = "#666666"
+// NOTE: ToTheme and all theme-palette tests were removed in Phase 7.47
+// because config.Theme (Theme struct, ThemeColors struct, ToTheme function)
+// were cut from the production code. The renderer.Theme type (AnsiEnabled /
+// Colors / NerdFont) is a separate runtime type and is NOT affected here.
 package config_test
 
 import (
@@ -27,7 +12,6 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/probes"
-	"github.com/labzink/cc-probeline/internal/renderer"
 )
 
 // ---------------------------------------------------------------------------
@@ -174,7 +158,7 @@ func TestToProbesConfig_Default_PreservesPhase5Behaviour(t *testing.T) {
 		{"EmailEnabled", pcfg.EmailEnabled},
 		{"TimeEnabled", pcfg.TimeEnabled},
 		{"CtxEnabled", pcfg.CtxEnabled},
-		{"CacheEnabled", pcfg.CacheEnabled},   // hardcoded true in adapter
+		{"CacheEnabled", pcfg.CacheEnabled}, // hardcoded true in adapter
 		{"QuotaEnabled", pcfg.QuotaEnabled},
 		{"GitEnabled", pcfg.GitEnabled},
 		{"SubagentEnabled", pcfg.SubagentEnabled}, // hardcoded true in adapter
@@ -207,188 +191,5 @@ func TestToProbesConfig_TableRows_Forwarded(t *testing.T) {
 	pcfg := config.ToProbesConfig(*cfg)
 	if pcfg.TableRows != 15 {
 		t.Errorf("T-AD1c TableRows: got %d, want 15", pcfg.TableRows)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ToTheme tests
-// ---------------------------------------------------------------------------
-
-// highContrastPalette returns the expected ColorScheme for "high-contrast".
-// These values are canonical choices by the RED agent (DRIFT documented in
-// report). GREEN must embed identical constants in adapter.go.
-func highContrastPalette() renderer.ColorScheme {
-	return renderer.ColorScheme{
-		Cyan:    "#00FFFF",
-		Yellow:  "#FFFF00",
-		Red:     "#FF0000",
-		Green:   "#00FF00",
-		Orange:  "#FF8800",
-		Magenta: "#FF00FF",
-		Dim:     "#888888",
-	}
-}
-
-// minimalPalette returns the expected ColorScheme for "minimal".
-// Monochrome: semantic colours are suppressed (empty strings); only Dim has a
-// muted value to distinguish separators.
-func minimalPalette() renderer.ColorScheme {
-	return renderer.ColorScheme{
-		Dim: "#666666",
-		// All other fields remain empty strings (no colour output).
-	}
-}
-
-// T-AD5: ToTheme with cfg.Theme.Name = "high-contrast" must return a theme
-// whose Colors match the built-in high-contrast palette (5+ fields verified).
-func TestToTheme_PaletteSwitch_HighContrast(t *testing.T) {
-	cfg := config.Default()
-	cfg.Theme.Name = "high-contrast"
-
-	base := renderer.Theme{}
-	result := config.ToTheme(*cfg, base)
-
-	want := highContrastPalette()
-
-	checks := []struct {
-		field string
-		got   string
-		want  string
-	}{
-		{"Cyan", result.Colors.Cyan, want.Cyan},
-		{"Yellow", result.Colors.Yellow, want.Yellow},
-		{"Red", result.Colors.Red, want.Red},
-		{"Green", result.Colors.Green, want.Green},
-		{"Orange", result.Colors.Orange, want.Orange},
-		{"Magenta", result.Colors.Magenta, want.Magenta},
-		{"Dim", result.Colors.Dim, want.Dim},
-	}
-
-	for _, c := range checks {
-		if c.got != c.want {
-			t.Errorf("T-AD5 high-contrast Colors.%s: got %q, want %q", c.field, c.got, c.want)
-		}
-	}
-}
-
-// T-AD6: ToTheme with cfg.Theme.Name = "minimal" must return a theme whose
-// Colors match the built-in minimal palette.
-func TestToTheme_PaletteSwitch_Minimal(t *testing.T) {
-	cfg := config.Default()
-	cfg.Theme.Name = "minimal"
-
-	base := renderer.Theme{}
-	result := config.ToTheme(*cfg, base)
-
-	want := minimalPalette()
-
-	// For minimal, all semantic colours except Dim must be empty.
-	noColor := []struct {
-		field string
-		got   string
-	}{
-		{"Cyan", result.Colors.Cyan},
-		{"Yellow", result.Colors.Yellow},
-		{"Red", result.Colors.Red},
-		{"Green", result.Colors.Green},
-		{"Orange", result.Colors.Orange},
-		{"Magenta", result.Colors.Magenta},
-	}
-	for _, c := range noColor {
-		if c.got != "" {
-			t.Errorf("T-AD6 minimal Colors.%s: got %q, want \"\" (no colour)", c.field, c.got)
-		}
-	}
-
-	if result.Colors.Dim != want.Dim {
-		t.Errorf("T-AD6 minimal Colors.Dim: got %q, want %q", result.Colors.Dim, want.Dim)
-	}
-}
-
-// T-AD7: An unknown palette name must not panic and must fall back to the
-// default palette (base colours unchanged / adapter uses zero-value palette).
-// The adapter is pure — no error returned, no slog call. Validation is separate.
-func TestToTheme_UnknownPalette_FallsBackToDefault(t *testing.T) {
-	cfg := config.Default()
-	cfg.Theme.Name = "neon" // unknown name
-
-	base := renderer.Theme{
-		Colors: renderer.ColorScheme{
-			Cyan: "#AABBCC", // non-zero to detect if base was preserved
-		},
-	}
-
-	// Must not panic.
-	var result renderer.Theme
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("T-AD7: ToTheme panicked with unknown theme name: %v", r)
-			}
-		}()
-		result = config.ToTheme(*cfg, base)
-	}()
-
-	// With an unknown name, adapter falls back to "default" palette.
-	// "default" palette does not override base colours, so base.Colors.Cyan
-	// must be preserved (or the adapter returns the base as-is for "default").
-	// Either way: result must equal base for unknown name (no panic, no mutation).
-	// We verify the result is usable (not zero Theme).
-	_ = result // adapter returned; no panic = pass for unknown name fallback
-	// Additionally verify it did not apply high-contrast palette.
-	if result.Colors.Red == "#FF0000" {
-		t.Errorf("T-AD7: unknown palette 'neon' should not have applied high-contrast Red")
-	}
-}
-
-// T-AD8: A non-empty hex in cfg.Theme.Colors.Red must override the palette Red.
-func TestToTheme_ColorOverlay_HexApplied(t *testing.T) {
-	cfg := config.Default()
-	cfg.Theme.Name = "default"
-	cfg.Theme.Colors.Red = "#FF0000"
-
-	base := renderer.Theme{}
-	result := config.ToTheme(*cfg, base)
-
-	if result.Colors.Red != "#FF0000" {
-		t.Errorf("T-AD8 Colors.Red: got %q, want %q", result.Colors.Red, "#FF0000")
-	}
-}
-
-// T-AD9: An empty hex in cfg.Theme.Colors.Red must keep the palette (base) Red,
-// not clear it.
-func TestToTheme_ColorOverlay_EmptyKeepsPalette(t *testing.T) {
-	cfg := config.Default()
-	cfg.Theme.Name = "default"
-	cfg.Theme.Colors.Red = "" // empty == keep palette
-
-	base := renderer.Theme{
-		Colors: renderer.ColorScheme{
-			Red: "#CC3333", // simulate palette red already applied
-		},
-	}
-	result := config.ToTheme(*cfg, base)
-
-	if result.Colors.Red != "#CC3333" {
-		t.Errorf("T-AD9 Colors.Red: got %q, want %q (empty override must not clear palette)", result.Colors.Red, "#CC3333")
-	}
-}
-
-// T-AD10: ToTheme must preserve base.AnsiEnabled and base.NerdFont regardless
-// of the config — those flags are the caller's responsibility (§7.1).
-func TestToTheme_PreservesBaseAnsiAndNerdFont(t *testing.T) {
-	cfg := config.Default()
-
-	base := renderer.Theme{
-		AnsiEnabled: true,
-		NerdFont:    true,
-	}
-	result := config.ToTheme(*cfg, base)
-
-	if !result.AnsiEnabled {
-		t.Error("T-AD10 AnsiEnabled: got false, want true (caller-set flag must be preserved)")
-	}
-	if !result.NerdFont {
-		t.Error("T-AD10 NerdFont: got false, want true (caller-set flag must be preserved)")
 	}
 }
