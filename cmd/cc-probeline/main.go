@@ -212,10 +212,12 @@ func runRender(strict bool) int {
 	// Disabled → pure baked table, zero network. Applying a cached table is a local
 	// read; RefreshPrices is the only network touch. Must run before cost.Reconcile
 	// so per-turn estimates use the freshest prices.
+	var latestVersion string
 	if ccfg.General.PriceCheck {
 		cost.RefreshPrices(now)
 		if pf, ok := cost.CachedPrices(); ok {
 			cost.ApplyPrices(pf)
+			latestVersion = pf.LatestVersion
 		}
 	}
 
@@ -318,6 +320,9 @@ func runRender(strict bool) int {
 		Now:              now,
 		SessionID:        payload.SessionID,
 		ExtraCacheEvents: configAlerts,
+		// #7c: "update available" hint when the cached latest_version outranks the
+		// running build. UpdateText returns "" for dev builds or no newer version.
+		UpdateHint: hint.UpdateText(version, latestVersion),
 	}
 
 	// Populate delta-cost fields from reconciled state (Phase 6.8.a / 6.9.a).

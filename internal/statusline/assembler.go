@@ -553,6 +553,7 @@ func (a *Assembler) hint(d probes.Data) string {
 		State:      rot,
 		StartIndex: d.HintStart,
 		Events:     filteredEvents,
+		UpdateHint: d.UpdateHint,
 	}
 	// now was initialised above for the recency filter; reuse it here.
 	// (hypothesis insurance #3: deterministic clock for tests)

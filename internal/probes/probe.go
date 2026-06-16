@@ -95,6 +95,12 @@ type Data struct {
 	// uses it only on that first render; subsequent renders follow per-session
 	// HintRotation. Account-wide so the opening hint shifts by one each session.
 	HintStart int
+
+	// UpdateHint is the pre-formatted "update available" hint (#7c, Phase 7.46
+	// Wave B / BL-36), or "" when the running version is current or unknown. main
+	// builds it from the binary version and the cached price file's latest_version
+	// via hint.UpdateText; the assembler forwards it to the hint widget.
+	UpdateHint string
 }
 
 // Config carries per-invocation configuration flags. It is a lightweight struct

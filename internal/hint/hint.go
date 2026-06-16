@@ -57,14 +57,28 @@ type Widget struct {
 	// are wrapped modulo the hint count.
 	StartIndex int
 	Events     []parser.CacheEvent
+
+	// UpdateHint is the pre-formatted "update available" text (hint.UpdateText,
+	// Phase 7.46 Wave B / BL-36 #7c) or "" when no newer version is known. When
+	// set it joins the 60-second rotation as an extra slot AND stays sticky: once
+	// the tutorial tips have all cycled out, the row keeps showing it instead of
+	// hiding, so a pending update does not disappear forever.
+	UpdateHint string
 }
 
-// hints returns the active hint slice, falling back to DefaultHints.
+// hints returns the active hint slice, falling back to DefaultHints. When an
+// UpdateHint is set it is appended as an extra rotation slot.
 func (w *Widget) hints() []Hint {
-	if w.Hints == nil {
-		return DefaultHints
+	base := w.Hints
+	if base == nil {
+		base = DefaultHints
 	}
-	return w.Hints
+	if w.UpdateHint == "" {
+		return base
+	}
+	out := make([]Hint, len(base), len(base)+1)
+	copy(out, base)
+	return append(out, Hint{Index: len(base), Text: w.UpdateHint})
 }
 
 // Pick returns the text to render now: critical alert > rotation > "" (hide).
@@ -83,8 +97,12 @@ func (w *Widget) Pick(now time.Time) string {
 
 	hs := w.hints()
 
-	// Hide row once all hints have been shown.
+	// Once all hints have been shown the row normally hides — but a pending update
+	// is sticky: keep surfacing it instead of going blank.
 	if w.State.AllShown(len(hs)) {
+		if w.UpdateHint != "" {
+			return w.UpdateHint
+		}
 		return ""
 	}
 
@@ -102,5 +120,12 @@ func (w *Widget) Pick(now time.Time) string {
 		w.State.Advance(len(hs), now)
 	}
 
-	return hs[w.State.CurrentIndex].Text
+	// Clamp defensively: a persisted CurrentIndex could point past the current
+	// slice if the slot count shrank (e.g. an update hint that was present last
+	// render is gone now). Out of range → fall back to the first slot.
+	idx := w.State.CurrentIndex
+	if idx < 0 || idx >= len(hs) {
+		idx = 0
+	}
+	return hs[idx].Text
 }
