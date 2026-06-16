@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "latest_version": "0.1.1",
+  "prices": {
+    "fable":  { "in": 10, "cache_read": 1,    "cache_write_5m": 12.5, "cache_write_1h": 20, "out": 50 },
+    "opus":   { "in": 5,  "cache_read": 0.5,  "cache_write_5m": 6.25, "cache_write_1h": 10, "out": 25 },
+    "sonnet": { "in": 3,  "cache_read": 0.3,  "cache_write_5m": 3.75, "cache_write_1h": 6,  "out": 15 },
+    "haiku":  { "in": 1,  "cache_read": 0.1,  "cache_write_5m": 1.25, "cache_write_1h": 2,  "out": 5 }
+  }
+}
