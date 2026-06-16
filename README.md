@@ -70,7 +70,7 @@ brew install labzink/homebrew-tap/cc-probeline
 **curl** (macOS / Linux — downloads the release archive for your OS, verifies SHA256, installs the binary):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh
 ```
 
 **Scoop** (Windows, experimental):
@@ -86,7 +86,7 @@ scoop install cc-probeline
 /plugin marketplace add labzink/cc-probeline
 ```
 
-The plugin gives you discovery and the `/cc-probeline-config` wizard; the binary itself still comes from one of the channels above — Claude Code doesn't let a plugin become your active status line by itself.
+Then run `/cc-probeline-install` inside Claude Code: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. (Claude Code doesn't let a plugin set your active status line on its own, so this command does the wiring for you.) The plugin also gives you the `/cc-probeline-config` wizard.
 <!-- W5: verify all install commands above against the released artifacts; verify plugin wiring wording -->
 
 **Verify your installation:**

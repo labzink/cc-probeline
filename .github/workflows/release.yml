@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: write
+  # Keyless build provenance attestation (BL-37): OIDC token + attestation store.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -36,3 +39,13 @@ jobs:
           # scoop-bucket repos (cross-repo push for the brews/scoops blocks).
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      # BL-37: keyless build provenance for the release archives. Runs after
+      # goreleaser has populated dist/. Verifiable with:
+      #   gh attestation verify <file> --repo labzink/cc-probeline
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip

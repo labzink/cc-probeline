@@ -168,19 +168,21 @@ model = false
 	}
 }
 
-// T-SH5: Comment loss is a documented known limitation of the pelletier round-trip.
-// This test asserts that comments ARE lost after SetTutorialHints, documenting
-// insurance #4 from Phase 6 concept §10.2. Phase 7 will fix via AST-based edit.
-func TestSetTutorialHints_CommentLoss_Documented(t *testing.T) {
+// T-SH5 (BL-15): comments and other lines are preserved across the surgical
+// edit. Only the tutorial_hints value changes; the standalone comment, the
+// inline comment on a neighbouring key, and an unknown section all survive.
+func TestSetTutorialHints_PreservesComments(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.toml")
 
-	// Config with a meaningful inline comment.
 	withComment := `version = 1
 
 [general]
 # toggle this to hide inline hints
 tutorial_hints = true
+no_color = false # keep colour on
+
+# trailing user note
 `
 	if err := os.WriteFile(cfgPath, []byte(withComment), 0o644); err != nil {
 		t.Fatalf("write config with comment: %v", err)
@@ -194,17 +196,25 @@ tutorial_hints = true
 	if err != nil {
 		t.Fatalf("cannot read config after SetTutorialHints: %v", err)
 	}
+	got := string(data)
 
-	// Known limitation: comments are NOT preserved by pelletier round-trip.
-	// This assertion documents the behaviour; do NOT fix here — Phase 7.
-	if strings.Contains(string(data), "# toggle this to hide inline hints") {
-		t.Errorf("comment was unexpectedly preserved — " +
-			"if pelletier now preserves comments, update Phase 7 plan and remove this assertion")
+	// BL-15: comments must now be preserved.
+	for _, want := range []string{
+		"# toggle this to hide inline hints",
+		"# keep colour on",
+		"# trailing user note",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment %q was not preserved, got:\n%s", want, got)
+		}
 	}
 
-	// The value must still be updated correctly despite comment loss.
-	if !strings.Contains(string(data), "tutorial_hints = false") {
-		t.Errorf("tutorial_hints value not updated, got:\n%s", string(data))
+	// The value must be updated, and the neighbouring key untouched.
+	if !strings.Contains(got, "tutorial_hints = false") {
+		t.Errorf("tutorial_hints value not updated, got:\n%s", got)
+	}
+	if !strings.Contains(got, "no_color = false") {
+		t.Errorf("neighbouring key no_color was altered, got:\n%s", got)
 	}
 }
 

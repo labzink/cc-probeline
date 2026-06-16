@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cc-probeline >/dev/null 2>&1 || printf '%s' 'The cc-probeline plugin is enabled but its binary is not installed yet, so the status line will not show its enhanced view. You may let the user know they can run /cc-probeline-install to install it (it asks before running any install command). Do not install anything without the user asking.'"
+          }
+        ]
+      }
+    ]
+  }
+}

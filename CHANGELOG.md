@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **Install from the plugin** — the marketplace plugin ships a `/cc-probeline-install` command that detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line, asking before it runs anything. A session-start check offers it automatically when the binary is missing.
+- **Build provenance** — release archives are signed with keyless build provenance attestation, verifiable with `gh attestation verify <file> --repo labzink/cc-probeline`.
+
+### Changed
+
+- **Config edits preserve comments** — toggling `tutorial_hints` (and the `/cc-probeline-config` wizard) now edits the value in place, keeping comments, formatting, and key order in your `config.toml` intact.
+
+### Fixed
+
+- **curl install path** — the documented `curl … | sh` one-liner now points at `scripts/install.sh` (the published location).
+
 ## [0.1.0] — 2026-06-16
 
 First public release.

@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -13,10 +15,11 @@ import (
 // SetTutorialHints atomically updates only the [general].tutorial_hints field
 // in the TOML at path. Atomicity via tmp+rename (precedent: settingsfile.Save).
 //
-// Other keys are preserved through pelletier round-trip. NOTE: comments are
-// LOST — pelletier/go-toml/v2 does not preserve TOML comments on round-trip.
-// This is a known limitation documented in concept §10.2 + insurance #4.
-// BL-15: move to AST-based edit to preserve TOML comments (Phase 7).
+// BL-15: the value is edited surgically (line-level), so all other lines —
+// comments, blank lines, key order, whitespace and unknown sections — are
+// preserved byte-for-byte. Only the single tutorial_hints value changes. This
+// replaces the previous unmarshal→marshal round-trip, which dropped comments
+// and reformatted the whole file.
 //
 // If path does not exist:
 //  1. mkdir -p the parent directory.
@@ -39,27 +42,100 @@ func SetTutorialHints(path string, value bool) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// 2. Parse the existing TOML — must be valid, do not clobber on error.
-	// Start from Default() so sections omitted from the file keep their default
-	// values instead of being round-tripped to zero, which would write a
-	// dishonest config (e.g. ctx_*_ratio = 0.0 or table_rows = 0) that no longer
-	// reflects the effective behaviour.
-	cfg := Default()
-	if err := toml.Unmarshal(data, cfg); err != nil {
+	// 2. Validate the existing TOML — must be valid, do not clobber on error.
+	if err := toml.Unmarshal(data, Default()); err != nil {
 		return fmt.Errorf("existing config is invalid; run 'cc-probeline check-config' for details, then fix or remove %s: %w", path, err)
 	}
 
-	// 3. Mutate the single target field.
-	cfg.General.TutorialHints = value
+	// 3. Surgical edit: change only the tutorial_hints value, preserving
+	// everything else (comments, formatting, key order).
+	out := setGeneralTutorialHints(data, value)
 
-	// 4. Marshal back. Comments are lost here — see godoc above.
-	out, err := toml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+	// 4. Atomic write via tmp+rename.
+	return atomicWrite(path, out)
+}
+
+// setGeneralTutorialHints returns data with [general].tutorial_hints set to
+// value, editing only that value in place. If the key is present its value is
+// replaced (preserving indentation and any inline comment); if the [general]
+// table exists without the key, the key is inserted right after the header; if
+// no [general] table exists, one is appended. The input is assumed to be valid
+// TOML (validated by the caller).
+func setGeneralTutorialHints(data []byte, value bool) []byte {
+	lines := strings.Split(string(data), "\n")
+	val := strconv.FormatBool(value)
+
+	inGeneral := false
+	generalHeaderIdx := -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Top-level dotted form: general.tutorial_hints = ...
+		if !inGeneral && isAssignment(trimmed, "general.tutorial_hints") {
+			lines[i] = replaceTOMLValue(line, val)
+			return []byte(strings.Join(lines, "\n"))
+		}
+
+		// Table header line: [general], [widgets], ...
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			name := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+			inGeneral = name == "general"
+			if inGeneral {
+				generalHeaderIdx = i
+			}
+			continue
+		}
+
+		if inGeneral && isAssignment(trimmed, "tutorial_hints") {
+			lines[i] = replaceTOMLValue(line, val)
+			return []byte(strings.Join(lines, "\n"))
+		}
 	}
 
-	// 5. Atomic write via tmp+rename.
-	return atomicWrite(path, out)
+	// Key absent but [general] table present → insert after the header.
+	if generalHeaderIdx >= 0 {
+		insert := []string{"tutorial_hints = " + val}
+		lines = append(lines[:generalHeaderIdx+1], append(insert, lines[generalHeaderIdx+1:]...)...)
+		return []byte(strings.Join(lines, "\n"))
+	}
+
+	// No [general] table at all → append one.
+	out := string(data)
+	if len(out) > 0 && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	out += "\n[general]\ntutorial_hints = " + val + "\n"
+	return []byte(out)
+}
+
+// isAssignment reports whether a trimmed line assigns to key (i.e. starts with
+// key followed by optional spaces and '='), excluding comment lines.
+func isAssignment(trimmed, key string) bool {
+	if strings.HasPrefix(trimmed, "#") {
+		return false
+	}
+	rest := strings.TrimPrefix(trimmed, key)
+	if rest == trimmed {
+		return false
+	}
+	rest = strings.TrimLeft(rest, " \t")
+	return strings.HasPrefix(rest, "=")
+}
+
+// replaceTOMLValue replaces the value after '=' on a key line with val,
+// preserving the key, indentation, and any trailing inline comment. The
+// existing value is assumed to be a scalar without '#' (tutorial_hints is bool).
+func replaceTOMLValue(line, val string) string {
+	eq := strings.Index(line, "=")
+	if eq < 0 {
+		return line
+	}
+	head := line[:eq+1]
+	comment := ""
+	if h := strings.Index(line[eq+1:], "#"); h >= 0 {
+		comment = " " + strings.TrimSpace(line[eq+1+h:])
+	}
+	return head + " " + val + comment
 }
 
 // GlobalConfigPath returns the platform-appropriate global config location

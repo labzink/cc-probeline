@@ -18,11 +18,12 @@ No arguments.
 
 ## Step 0 — Preconditions + read current state
 
-1. If `cc-probeline` is not found in PATH, output this and stop:
+1. If `cc-probeline` is not found in PATH, tell the user the binary is not installed
+   yet and suggest running `/cc-probeline-install` to install it, then stop:
 
    ```
-   Error: cc-probeline binary not found in PATH.
-   Make sure cc-probeline is installed and in your PATH, then run /cc-probeline-config again.
+   cc-probeline binary not found in PATH.
+   Run /cc-probeline-install to install it, then run /cc-probeline-config again.
    ```
 
 2. Read the current effective config (needed to show 🟢/🔴 and the current table size):
