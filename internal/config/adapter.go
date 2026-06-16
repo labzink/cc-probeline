@@ -50,12 +50,18 @@ func ToProbesConfig(cfg Config) probes.Config {
 
 		Email: cfg.Probes.Email.Address,
 
-		CostBudgetUSD:      cfg.Thresholds.CostBudgetUSD,
-		CtxNoticeRatio:     cfg.Thresholds.CtxNoticeRatio,
-		CtxWarnRatio:       cfg.Thresholds.CtxWarnRatio,
-		CtxCriticalRatio:   cfg.Thresholds.CtxCriticalRatio,
-		OrchTTLMinutes:     cfg.Thresholds.OrchTTLMinutes,
-		SubagentGapMinutes: cfg.Thresholds.SubagentGapMinutes,
+		CostBudgetUSD:        cfg.Thresholds.CostBudgetUSD,
+		CtxNoticeRatio:       cfg.Thresholds.CtxNoticeRatio,
+		CtxWarnRatio:         cfg.Thresholds.CtxWarnRatio,
+		CtxCriticalRatio:     cfg.Thresholds.CtxCriticalRatio,
+		Quota5hNoticeRatio:   cfg.Thresholds.Quota5hNoticeRatio,
+		Quota5hWarnRatio:     cfg.Thresholds.Quota5hWarnRatio,
+		Quota5hCriticalRatio: cfg.Thresholds.Quota5hCriticalRatio,
+		Quota7dNoticeRatio:   cfg.Thresholds.Quota7dNoticeRatio,
+		Quota7dWarnRatio:     cfg.Thresholds.Quota7dWarnRatio,
+		Quota7dCriticalRatio: cfg.Thresholds.Quota7dCriticalRatio,
+		OrchTTLMinutes:       cfg.Thresholds.OrchTTLMinutes,
+		SubagentGapMinutes:   cfg.Thresholds.SubagentGapMinutes,
 	}
 }
 

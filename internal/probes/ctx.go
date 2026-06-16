@@ -53,7 +53,14 @@ func (p *CtxProbe) Visible(d Data, c Config) bool {
 // (e.g. unit tests passing a zero Config) still colour correctly; in production
 // config.ApplyRangeFix has already enforced the same invariant.
 func effectiveCtxRatios(c Config) (notice, warn, critical float64) {
-	notice, warn, critical = c.CtxNoticeRatio, c.CtxWarnRatio, c.CtxCriticalRatio
+	return resolveRatios(c.CtxNoticeRatio, c.CtxWarnRatio, c.CtxCriticalRatio)
+}
+
+// resolveRatios returns the notice/warn/critical trio when it is a strictly
+// increasing set within (0, 1], otherwise the baked defaults 0.50/0.70/0.90.
+// Shared by the ctx and quota probes so a zero or invalid Config still colours
+// correctly even when config.ApplyRangeFix has not run (e.g. unit tests).
+func resolveRatios(notice, warn, critical float64) (float64, float64, float64) {
 	if notice > 0 && notice < warn && warn < critical && critical <= 1 {
 		return notice, warn, critical
 	}

@@ -127,6 +127,12 @@ func Validate(cfg *Config) []Error {
 		})
 	}
 
+	// Thresholds.Quota5h / Quota7d colour-ratio trios.
+	errs = validateRatioTrio(errs, "thresholds.quota_5h",
+		cfg.Thresholds.Quota5hNoticeRatio, cfg.Thresholds.Quota5hWarnRatio, cfg.Thresholds.Quota5hCriticalRatio)
+	errs = validateRatioTrio(errs, "thresholds.quota_7d",
+		cfg.Thresholds.Quota7dNoticeRatio, cfg.Thresholds.Quota7dWarnRatio, cfg.Thresholds.Quota7dCriticalRatio)
+
 	// Thresholds.OrchTTLMinutes: 0 == "use default"; only < 0 is an error.
 	if cfg.Thresholds.OrchTTLMinutes < 0 {
 		errs = append(errs, Error{
@@ -177,6 +183,60 @@ func Validate(cfg *Config) []Error {
 
 // inUnitInterval reports whether v lies within the closed unit interval [0, 1].
 func inUnitInterval(v float64) bool { return v >= 0.0 && v <= 1.0 }
+
+// validateRatioTrio appends a SeverityError for each ratio outside [0, 1] under
+// the given TOML field prefix (e.g. "thresholds.quota_5h"), plus one error when
+// the three are in range but do not strictly increase (notice < warn < critical).
+func validateRatioTrio(errs []Error, prefix string, notice, warn, critical float64) []Error {
+	for _, f := range []struct {
+		suffix string
+		v      float64
+	}{{"notice_ratio", notice}, {"warn_ratio", warn}, {"critical_ratio", critical}} {
+		if f.v < 0.0 || f.v > 1.0 {
+			field := prefix + "_" + f.suffix
+			errs = append(errs, Error{
+				Severity: SeverityError,
+				Field:    field,
+				Message:  "ratio must be in [0.0, 1.0]",
+				Hint:     suggestFor(field, f.v, nil),
+			})
+		}
+	}
+	if inUnitInterval(notice) && inUnitInterval(warn) && inUnitInterval(critical) &&
+		!(notice < warn && warn < critical) {
+		errs = append(errs, Error{
+			Severity: SeverityError,
+			Field:    prefix + "_critical_ratio",
+			Message: fmt.Sprintf(
+				"ratios must strictly increase: notice (%.2f) < warn (%.2f) < critical (%.2f)",
+				notice, warn, critical),
+		})
+	}
+	return errs
+}
+
+// fixRatioTrio clamps each out-of-range ratio to its default and, when the trio
+// is not strictly increasing, resets all three to defaults (a known-good
+// monotonic set). Mutates through the pointers; appends fixed field paths.
+func fixRatioTrio(prefix string, notice, warn, critical *float64, defN, defW, defC float64, fixed []string) []string {
+	if *notice < 0.0 || *notice > 1.0 {
+		*notice = defN
+		fixed = append(fixed, prefix+"_notice_ratio")
+	}
+	if *warn < 0.0 || *warn > 1.0 {
+		*warn = defW
+		fixed = append(fixed, prefix+"_warn_ratio")
+	}
+	if *critical < 0.0 || *critical > 1.0 {
+		*critical = defC
+		fixed = append(fixed, prefix+"_critical_ratio")
+	}
+	if !(*notice < *warn && *warn < *critical) {
+		*notice, *warn, *critical = defN, defW, defC
+		fixed = append(fixed, prefix+"_notice_ratio", prefix+"_warn_ratio", prefix+"_critical_ratio")
+	}
+	return fixed
+}
 
 // ApplyRangeFix mutates cfg in place, replacing each field that Validate
 // would flag as SeverityError with the default value. Used by lenient callers
@@ -255,6 +315,14 @@ func ApplyRangeFix(cfg *Config) []string {
 		fixed = append(fixed, "thresholds.ctx_notice_ratio",
 			"thresholds.ctx_warn_ratio", "thresholds.ctx_critical_ratio")
 	}
+
+	// Thresholds.Quota5h / Quota7d colour-ratio trios.
+	fixed = fixRatioTrio("thresholds.quota_5h",
+		&cfg.Thresholds.Quota5hNoticeRatio, &cfg.Thresholds.Quota5hWarnRatio, &cfg.Thresholds.Quota5hCriticalRatio,
+		def.Thresholds.Quota5hNoticeRatio, def.Thresholds.Quota5hWarnRatio, def.Thresholds.Quota5hCriticalRatio, fixed)
+	fixed = fixRatioTrio("thresholds.quota_7d",
+		&cfg.Thresholds.Quota7dNoticeRatio, &cfg.Thresholds.Quota7dWarnRatio, &cfg.Thresholds.Quota7dCriticalRatio,
+		def.Thresholds.Quota7dNoticeRatio, def.Thresholds.Quota7dWarnRatio, def.Thresholds.Quota7dCriticalRatio, fixed)
 
 	// Thresholds.OrchTTLMinutes.
 	if cfg.Thresholds.OrchTTLMinutes < 0 {

@@ -154,6 +154,20 @@ type Thresholds struct {
 	// Range: (0, 1). Default: 0.90. Must satisfy notice < warn < critical.
 	CtxCriticalRatio float64 `toml:"ctx_critical_ratio" json:"ctx_critical_ratio"`
 
+	// Quota5h{Notice,Warn,Critical}Ratio are the three colour-flip ratios for the
+	// 5-hour rate-limit window (yellow/orange/red). Range: (0, 1).
+	// Defaults: 0.50/0.70/0.90. Must satisfy notice < warn < critical.
+	Quota5hNoticeRatio   float64 `toml:"quota_5h_notice_ratio" json:"quota_5h_notice_ratio"`
+	Quota5hWarnRatio     float64 `toml:"quota_5h_warn_ratio" json:"quota_5h_warn_ratio"`
+	Quota5hCriticalRatio float64 `toml:"quota_5h_critical_ratio" json:"quota_5h_critical_ratio"`
+
+	// Quota7d{Notice,Warn,Critical}Ratio are the three colour-flip ratios for the
+	// 7-day rate-limit window (yellow/orange/red). Range: (0, 1).
+	// Defaults: 0.50/0.70/0.90. Must satisfy notice < warn < critical.
+	Quota7dNoticeRatio   float64 `toml:"quota_7d_notice_ratio" json:"quota_7d_notice_ratio"`
+	Quota7dWarnRatio     float64 `toml:"quota_7d_warn_ratio" json:"quota_7d_warn_ratio"`
+	Quota7dCriticalRatio float64 `toml:"quota_7d_critical_ratio" json:"quota_7d_critical_ratio"`
+
 	// OrchTTLMinutes is the orchestrator idle timeout in minutes. The
 	// subagent probe emits a warning when the orchestrator has been idle
 	// longer than this value. Default: 60.

@@ -57,6 +57,28 @@ func displayPctInt(pct float64, roundUp bool) int {
 	return int(pct)
 }
 
+// quotaUsageColor returns the raw ANSI colour code for a quota usage percentage
+// using the window's configurable notice/warn/critical ratios: green below
+// notice, yellow at notice, orange at warn, red at critical. It mirrors
+// renderer.ProgressBarColor but with per-window thresholds; like that function it
+// caps at Red — the >95% bold-red emphasis is applied separately by boldRedWrap.
+// Returns "" when ANSI is disabled.
+func quotaUsageColor(pct, notice, warn, critical float64, t renderer.Theme) string {
+	if !t.AnsiEnabled {
+		return ""
+	}
+	switch {
+	case pct >= critical*100.0:
+		return t.Colors.Red
+	case pct >= warn*100.0:
+		return t.Colors.Orange
+	case pct >= notice*100.0:
+		return t.Colors.Yellow
+	default:
+		return t.Colors.Green
+	}
+}
+
 // QuotaProbe renders quota usage for the 5-hour and 7-day rate-limit windows.
 // Data is sourced from quota.Freshest() (cross-session persistent file) with
 // d.Stdin.RateLimits as a fallback when no snapshot has been stored yet.
@@ -153,6 +175,11 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		colourReset = t.Colors.Reset
 	}
 
+	// Per-window colour-flip ratios (notice/warn/critical), resolved with the
+	// baked defaults 0.50/0.70/0.90 when unset or invalid.
+	n5, w5, c5 := resolveRatios(c.Quota5hNoticeRatio, c.Quota5hWarnRatio, c.Quota5hCriticalRatio)
+	n7, w7, c7 := resolveRatios(c.Quota7dNoticeRatio, c.Quota7dWarnRatio, c.Quota7dCriticalRatio)
+
 	// boldRedWrap wraps a value string with {{color:bold_red}}...{{reset}} when
 	// the percentage exceeds 95 and ANSI output is enabled. Markers are gated
 	// on AnsiEnabled so that plain-text callers never receive raw markers.
@@ -180,29 +207,24 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	reset5h := formatReset(live5h, snap5hReset, d.Now, fiveHourThresholds)
 	reset7d := formatReset(live7d, snap7dReset, d.Now, sevenDayThresholds)
 
-	// pctSuffix returns " NN%" coloured with ProgressBarColor when 90 ≤ pct < 100.
-	// At pct > 95 the existing boldRedWrap handles the bold-red colouring of
-	// the entire block; the suffix itself uses the bar-colour marker.
-	// Spec §2.3: colour = ProgressBarColor(pct,t); >95 → bold_red.
-	// Phase 6.95.h: at pct ≥ 100 the number is dropped (the full bar already
-	// conveys 100%) and the extra-usage block stands in its place.
-	pctSuffix := func(pct float64, roundUp bool) string {
-		if pct < 90.0 || pct >= 100.0 {
+	// pctSuffix returns " NN%" for Full/Compact. The number appears once the
+	// window reaches its critical ratio (and is below 100%); colour is red, or
+	// bold_red above 95% (boldRedWrap also reddens the whole block there). Below
+	// critical the number is omitted — the bar carries the signal. Phase 6.95.h:
+	// at pct ≥ 100 the number is dropped and the extra-usage block stands in.
+	pctSuffix := func(pct, critical float64, roundUp bool) string {
+		if pct < critical*100.0 || pct >= 100.0 {
 			return ""
 		}
 		pctStr := fmt.Sprintf("%d%%", displayPctInt(pct, roundUp))
+		if !t.AnsiEnabled {
+			// AnsiEnabled=false: emit plain suffix without colour markers.
+			return " " + pctStr
+		}
 		if pct > 95.0 {
 			return " {{color:bold_red}}" + pctStr + "{{reset}}"
 		}
-		// ≥ 90 and ≤ 95: colour matches the progress bar colour (always red at ≥90%).
-		color := renderer.ProgressBarColor(pct, t)
-		if color != "" {
-			// ProgressBarColor returned a raw ANSI code; wrap in text marker instead.
-			// At pct ≥ 90, ProgressBarColor returns Red. Use the text marker form.
-			return " {{color:red}}" + pctStr + "{{reset}}"
-		}
-		// AnsiEnabled=false: emit plain suffix without colour markers.
-		return " " + pctStr
+		return " {{color:red}}" + pctStr + "{{reset}}"
 	}
 
 	// Phase 6.95.h: decide which window (if any) carries the extra-usage block.
@@ -229,12 +251,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		}
 	}
 
-	// minimalPctColour wraps "NN%" in the colour the progress bar would use at
-	// this percentage (6.95.e). Thresholds mirror renderer.ProgressBarColor
-	// (<50 green · <70 yellow · <90 orange · ≥90 red); pct > 95 overrides to
-	// bold_red (same rule boldRedWrap applies in Full/Compact). Markers are gated
-	// on AnsiEnabled so plain callers receive an uncoloured "NN%".
-	minimalPctColour := func(pct float64, roundUp bool) string {
+	// minimalPctColour wraps "NN%" in the window's usage colour using the
+	// configurable notice/warn/critical ratios (green below notice · yellow ·
+	// orange · red at critical); pct > 95 overrides to bold_red (same rule
+	// boldRedWrap applies in Full/Compact). Markers are gated on AnsiEnabled so
+	// plain callers receive an uncoloured "NN%".
+	minimalPctColour := func(pct, notice, warn, critical float64, roundUp bool) string {
 		pctStr := fmt.Sprintf("%d%%", displayPctInt(pct, roundUp))
 		if !t.AnsiEnabled {
 			return pctStr
@@ -243,11 +265,11 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		switch {
 		case pct > 95.0:
 			marker = "{{color:bold_red}}"
-		case pct >= 90.0:
+		case pct >= critical*100.0:
 			marker = "{{color:red}}"
-		case pct >= 70.0:
+		case pct >= warn*100.0:
 			marker = "{{color:orange}}"
-		case pct >= 50.0:
+		case pct >= notice*100.0:
 			marker = "{{color:yellow}}"
 		default:
 			marker = "{{color:green}}"
@@ -275,12 +297,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 
 	switch level {
 	case LevelFull:
-		bar5h := renderer.ProgressBarColor(pct5h, t) +
+		bar5h := quotaUsageColor(pct5h, n5, w5, c5, t) +
 			renderer.ProgressBar10(pct5h) + colourReset
-		bar7d := renderer.ProgressBarColor(pct7d, t) +
+		bar7d := quotaUsageColor(pct7d, n7, w7, c7, t) +
 			renderer.ProgressBar10(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, true), reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, false), reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, c5, true), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, c7, false), reset7d))
 		if extraOn5h {
 			val5h += extraBlock(LevelFull)
 		}
@@ -289,12 +311,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		}
 		return fmt.Sprintf("5h: %s · 7d: %s%s", val5h, val7d, ageSuffix)
 	case LevelCompact:
-		bar5h := renderer.ProgressBarColor(pct5h, t) +
+		bar5h := quotaUsageColor(pct5h, n5, w5, c5, t) +
 			renderer.ProgressBar(pct5h) + colourReset
-		bar7d := renderer.ProgressBarColor(pct7d, t) +
+		bar7d := quotaUsageColor(pct7d, n7, w7, c7, t) +
 			renderer.ProgressBar(pct7d) + colourReset
-		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, true), reset5h))
-		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, false), reset7d))
+		val5h := boldRedWrap(pct5h, fmt.Sprintf("%s%s %s", bar5h, pctSuffix(pct5h, c5, true), reset5h))
+		val7d := boldRedWrap(pct7d, fmt.Sprintf("%s%s %s", bar7d, pctSuffix(pct7d, c7, false), reset7d))
 		if extraOn5h {
 			val5h += extraBlock(LevelCompact)
 		}
@@ -307,8 +329,8 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		// same rules the bar would use, and the reset countdown is kept like
 		// Compact (6.95.e). The number stays even at ≥100% — it is the only quota
 		// signal at this level (6.95.h hides it only when a bar is present).
-		val5h := minimalPctColour(pct5h, true) + " " + reset5h
-		val7d := minimalPctColour(pct7d, false) + " " + reset7d
+		val5h := minimalPctColour(pct5h, n5, w5, c5, true) + " " + reset5h
+		val7d := minimalPctColour(pct7d, n7, w7, c7, false) + " " + reset7d
 		if extraOn5h {
 			val5h += extraBlock(LevelMinimal)
 		}

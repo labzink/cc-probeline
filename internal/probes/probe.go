@@ -128,10 +128,18 @@ type Config struct {
 	Email string
 
 	// Threshold values (Phase 6 — from config.Thresholds).
-	CostBudgetUSD      float64
-	CtxNoticeRatio     float64
-	CtxWarnRatio       float64
-	CtxCriticalRatio   float64
+	CostBudgetUSD    float64
+	CtxNoticeRatio   float64
+	CtxWarnRatio     float64
+	CtxCriticalRatio float64
+
+	Quota5hNoticeRatio   float64
+	Quota5hWarnRatio     float64
+	Quota5hCriticalRatio float64
+	Quota7dNoticeRatio   float64
+	Quota7dWarnRatio     float64
+	Quota7dCriticalRatio float64
+
 	OrchTTLMinutes     int
 	SubagentGapMinutes int
 

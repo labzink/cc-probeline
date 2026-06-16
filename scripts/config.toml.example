@@ -65,6 +65,15 @@ ctx_notice_ratio    = 0.50
 ctx_warn_ratio      = 0.70
 ctx_critical_ratio  = 0.90
 
+# Rate-limit usage colour flips (yellow/orange/red), per window. Same rules as
+# ctx: must strictly increase notice < warn < critical; invalid → these defaults.
+quota_5h_notice_ratio   = 0.50
+quota_5h_warn_ratio     = 0.70
+quota_5h_critical_ratio = 0.90
+quota_7d_notice_ratio   = 0.50
+quota_7d_warn_ratio     = 0.70
+quota_7d_critical_ratio = 0.90
+
 # Cache alert thresholds.
 orch_ttl_minutes      = 60
 subagent_gap_minutes  = 5
