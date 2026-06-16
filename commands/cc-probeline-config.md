@@ -37,6 +37,7 @@ No arguments.
    - `general.mode` (`"standard"` | `"super-compact"`)
    - `general.no_color` (bool) — note: **colour is ON when `no_color` is false**
    - `general.tutorial_hints` (bool)
+   - `general.price_check` (bool) — once-per-day network price/version check (opt-out)
    - `widgets.model`, `widgets.cost`, `widgets.project`, `widgets.email`, `widgets.time`, `widgets.ctx`, `widgets.quota`, `widgets.git` (bool each)
 
 ---
@@ -72,10 +73,11 @@ Example when current = 10:
 - **header:** `General`
 - **question:** `General settings. Check ONLY what you want to change — anything unchecked stays as it is. (🟢 = currently on, 🔴 = currently off)`
 - **multiSelect:** true
-- **options** (3):
+- **options** (4):
   - **Display mode** — description reflects current: `🟢 Now: standard. Check to switch to super-compact.` (or the reverse when current is super-compact).
   - **Colour output** — `🟢 Currently on. Check to turn it off (monochrome).` (or `🔴 Currently off. Check to turn it on.` when `no_color` is true).
   - **Tutorial hints** — `🟢 Currently on. Check to turn off.` / `🔴 Currently off. Check to turn on.`
+  - **Price check (network)** — `🟢 Currently on. Check to turn off (stay fully offline; baked prices).` / `🔴 Currently off. Check to turn on (daily price/version check).` per `price_check`.
 
 ### Question 3 — `Probes 1` (multi-select, flip)
 
@@ -103,6 +105,7 @@ Translate the answers into CLI setters and run them in **one** chained bash comm
 - **Display mode** checked → `cc-probeline mode <the other value>` (standard ↔ super-compact).
 - **Colour output** checked → flip colour: `cc-probeline no-color on` if colour is currently on (i.e. `no_color` false), else `cc-probeline no-color off`.
 - **Tutorial hints** checked → `cc-probeline hints off` if currently on, else `cc-probeline hints on`.
+- **Price check (network)** checked → `cc-probeline price-check off` if currently on (`price_check` true), else `cc-probeline price-check on`.
 - **Each probe** checked → flip it: `cc-probeline widgets <name> off` if currently shown, else `cc-probeline widgets <name> on`.
   - **`model`** is special: emit **two** commands with the same new state — `cc-probeline widgets model <state>` **and** `cc-probeline widgets effort <state>`.
 

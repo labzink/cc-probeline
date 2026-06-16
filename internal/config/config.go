@@ -57,6 +57,15 @@ type General struct {
 	// CORE reads this field to switch the assembler layout. Setters write it
 	// via SetMode; the legacy per-session mode file is superseded by this field.
 	Mode string `toml:"mode" json:"mode"`
+
+	// PriceCheck enables the once-per-day network price/version check (Phase 7.46
+	// Wave B / BL-36): a single GET of our public prices.json, 24h-cached and
+	// fail-soft offline, used to self-heal the cost table and surface the latest
+	// version. Default true. Set false to keep the tool fully offline — the baked
+	// price table (correct as of build time) is then used and no network is
+	// touched. The render path itself is always network-free; this governs only
+	// the background refresh.
+	PriceCheck bool `toml:"price_check" json:"price_check"`
 }
 
 // Widgets controls visibility for each status-line probe widget.

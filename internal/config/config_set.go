@@ -50,6 +50,18 @@ func SetNoColor(path string, value bool) error {
 	return marshalAndWrite(path, cfg)
 }
 
+// SetPriceCheck atomically updates [general].price_check in the TOML at path
+// (Phase 7.46 Wave B / BL-36 — opt out of the once-per-day network price check).
+// Round-trip semantics and file-creation behaviour mirror SetTutorialHints.
+func SetPriceCheck(path string, value bool) error {
+	cfg, err := readOrDefault(path)
+	if err != nil {
+		return err
+	}
+	cfg.General.PriceCheck = value
+	return marshalAndWrite(path, cfg)
+}
+
 // SetWidget atomically updates the named widget toggle in [widgets].
 // name must be one of the Widgets field TOML names (e.g. "model", "ctx").
 // Unknown names return an error and leave the file unchanged.

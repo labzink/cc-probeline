@@ -194,6 +194,58 @@ func TestSetNoColor_CreatesFile(t *testing.T) {
 	}
 }
 
+// ─── SetPriceCheck (Phase 7.46 Wave B / BL-36) ──────────────────────────────────
+
+// SetPriceCheck(false) writes price_check=false and preserves other keys; the
+// loaded value reflects the opt-out (real invariant: the disable flag round-trips).
+func TestSetPriceCheck_False_RoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	p := seedConfig(t, tmp, multiFieldSeed)
+
+	if err := config.SetPriceCheck(p, false); err != nil {
+		t.Fatalf("SetPriceCheck: %v", err)
+	}
+
+	cfg := loadField(t, p)
+	if cfg.General.PriceCheck {
+		t.Error("PriceCheck: got true, want false after disable")
+	}
+	// unrelated fields preserved
+	if !cfg.General.TutorialHints {
+		t.Error("TutorialHints should be preserved (true)")
+	}
+	if !cfg.General.NerdFont {
+		t.Error("NerdFont should be preserved (true)")
+	}
+}
+
+// PriceCheck defaults to true (opt-out): a file that never mentions price_check
+// loads as enabled, so existing installs keep self-healing prices.
+func TestPriceCheck_DefaultsTrue(t *testing.T) {
+	tmp := t.TempDir()
+	p := seedConfig(t, tmp, multiFieldSeed) // multiFieldSeed has no price_check key
+	cfg := loadField(t, p)
+	if !cfg.General.PriceCheck {
+		t.Error("PriceCheck: got false, want true (default when key omitted)")
+	}
+}
+
+// SetPriceCheck(true) on a clean path creates the config file with the flag on.
+func TestSetPriceCheck_CreatesFile(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "config.toml")
+
+	if err := config.SetPriceCheck(p, true); err != nil {
+		t.Fatalf("SetPriceCheck: %v", err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("config file not created: %v", err)
+	}
+	if cfg := loadField(t, p); !cfg.General.PriceCheck {
+		t.Error("PriceCheck: got false, want true")
+	}
+}
+
 // ─── SetWidget ────────────────────────────────────────────────────────────────
 
 // T-SW1: SetWidget("quota", false) updates quota and preserves other widgets.

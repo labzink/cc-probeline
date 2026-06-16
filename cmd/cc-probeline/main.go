@@ -45,15 +45,16 @@ const (
 	modeUninstall
 	modeInstall
 	modeCheck
-	modeCheckConfig  // Phase 6.e: cc-probeline check-config
-	modeHints        // Phase 6.f: cc-probeline hints on/off
-	modeCfgMode      // Phase 6.95.cfg: cc-probeline mode standard|super-compact
-	modeCfgNoColor   // Phase 6.95.cfg: cc-probeline no-color on|off
-	modeCfgWidgets   // Phase 6.95.cfg: cc-probeline widgets <name> on|off
-	modeCfgRefresh   // Phase 6.95.cfg: cc-probeline refresh-interval <n>
-	modeCfgTableRows // Phase 6.95.cfg: cc-probeline table-rows <n>
-	modeCfgShow      // Phase 6.95.f3: cc-probeline config show
-	modeBad          // unknown flag: exit 64
+	modeCheckConfig   // Phase 6.e: cc-probeline check-config
+	modeHints         // Phase 6.f: cc-probeline hints on/off
+	modeCfgMode       // Phase 6.95.cfg: cc-probeline mode standard|super-compact
+	modeCfgNoColor    // Phase 6.95.cfg: cc-probeline no-color on|off
+	modeCfgWidgets    // Phase 6.95.cfg: cc-probeline widgets <name> on|off
+	modeCfgRefresh    // Phase 6.95.cfg: cc-probeline refresh-interval <n>
+	modeCfgTableRows  // Phase 6.95.cfg: cc-probeline table-rows <n>
+	modeCfgShow       // Phase 6.95.f3: cc-probeline config show
+	modeCfgPriceCheck // Phase 7.46 Wave B: cc-probeline price-check on|off
+	modeBad           // unknown flag: exit 64
 )
 
 func main() {
@@ -91,6 +92,8 @@ func run(args []string) int {
 		return runTableRows(args[2:])
 	case modeCfgShow:
 		return runConfigShow(args[2:])
+	case modeCfgPriceCheck:
+		return runPriceCheck(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -134,6 +137,8 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeCfgTableRows, false, ""
 	case "config":
 		return modeCfgShow, false, ""
+	case "price-check":
+		return modeCfgPriceCheck, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}
@@ -195,6 +200,24 @@ func runRender(strict bool) int {
 	}
 
 	now := time.Now()
+
+	// Load config cascade early (Phase 6) so the price-check flag (Phase 7.46 Wave
+	// B / BL-36) can gate the network price refresh BEFORE cost reconciliation
+	// prices any turn. Always lenient: errors become alerts, not crashes.
+	ccfg, source, configErrs := config.LoadCascade(payload.Cwd)
+
+	// Phase 7.46 Wave B / BL-36: self-healing price table. When the opt-out flag is
+	// enabled (default) refresh the shared 24h cache — TTL-gated to one network GET
+	// per day, fail-soft offline — and apply whatever is cached over the baked table.
+	// Disabled → pure baked table, zero network. Applying a cached table is a local
+	// read; RefreshPrices is the only network touch. Must run before cost.Reconcile
+	// so per-turn estimates use the freshest prices.
+	if ccfg.General.PriceCheck {
+		cost.RefreshPrices(now)
+		if pf, ok := cost.CachedPrices(); ok {
+			cost.ApplyPrices(pf)
+		}
+	}
 
 	// Load JSONL transcript: fail-soft on any I/O error.
 	var records []parser.Record
@@ -268,8 +291,6 @@ func runRender(strict bool) int {
 		}
 	}
 
-	// Load config cascade (Phase 6). Always lenient: errors become alerts, not crashes.
-	ccfg, source, configErrs := config.LoadCascade(payload.Cwd)
 	// Apply NO_COLOR from config only when env NO_COLOR is not already set.
 	// ENV NO_COLOR > config.no_color > auto-detect (concept §7.3).
 	baseTheme := renderer.Theme{AnsiEnabled: renderer.DetectAnsi(os.Stdout)}

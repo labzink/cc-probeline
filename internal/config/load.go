@@ -23,6 +23,7 @@ func Default() *Config {
 			RefreshIntervalHint: 5,
 			TableRows:           10,
 			Mode:                "standard",
+			PriceCheck:          true,
 		},
 		Widgets: Widgets{
 			Model:   true,
