@@ -334,7 +334,7 @@ func unifiedRoleColour(role string, isSidechain bool) string {
 // renderUnifiedLegend renders the legend content row with column header labels.
 // The cache column label is "cache r/w" (T-31). Uses {{dim}}│{{reset}} dividers.
 func renderUnifiedLegend(colWidths []int) string {
-	labels := [7]string{"#", "role", "model", "cache r/w", "out", "cost", "tool"}
+	labels := [7]string{"#", "role", "model", "cache r/w", "out", "~cost", "tool"}
 	aligns := [7]Align{AlignRight, AlignLeft, AlignLeft, AlignLeft, AlignRight, AlignRight, AlignLeft}
 
 	var sb strings.Builder

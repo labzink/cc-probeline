@@ -40,7 +40,7 @@ func TestCost_Visible(t *testing.T) {
 
 // TestCost_Render_Full verifies CostProbe.Render at LevelFull:
 // format is "cost: $<value>" with 2 decimal places.
-// CostProbe reads d.SessionTotal (delta from session baseline), not d.Stdin.Cost.TotalCostUSD (C2).
+// CostProbe reads the official d.Stdin.Cost.TotalCostUSD (Phase 7.46).
 func TestCost_Render_Full(t *testing.T) {
 	p := &probes.CostProbe{}
 	th := renderer.Theme{}
@@ -57,8 +57,8 @@ func TestCost_Render_Full(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// C2: CostProbe uses d.SessionTotal, not d.Stdin.Cost.TotalCostUSD.
-			d := probes.Data{SessionTotal: tc.cost}
+			// Phase 7.46: header shows the official d.Stdin.Cost.TotalCostUSD.
+			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
 			cfg := probes.Config{}
 			got := p.Render(d, cfg, th, probes.LevelFull)
 			if got != tc.want {
@@ -70,7 +70,7 @@ func TestCost_Render_Full(t *testing.T) {
 
 // TestCost_Render_Compact verifies CostProbe.Render at LevelCompact:
 // format is "$<value>" (label dropped per §A4 P1).
-// CostProbe reads d.SessionTotal (C2).
+// CostProbe reads the official d.Stdin.Cost.TotalCostUSD (Phase 7.46).
 func TestCost_Render_Compact(t *testing.T) {
 	p := &probes.CostProbe{}
 	th := renderer.Theme{}
@@ -87,8 +87,8 @@ func TestCost_Render_Compact(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// C2: CostProbe uses d.SessionTotal.
-			d := probes.Data{SessionTotal: tc.cost}
+			// Phase 7.46: header shows the official d.Stdin.Cost.TotalCostUSD.
+			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
 			cfg := probes.Config{}
 			got := p.Render(d, cfg, th, probes.LevelCompact)
 			if got != tc.want {
@@ -100,7 +100,7 @@ func TestCost_Render_Compact(t *testing.T) {
 
 // TestCost_Render_Minimal verifies CostProbe.Render at LevelMinimal:
 // format is "$<value>" — same as Compact (value is never dropped; cost is P0).
-// CostProbe reads d.SessionTotal (C2).
+// CostProbe reads the official d.Stdin.Cost.TotalCostUSD (Phase 7.46).
 func TestCost_Render_Minimal(t *testing.T) {
 	p := &probes.CostProbe{}
 	th := renderer.Theme{}
@@ -117,8 +117,8 @@ func TestCost_Render_Minimal(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// C2: CostProbe uses d.SessionTotal.
-			d := probes.Data{SessionTotal: tc.cost}
+			// Phase 7.46: header shows the official d.Stdin.Cost.TotalCostUSD.
+			d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: tc.cost}}}
 			cfg := probes.Config{}
 			got := p.Render(d, cfg, th, probes.LevelMinimal)
 			if got != tc.want {

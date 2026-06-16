@@ -22,14 +22,20 @@ func (p *CostProbe) Visible(d Data, c Config) bool {
 	return true
 }
 
-// Render formats the cost using d.SessionTotal (delta from session baseline),
-// not the raw cumulative d.Stdin.Cost.TotalCostUSD (C2 / T-6).
+// Render formats the header cost from the official Claude Code meter
+// (d.Stdin.Cost.TotalCostUSD), not our table-driven estimate (Phase 7.46).
+//
+// Rationale: the header must show the single most authoritative figure, even at a
+// small lag, rather than our reconstructed estimate (which carries a known ~10%
+// reasoning-billing gap). The per-turn table keeps our estimate (labelled "~cost")
+// for attribution; a small header↔table mismatch is expected and accepted. This
+// does not reintroduce the 7.45 dancing-number bug — that came from redistributing
+// the lagging ccTotal across turns, not from showing the official total verbatim.
 //
 //	Full:              "cost: $<value>"
 //	Compact/Minimal:   "$<value>"
 func (p *CostProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
-	// C2: use session-delta cost, not raw cumulative total.
-	value := fmt.Sprintf("$%.2f", d.SessionTotal)
+	value := fmt.Sprintf("$%.2f", d.Stdin.Cost.TotalCostUSD)
 	if level == LevelFull {
 		return "cost: " + value
 	}

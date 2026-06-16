@@ -1,25 +1,25 @@
 {{dim}}me@exam…e.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-pro…ne{{reset}}{{dim}} • {{reset}}{{color:green}}█▒░░░{{reset}} ↻ 3h:0m · {{color:green}}▒░░░░{{reset}} ↻ 5d.0h
 opus-4-7{{dim}} • {{reset}}{{color:green}}█▒░░░{{reset}} 60K/200K{{dim}} • {{reset}}$11.39{{dim}} • {{reset}}20:17{{dim}} • {{reset}}{{color:cyan}}⎇ agen…e-7{{reset}}
 {{dim}}┌────┬──────────────┬────────────┬─────────────┬───────┬─────────┬─────────────┐{{reset}}
-{{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.48 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}} {{color:green}}⏱ 57m{{reset}}
-{{dim}}│{{reset}} 14 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 276K     1K {{dim}}│{{reset}}   760 {{dim}}│{{reset}}   $0.47 {{dim}}│{{reset}} Read        {{dim}}│{{reset}}
-{{dim}}│{{reset}}↳6  {{dim}}│{{reset}} {{color:yellow}}general…urpos{{reset}}{{dim}}│{{reset}} sonnet-4-6 {{dim}}│{{reset}} 80K      1K {{dim}}│{{reset}}    2K {{dim}}│{{reset}} Σ $0.99 {{dim}}│{{reset}} WebFetch    {{dim}}│{{reset}} {{color:red}}⏱ 3m{{reset}}
-{{dim}}│{{reset}} 13 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 274K     1K {{dim}}│{{reset}}   640 {{dim}}│{{reset}}   $0.46 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
-{{dim}}│{{reset}} 12 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 272K     1K {{dim}}│{{reset}}   520 {{dim}}│{{reset}}   $0.45 {{dim}}│{{reset}} Edit        {{dim}}│{{reset}}
-{{dim}}├{{reset}} 11 {{dim}}┼{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}┼{{reset}} opus-4-7   {{dim}}┼{{reset}} 270K     1K {{dim}}┼{{reset}}   400 {{dim}}┼{{reset}}   $0.44 {{dim}}┼{{reset}} thinking... {{dim}}┤{{reset}}
-{{dim}}│ 10 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 262K     1K │   640 │   $0.44 │ Edit        │{{reset}}
-{{dim}}│  9 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 260K     1K │   520 │   $0.43 │ thinking... │{{reset}}
-{{dim}}├  8 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.43 ┼ thinking... ┤{{reset}}
-{{dim}}│↳4  │ {{color:yellow}}general…urpos{{reset}}{{dim}}│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.40 │ Bash        │{{reset}} {{dim}}{{color:red}}⏱ 0m{{reset}}{{reset}}
-{{dim}}│  7 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 244K     1K │   640 │   $0.42 │ thinking... │{{reset}}
-{{dim}}│  6 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 242K     1K │   520 │   $0.41 │ Edit        │{{reset}}
-{{dim}}├  5 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 6K     {{color:red}}240K{{reset}}{{dim}} ┼   400 ┼   $4.34 ┼ thinking... ┤{{reset}}
-{{dim}}│↳3  │ {{color:yellow}}conceptualist{{reset}}{{dim}}│ sonnet-4-6 │ 106K    990 │    1K │ Σ $0.44 │ Write       │{{reset}}
-{{dim}}│  4 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 96K      1K │   760 │   $0.21 │ Grep        │{{reset}} {{dim}}{{color:red}}⏱ 0m{{reset}}{{reset}}
-{{dim}}│  3 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 94K      1K │   640 │   $0.20 │ thinking... │{{reset}}
-{{dim}}│  2 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 92K      1K │   520 │   $0.19 │ Read        │{{reset}}
-{{dim}}├  1 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 90K      1K ┼   400 ┼   $0.18 ┼ thinking... ┤{{reset}}
+{{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.32 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}} {{color:green}}⏱ 57m{{reset}}
+{{dim}}│{{reset}} 14 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 276K     1K {{dim}}│{{reset}}   760 {{dim}}│{{reset}}   $0.31 {{dim}}│{{reset}} Read        {{dim}}│{{reset}}
+{{dim}}│{{reset}}↳6  {{dim}}│{{reset}} {{color:yellow}}general…urpos{{reset}}{{dim}}│{{reset}} sonnet-4-6 {{dim}}│{{reset}} 80K      1K {{dim}}│{{reset}}    2K {{dim}}│{{reset}} Σ $0.35 {{dim}}│{{reset}} WebFetch    {{dim}}│{{reset}} {{color:red}}⏱ 3m{{reset}}
+{{dim}}│{{reset}} 13 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 274K     1K {{dim}}│{{reset}}   640 {{dim}}│{{reset}}   $0.31 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}}
+{{dim}}│{{reset}} 12 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 272K     1K {{dim}}│{{reset}}   520 {{dim}}│{{reset}}   $0.30 {{dim}}│{{reset}} Edit        {{dim}}│{{reset}}
+{{dim}}├{{reset}} 11 {{dim}}┼{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}┼{{reset}} opus-4-7   {{dim}}┼{{reset}} 270K     1K {{dim}}┼{{reset}}   400 {{dim}}┼{{reset}}   $0.36 {{dim}}┼{{reset}} thinking... {{dim}}┤{{reset}}
+{{dim}}│ 10 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 262K     1K │   640 │   $0.30 │ Edit        │{{reset}}
+{{dim}}│  9 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 260K     1K │   520 │   $0.29 │ thinking... │{{reset}}
+{{dim}}├  8 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.40 ┼ thinking... ┤{{reset}}
+{{dim}}│↳4  │ {{color:yellow}}general…urpos{{reset}}{{dim}}│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.14 │ Bash        │{{reset}} {{dim}}{{color:red}}⏱ 0m{{reset}}{{reset}}
+{{dim}}│  7 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 244K     1K │   640 │   $0.28 │ thinking... │{{reset}}
+{{dim}}│  6 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 242K     1K │   520 │   $0.15 │ Edit        │{{reset}}
+{{dim}}├  5 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 6K     {{color:red}}240K{{reset}}{{dim}} ┼   400 ┼   $2.41 ┼ thinking... ┤{{reset}}
+{{dim}}│↳3  │ {{color:yellow}}conceptualist{{reset}}{{dim}}│ sonnet-4-6 │ 106K    990 │    1K │ Σ $0.16 │ Write       │{{reset}}
+{{dim}}│  4 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 96K      1K │   760 │   $0.13 │ Grep        │{{reset}} {{dim}}{{color:red}}⏱ 0m{{reset}}{{reset}}
+{{dim}}│  3 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 94K      1K │   640 │   $0.13 │ thinking... │{{reset}}
+{{dim}}│  2 │ {{color:cyan}}orchestrator{{reset}}{{dim}} │ opus-4-7   │ 92K      1K │   520 │   $0.12 │ Read        │{{reset}}
+{{dim}}├  1 ┼ {{color:cyan}}orchestrator{{reset}}{{dim}} ┼ opus-4-7   ┼ 90K      1K ┼   400 ┼   $0.07 ┼ thinking... ┤{{reset}}
 {{dim}}├────┼──────────────┼────────────┼─────────────┼───────┼─────────┼─────────────┤{{reset}}
-{{dim}}│{{reset}}  # {{dim}}│{{reset}} role         {{dim}}│{{reset}} model      {{dim}}│{{reset}} cache r/w   {{dim}}│{{reset}}   out {{dim}}│{{reset}}    cost {{dim}}│{{reset}} tool        {{dim}}│{{reset}}
+{{dim}}│{{reset}}  # {{dim}}│{{reset}} role         {{dim}}│{{reset}} model      {{dim}}│{{reset}} cache r/w   {{dim}}│{{reset}}   out {{dim}}│{{reset}}   ~cost {{dim}}│{{reset}} tool        {{dim}}│{{reset}}
 {{dim}}└────┴──────────────┴────────────┴─────────────┴───────┴─────────┴─────────────┘{{reset}}
 ℹ {{color:magenta}}Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max{{reset}}

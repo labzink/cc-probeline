@@ -33,52 +33,55 @@ func TestReconcile_NegativeDelta(t *testing.T) {
 	}
 }
 
-// TestReconcile_ZeroOutputTokens verifies equal distribution when all new turns
-// have 0 output tokens (fallback from proportional to equal-share).
-func TestReconcile_ZeroOutputTokens(t *testing.T) {
+// TestReconcile_ZeroTokensCostZero verifies that a turn with no billable tokens
+// estimates to $0 (Phase 7.46: cost is purely token-derived — there is no
+// equal-split fallback anymore).
+func TestReconcile_ZeroTokensCostZero(t *testing.T) {
 	ts := time.Now()
 	turns := []parser.Turn{
-		{UUID: "turn-1", Timestamp: ts, Tokens: parser.TokenCounts{Output: 0}},
-		{UUID: "turn-2", Timestamp: ts, Tokens: parser.TokenCounts{Output: 0}},
+		{UUID: "turn-1", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{}},
+		{UUID: "turn-2", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
 	}
 	st := &state.Session{Initialized: false}
-	// Prime: first observation captures baseline=0 with no in-session turns.
-	cost.Reconcile(st, 0.0, int64(0), nil)
-	// SessionTotal=2.0 with zero weighted units → equal split → 1.0 each.
 	cost.Reconcile(st, 2.0, int64(0), turns)
 
 	got1, ok1 := cost.PerTurn(st, "turn-1")
 	got2, ok2 := cost.PerTurn(st, "turn-2")
 	if !ok1 || !ok2 {
-		t.Fatalf("Reconcile zero output: turns not in PerTurnCost after Reconcile")
+		t.Fatalf("Reconcile: turns not in PerTurnCost after Reconcile")
 	}
-	if !approxEqual(got1, 1.0) {
-		t.Errorf("PerTurn(turn-1) = %.6f; want 1.0 (equal share)", got1)
+	if !approxEqual(got1, 0.0) {
+		t.Errorf("PerTurn(turn-1, zero tokens) = %.6f; want 0.0", got1)
 	}
-	if !approxEqual(got2, 1.0) {
-		t.Errorf("PerTurn(turn-2) = %.6f; want 1.0 (equal share)", got2)
+	if !approxEqual(got2, 0.025) {
+		t.Errorf("PerTurn(turn-2) = %.6f; want 0.025 (1000*25/1e6)", got2)
 	}
 }
 
-// TestReconcile_FirstInitNoDistribution locks the cost-inflation fix: the first
-// observation of a session captures the baseline and records LastSeenTotal=ccTotal,
-// distributing nothing. Distributing the full historical ccTotal here dumped it
-// onto the first visible turns (and re-dumped on every re-init), inflating
-// Σ PerTurnCost far beyond ccTotal (observed $389 vs $116).
-func TestReconcile_FirstInitNoDistribution(t *testing.T) {
+// TestReconcile_FirstInitPricesImmediately verifies the Phase 7.46 contract: the
+// first observation prices every turn from its tokens right away (no waiting for
+// a second tick), and calling Reconcile again with the same tokens does not
+// inflate the totals (idempotent — guards against the old re-dump inflation).
+func TestReconcile_FirstInitPricesImmediately(t *testing.T) {
 	turns := []parser.Turn{
-		{UUID: "t1", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
-		{UUID: "t2", Model: "claude-opus-4", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "t1", Model: "claude-opus-4-8", Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "t2", Model: "claude-opus-4-8", Tokens: parser.TokenCounts{Output: 1000}},
 	}
 	st := &state.Session{Initialized: false}
 	cost.Reconcile(st, 93.50, int64(1000), turns)
 
-	if _, ok := cost.PerTurn(st, "t1"); ok {
-		t.Errorf("first-init must distribute nothing; PerTurn(t1) unexpectedly set")
+	c1, ok := cost.PerTurn(st, "t1")
+	if !ok || !approxEqual(c1, 0.025) {
+		t.Errorf("first-init must price t1 immediately; got %.6f ok=%v (want 0.025)", c1, ok)
 	}
-	// SessionTotal at first observation must be 0 (baseline == ccTotal).
-	if got := cost.SessionTotal(st, 93.50); !approxEqual(got, 0.0) {
-		t.Errorf("SessionTotal after first init = %.6f; want 0 (baseline==ccTotal)", got)
+	first := cost.SessionTotal(st, 93.50)
+	if !approxEqual(first, 0.050) {
+		t.Errorf("SessionTotal after first init = %.6f; want 0.050 (2×1000×25/1e6)", first)
+	}
+	// Idempotent: same tokens again → same total (no inflation).
+	cost.Reconcile(st, 200.0, int64(2000), turns)
+	if again := cost.SessionTotal(st, 200.0); !approxEqual(again, first) {
+		t.Errorf("re-Reconcile inflated SessionTotal %.6f → %.6f", first, again)
 	}
 }
 
@@ -120,5 +123,41 @@ func TestLastRequest_NilPromptCost(t *testing.T) {
 	got := cost.LastRequest(st, 3.50, 1)
 	if !approxEqual(got, 3.50) {
 		t.Errorf("LastRequest(nilMap, ccTotal=3.50, group=1) = %.6f; want 3.50", got)
+	}
+}
+
+// TestReconcile_CostHistoryRecordsSteps verifies the Phase 7.46 diagnostic trail:
+// one CostHistory sample per distinct official ccTotal (identical ticks are not
+// duplicated), each pairing the official sum with our running estimate, turn
+// count, and newest turn UUID.
+func TestReconcile_CostHistoryRecordsSteps(t *testing.T) {
+	ts := time.Now()
+	turns := []parser.Turn{
+		{UUID: "t1", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+	}
+	st := &state.Session{Initialized: false}
+	cost.Reconcile(st, 1.0, 100, turns) // first sample
+	cost.Reconcile(st, 1.0, 105, turns) // ccTotal unchanged → no new sample
+	turns2 := []parser.Turn{
+		{UUID: "t1", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "t2", Model: "claude-opus-4-8", Timestamp: ts.Add(time.Minute), Tokens: parser.TokenCounts{Output: 2000}},
+	}
+	cost.Reconcile(st, 2.5, 200, turns2) // ccTotal advanced → new sample
+
+	if len(st.CostHistory) != 2 {
+		t.Fatalf("CostHistory len = %d; want 2 (one per distinct ccTotal)", len(st.CostHistory))
+	}
+	if st.CostHistory[0].CCTotal != 1.0 || st.CostHistory[1].CCTotal != 2.5 {
+		t.Errorf("CostHistory ccTotal = [%v %v]; want [1.0 2.5]", st.CostHistory[0].CCTotal, st.CostHistory[1].CCTotal)
+	}
+	// After t2: Σ estimate = (1000+2000)*25/1e6 = 0.075.
+	if !approxEqual(st.CostHistory[1].Estimate, 0.075) {
+		t.Errorf("sample estimate = %.6f; want 0.075", st.CostHistory[1].Estimate)
+	}
+	if st.CostHistory[1].Turns != 2 {
+		t.Errorf("sample turns = %d; want 2", st.CostHistory[1].Turns)
+	}
+	if st.CostHistory[1].NewestTurn != "t2" {
+		t.Errorf("sample newest turn = %q; want t2", st.CostHistory[1].NewestTurn)
 	}
 }

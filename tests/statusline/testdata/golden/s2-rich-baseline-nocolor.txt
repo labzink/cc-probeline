@@ -1,25 +1,25 @@
 me@example.com • cc-probeline • 5h: ███▒░░░░░░ ↻ 3h:0m · 7d: █▒░░░░░░░░ ↻ 5d.0h
 opus-4-7 ◑ • ctx ███░░░░░░░ 60K/200K (30%) • cost: $11.39 • time: 20:17 • ⎇ agent/dev/phase-7 ⚠3
 ┌────┬──────────────┬────────────┬─────────────┬───────┬─────────┬─────────────────────────────────┐
-│ 15 │ orchestrator │ opus-4-7   │ 278K    900 │   880 │   $0.48 │ thinking...                     │ ⏱ 57m
-│ 14 │ orchestrator │ opus-4-7   │ 276K     1K │   760 │   $0.47 │ Read                            │
-│↳6  │ general…urpos│ sonnet-4-6 │ 80K      1K │    2K │ Σ $0.99 │ Research extra-u: WebFetch      │ ⏱ 3m
-│ 13 │ orchestrator │ opus-4-7   │ 274K     1K │   640 │   $0.46 │ thinking...                     │
-│ 12 │ orchestrator │ opus-4-7   │ 272K     1K │   520 │   $0.45 │ Edit                            │
-├ 11 ┼ orchestrator ┼ opus-4-7   ┼ 270K     1K ┼   400 ┼   $0.44 ┼ thinking...                     ┤
-│ 10 │ orchestrator │ opus-4-7   │ 262K     1K │   640 │   $0.44 │ Edit                            │
-│  9 │ orchestrator │ opus-4-7   │ 260K     1K │   520 │   $0.43 │ thinking...                     │
-├  8 ┼ orchestrator ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.43 ┼ thinking...                     ┤
-│↳4  │ general…urpos│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.40 │ Research commit-: Bash          │ ⏱ 0m
-│  7 │ orchestrator │ opus-4-7   │ 244K     1K │   640 │   $0.42 │ thinking...                     │
-│  6 │ orchestrator │ opus-4-7   │ 242K     1K │   520 │   $0.41 │ Edit                            │
-├  5 ┼ orchestrator ┼ opus-4-7   ┼ 6K     240K ┼   400 ┼   $4.34 ┼ thinking...                     ┤
-│↳3  │ conceptualist│ sonnet-4-6 │ 106K    990 │    1K │ Σ $0.44 │ Decompose the qu: Write         │
-│  4 │ orchestrator │ opus-4-7   │ 96K      1K │   760 │   $0.21 │ Grep                            │ ⏱ 0m
-│  3 │ orchestrator │ opus-4-7   │ 94K      1K │   640 │   $0.20 │ thinking...                     │
-│  2 │ orchestrator │ opus-4-7   │ 92K      1K │   520 │   $0.19 │ Read                            │
-├  1 ┼ orchestrator ┼ opus-4-7   ┼ 90K      1K ┼   400 ┼   $0.18 ┼ thinking...                     ┤
+│ 15 │ orchestrator │ opus-4-7   │ 278K    900 │   880 │   $0.32 │ thinking...                     │ ⏱ 57m
+│ 14 │ orchestrator │ opus-4-7   │ 276K     1K │   760 │   $0.31 │ Read                            │
+│↳6  │ general…urpos│ sonnet-4-6 │ 80K      1K │    2K │ Σ $0.35 │ Research extra-u: WebFetch      │ ⏱ 3m
+│ 13 │ orchestrator │ opus-4-7   │ 274K     1K │   640 │   $0.31 │ thinking...                     │
+│ 12 │ orchestrator │ opus-4-7   │ 272K     1K │   520 │   $0.30 │ Edit                            │
+├ 11 ┼ orchestrator ┼ opus-4-7   ┼ 270K     1K ┼   400 ┼   $0.36 ┼ thinking...                     ┤
+│ 10 │ orchestrator │ opus-4-7   │ 262K     1K │   640 │   $0.30 │ Edit                            │
+│  9 │ orchestrator │ opus-4-7   │ 260K     1K │   520 │   $0.29 │ thinking...                     │
+├  8 ┼ orchestrator ┼ opus-4-7   ┼ 258K     1K ┼   400 ┼   $0.40 ┼ thinking...                     ┤
+│↳4  │ general…urpos│ sonnet-4-6 │ 60K     800 │   950 │ Σ $0.14 │ Research commit-: Bash          │ ⏱ 0m
+│  7 │ orchestrator │ opus-4-7   │ 244K     1K │   640 │   $0.28 │ thinking...                     │
+│  6 │ orchestrator │ opus-4-7   │ 242K     1K │   520 │   $0.15 │ Edit                            │
+├  5 ┼ orchestrator ┼ opus-4-7   ┼ 6K     240K ┼   400 ┼   $2.41 ┼ thinking...                     ┤
+│↳3  │ conceptualist│ sonnet-4-6 │ 106K    990 │    1K │ Σ $0.16 │ Decompose the qu: Write         │
+│  4 │ orchestrator │ opus-4-7   │ 96K      1K │   760 │   $0.13 │ Grep                            │ ⏱ 0m
+│  3 │ orchestrator │ opus-4-7   │ 94K      1K │   640 │   $0.13 │ thinking...                     │
+│  2 │ orchestrator │ opus-4-7   │ 92K      1K │   520 │   $0.12 │ Read                            │
+├  1 ┼ orchestrator ┼ opus-4-7   ┼ 90K      1K ┼   400 ┼   $0.07 ┼ thinking...                     ┤
 ├────┼──────────────┼────────────┼─────────────┼───────┼─────────┼─────────────────────────────────┤
-│  # │ role         │ model      │ cache r/w   │   out │    cost │ tool                            │
+│  # │ role         │ model      │ cache r/w   │   out │   ~cost │ tool                            │
 └────┴──────────────┴────────────┴─────────────┴───────┴─────────┴─────────────────────────────────┘
 ℹ Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max

@@ -64,129 +64,94 @@ func TestReconcile_Baseline(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// T-C2: TestSessionTotal
-// Spec: T-6 — SessionTotal = ccTotal − BaselineCost
+// TestSessionTotal (Phase 7.46): SessionTotal = Σ per-turn estimates (from
+// tokens × price table). The official ccTotal argument is ignored.
 // ---------------------------------------------------------------------------
 
-// TestSessionTotal verifies that SessionTotal returns the delta between the
-// current running total and the baseline captured at session start.
-// /clear-emulation: a new session starts with its own baseline.
+// TestSessionTotal verifies the header total is the sum of the per-turn
+// estimates and does not depend on the (lagging) official ccTotal argument.
 func TestSessionTotal(t *testing.T) {
-	tests := []struct {
-		name      string
-		baseline  float64
-		ccTotal   float64
-		wantDelta float64
-	}{
-		{
-			name:      "normal session — delta from baseline",
-			baseline:  1.00,
-			ccTotal:   2.50,
-			wantDelta: 1.50,
-		},
-		{
-			name:      "clear-emulation — new session starts at 0 delta",
-			baseline:  5.00,
-			ccTotal:   5.00,
-			wantDelta: 0.00,
-		},
-		{
-			name:      "growing session",
-			baseline:  0.00,
-			ccTotal:   10.00,
-			wantDelta: 10.00,
-		},
+	ts := time.Now()
+	// Two opus turns, output 1000 and 2000. opus Out weight = 25.
+	turns := []parser.Turn{
+		{UUID: "a", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "b", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 2000}},
 	}
+	st := &state.Session{Initialized: false}
+	cost.Reconcile(st, 99.0, int64(0), turns)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Given: a session with a known BaselineCost (already initialized).
-			st := &state.Session{
-				Initialized:  true,
-				BaselineCost: tc.baseline,
-			}
-
-			// When: computing session total.
-			got := cost.SessionTotal(st, tc.ccTotal)
-
-			// Then: delta must equal ccTotal − BaselineCost.
-			if !approxEqual(got, tc.wantDelta) {
-				t.Errorf("SessionTotal(baseline=%.2f, ccTotal=%.2f) = %.6f; want %.6f",
-					tc.baseline, tc.ccTotal, got, tc.wantDelta)
-			}
-		})
+	// 1000*25/1e6 + 2000*25/1e6 = 0.025 + 0.050 = 0.075.
+	if got := cost.SessionTotal(st, 99.0); !approxEqual(got, 0.075) {
+		t.Errorf("SessionTotal = %.6f; want 0.075 (Σ estimates)", got)
+	}
+	// The ccTotal argument must not affect the result.
+	if got := cost.SessionTotal(st, 1.0); !approxEqual(got, 0.075) {
+		t.Errorf("SessionTotal must ignore ccTotal arg; got %.6f for ccTotal=1.0", got)
+	}
+	// SessionTotal equals the sum of the PerTurn entries.
+	a, _ := cost.PerTurn(st, "a")
+	b, _ := cost.PerTurn(st, "b")
+	if got := cost.SessionTotal(st, 99.0); !approxEqual(got, a+b) {
+		t.Errorf("SessionTotal %.6f != Σ PerTurn %.6f", got, a+b)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// T-C3: TestPerTurn_DeltaStable
-// Spec: T-7 — per-turn delta distributed by output share; repeated Reconcile
-//             does not re-compute already-fixed turns.
+// TestPerTurn_EstimateStable (Phase 7.46): per-turn cost = standalone estimate
+// from the turn's own tokens, and it does NOT change when later turns appear.
+// This locks the bug fix — no more "dancing" per-turn costs.
 // ---------------------------------------------------------------------------
 
-// TestPerTurn_DeltaStable verifies the stateless distribution (Phase 7.45 B2):
-//  1. Per-turn costs are proportional to each turn's output tokens (same model).
-//  2. When a new turn appears, the whole map is recomputed from SessionTotal —
-//     every in-session turn reflects the current pool (no frozen/immutable
-//     entries), and Σ PerTurn == SessionTotal.
-func TestPerTurn_DeltaStable(t *testing.T) {
+func TestPerTurn_EstimateStable(t *testing.T) {
 	ts := time.Now()
-	// Given: two turns with output tokens 3000 and 1000 (3:1 ratio), newer than
-	// the baseline (primed with an empty turn slice so BaselineTurnTime=zero).
+	// Two opus turns, outputs 3000 and 1000. opus Out weight = 25.
 	turns := []parser.Turn{
-		{UUID: "turn-A", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
-		{UUID: "turn-B", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-A", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
+		{UUID: "turn-B", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
 	}
 	st := &state.Session{Initialized: false}
-
-	// Prime: first observation captures baseline=0 with no in-session turns.
-	cost.Reconcile(st, 0.0, int64(0), nil)
-	// When: SessionTotal becomes 2.00, spread over the two turns.
-	cost.Reconcile(st, 2.00, int64(0), turns)
+	cost.Reconcile(st, 5.0, int64(0), turns)
 
 	gotA, okA := cost.PerTurn(st, "turn-A")
-	if !okA {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-A) not found")
-	}
 	gotB, okB := cost.PerTurn(st, "turn-B")
-	if !okB {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-B) not found")
+	if !okA || !okB {
+		t.Fatalf("PerTurn missing: A=%v B=%v", okA, okB)
 	}
-	// SessionTotal=2.00, total output=4000; A: 3000/4000*2.00=1.50; B: 0.50.
-	if !approxEqual(gotA, 1.50) {
-		t.Errorf("PerTurn(turn-A) = %.6f; want 1.50 (3/4 of SessionTotal 2.00)", gotA)
+	// A: 3000*25/1e6 = 0.075; B: 1000*25/1e6 = 0.025.
+	if !approxEqual(gotA, 0.075) {
+		t.Errorf("PerTurn(turn-A) = %.6f; want 0.075", gotA)
 	}
-	if !approxEqual(gotB, 0.50) {
-		t.Errorf("PerTurn(turn-B) = %.6f; want 0.50 (1/4 of SessionTotal 2.00)", gotB)
+	if !approxEqual(gotB, 0.025) {
+		t.Errorf("PerTurn(turn-B) = %.6f; want 0.025", gotB)
 	}
 
-	// When: a new turn-C appears and SessionTotal grows to 3.00. The map is
-	// recomputed over the full pool {A,B,C} with outputs 3000/1000/2000 = 6000.
+	// KEY (7.46): a new turn-C appears and ccTotal jumps — the already-shown
+	// costs of A and B must stay put (no dancing numbers).
 	turns2 := []parser.Turn{
-		{UUID: "turn-A", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
-		{UUID: "turn-B", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
-		{UUID: "turn-C", Timestamp: ts, Tokens: parser.TokenCounts{Output: 2000}},
+		{UUID: "turn-A", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 3000}},
+		{UUID: "turn-B", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		{UUID: "turn-C", Model: "claude-opus-4-8", Timestamp: ts, Tokens: parser.TokenCounts{Output: 2000}},
 	}
-	cost.Reconcile(st, 3.00, int64(0), turns2)
+	cost.Reconcile(st, 50.0, int64(0), turns2)
 
 	gotA2, _ := cost.PerTurn(st, "turn-A")
 	gotB2, _ := cost.PerTurn(st, "turn-B")
 	gotC, okC := cost.PerTurn(st, "turn-C")
 	if !okC {
-		t.Fatalf("TestPerTurn_DeltaStable: PerTurn(turn-C) not found")
+		t.Fatalf("PerTurn(turn-C) not found")
 	}
-	// A: 3000/6000*3.00=1.50; B: 1000/6000*3.00=0.50; C: 2000/6000*3.00=1.00.
-	if !approxEqual(gotA2, 1.50) {
-		t.Errorf("PerTurn(turn-A) = %.6f; want 1.50 (3/6 of SessionTotal 3.00)", gotA2)
+	if !approxEqual(gotA2, gotA) {
+		t.Errorf("turn-A cost moved %.6f → %.6f; must be stable", gotA, gotA2)
 	}
-	if !approxEqual(gotB2, 0.50) {
-		t.Errorf("PerTurn(turn-B) = %.6f; want 0.50 (1/6 of SessionTotal 3.00)", gotB2)
+	if !approxEqual(gotB2, gotB) {
+		t.Errorf("turn-B cost moved %.6f → %.6f; must be stable", gotB, gotB2)
 	}
-	if !approxEqual(gotC, 1.00) {
-		t.Errorf("PerTurn(turn-C) = %.6f; want 1.00 (2/6 of SessionTotal 3.00)", gotC)
+	// C: 2000*25/1e6 = 0.050.
+	if !approxEqual(gotC, 0.050) {
+		t.Errorf("PerTurn(turn-C) = %.6f; want 0.050", gotC)
 	}
 	// Invariant: Σ PerTurn == SessionTotal.
-	if got, want := gotA2+gotB2+gotC, cost.SessionTotal(st, 3.00); !approxEqual(got, want) {
+	if got, want := gotA2+gotB2+gotC, cost.SessionTotal(st, 50.0); !approxEqual(got, want) {
 		t.Errorf("Σ PerTurn = %.6f; want == SessionTotal %.6f", got, want)
 	}
 }
@@ -328,56 +293,68 @@ func TestFormat_ZeroDollars(t *testing.T) {
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// T-16: TestReconcile_WeightedSumEqualsDelta
-// Spec: §2.3 — Σ PerTurnCost of new turns == Δ (exact, within float epsilon)
-//
-// Weight values from design table (relative, not pricing):
-//   opus:  out=75, in=15
-//   haiku: out=4,  in=0.80
-//
-// Scenario: two new turns, delta=2.00
-//   Turn-A: opus,  out=1000  → units_A = 75*1000 = 75000
-//   Turn-B: haiku, out=1000  → units_B = 4*1000  = 4000
-//   Σunits = 79000
-//   cost_A = 2.00 * 75000/79000 ≈ 1.898734...
-//   cost_B = 2.00 *  4000/79000 ≈ 0.101265...
-//   cost_A + cost_B = 2.00 (exact by construction)
+// TestReconcile_HourlyCacheAndSum (Phase 7.46): a 1-hour cache write costs 2×In
+// per token; a 5-minute write 1.25×In. opus In=5 → 1h weight 10, 5m weight 6.25.
+// Also locks Σ PerTurn == SessionTotal.
 // ---------------------------------------------------------------------------
 
-// TestReconcile_WeightedSumEqualsDelta verifies that the sum of per-turn costs
-// assigned to the new turns in a single Reconcile call equals the delta exactly
-// (within floating-point epsilon). This is the core invariant of the weighted
-// distribution: Σ cost = Δ, regardless of individual weight magnitudes.
-func TestReconcile_WeightedSumEqualsDelta(t *testing.T) {
-	// Given: a fresh session (baseline not yet captured) and two turns with
-	// different models; the only tokens are output tokens to keep the scenario
-	// focused on the out-weight ratio.
+func TestReconcile_HourlyCacheAndSum(t *testing.T) {
 	st := &state.Session{Initialized: false}
 	ts := time.Now()
 	turns := []parser.Turn{
-		{UUID: "turn-opus-A", Model: "claude-opus-4", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
-		{UUID: "turn-haiku-B", Model: "claude-haiku-3-5", Timestamp: ts, Tokens: parser.TokenCounts{Output: 1000}},
+		// 10000 tokens written at 1-hour TTL on opus: 10000*10/1e6 = 0.10.
+		{UUID: "t-1h", Model: "claude-opus-4-8", Timestamp: ts,
+			Tokens: parser.TokenCounts{CacheCreate: 10000, CacheCreate1h: 10000}},
+		// 10000 tokens written at 5-minute TTL on opus: 10000*6.25/1e6 = 0.0625.
+		{UUID: "t-5m", Model: "claude-opus-4-8", Timestamp: ts,
+			Tokens: parser.TokenCounts{CacheCreate: 10000, CacheCreate5m: 10000}},
 	}
-	delta := 2.00
+	cost.Reconcile(st, 99.0, int64(0), turns)
 
-	// Prime: first observation captures baseline=0 with no in-session turns.
-	cost.Reconcile(st, 0.0, int64(1000), nil)
-	// When: the next Reconcile spreads SessionTotal (=2.00) over the two turns.
-	cost.Reconcile(st, delta, int64(1000), turns)
+	c1h, okH := cost.PerTurn(st, "t-1h")
+	c5m, okM := cost.PerTurn(st, "t-5m")
+	if !okH || !okM {
+		t.Fatalf("PerTurn missing: 1h=%v 5m=%v", okH, okM)
+	}
+	if !approxEqual(c1h, 0.10) {
+		t.Errorf("1h-cache turn = %.6f; want 0.10 (10000*10/1e6)", c1h)
+	}
+	if !approxEqual(c5m, 0.0625) {
+		t.Errorf("5m-cache turn = %.6f; want 0.0625 (10000*6.25/1e6)", c5m)
+	}
+	// The 1-hour write must cost more than the 5-minute write for equal tokens.
+	if !(c1h > c5m) {
+		t.Errorf("1h write (%.6f) must cost more than 5m write (%.6f)", c1h, c5m)
+	}
+	// Σ PerTurn == SessionTotal.
+	if got, want := c1h+c5m, cost.SessionTotal(st, 99.0); !approxEqual(got, want) {
+		t.Errorf("Σ PerTurn %.6f != SessionTotal %.6f", got, want)
+	}
+}
 
-	// Then: the sum of per-turn costs must equal delta exactly (within 1e-9).
-	costA, okA := cost.PerTurn(st, "turn-opus-A")
-	if !okA {
-		t.Fatalf("TestReconcile_WeightedSumEqualsDelta: PerTurn(turn-opus-A) not found")
+// TestReconcile_CacheFallbackByAuthor (Phase 7.46): when CC reports only the
+// lumped CacheCreate (no 5m/1h split), the TTL is inferred from the author —
+// orchestrator → 1-hour (2×In), subagent/sidechain → 5-minute (1.25×In).
+func TestReconcile_CacheFallbackByAuthor(t *testing.T) {
+	st := &state.Session{Initialized: false}
+	ts := time.Now()
+	turns := []parser.Turn{
+		// Orchestrator, lumped 10000 → treated as 1h: 10000*10/1e6 = 0.10.
+		{UUID: "orch", Model: "claude-opus-4-8", IsSidechain: false, Timestamp: ts,
+			Tokens: parser.TokenCounts{CacheCreate: 10000}},
+		// Subagent, lumped 10000 → treated as 5m: 10000*6.25/1e6 = 0.0625.
+		{UUID: "sub", Model: "claude-opus-4-8", IsSidechain: true, Timestamp: ts,
+			Tokens: parser.TokenCounts{CacheCreate: 10000}},
 	}
-	costB, okB := cost.PerTurn(st, "turn-haiku-B")
-	if !okB {
-		t.Fatalf("TestReconcile_WeightedSumEqualsDelta: PerTurn(turn-haiku-B) not found")
+	cost.Reconcile(st, 99.0, int64(0), turns)
+
+	orch, _ := cost.PerTurn(st, "orch")
+	sub, _ := cost.PerTurn(st, "sub")
+	if !approxEqual(orch, 0.10) {
+		t.Errorf("orchestrator lumped cache = %.6f; want 0.10 (1h fallback)", orch)
 	}
-	sum := costA + costB
-	if !approxEqual(sum, delta) {
-		t.Errorf("TestReconcile_WeightedSumEqualsDelta: Σ cost = %.9f; want %.9f (delta); diff = %.2e",
-			sum, delta, math.Abs(sum-delta))
+	if !approxEqual(sub, 0.0625) {
+		t.Errorf("subagent lumped cache = %.6f; want 0.0625 (5m fallback)", sub)
 	}
 }
 

@@ -1,18 +1,14 @@
-// Package probes_test — RED tests for Phase 6.8 FIXES: C2+I3 cost wired.
+// Package probes_test — header cost source.
 //
-// Root cause (from review-consolidated.md):
-//   - CostProbe.Render uses d.Stdin.Cost.TotalCostUSD (raw cumulative total)
-//     instead of d.SessionTotal (delta from baseline, computed by cost.SessionTotal).
-//   - CacheProbe cost segment also uses raw TotalCostUSD instead of d.LastRequestCost.
+// Phase 6.8 C2 once required the header to show d.SessionTotal (our session-delta
+// estimate) instead of the raw official total. Phase 7.46 reverses that decision:
+// the header must show the single authoritative figure — the official Claude Code
+// meter d.Stdin.Cost.TotalCostUSD — even at a small lag, because our table-driven
+// estimate carries a known reasoning-billing gap. The per-turn table keeps our
+// estimate (labelled "~cost"); a small header↔table mismatch is expected.
 //
-// Production path: Assembler.Render(d) → CostProbe.Render(d,...) → must read d.SessionTotal.
-//
-// These tests go through CostProbe.Render directly (legitimate: CostProbe is
-// a leaf probe, not an internal helper; Assembler just calls p.Render).
-// The key fix: the probe must use d.SessionTotal, not d.Stdin.Cost.TotalCostUSD.
-//
-// RED: both tests FAIL until CostProbe/CacheProbe are updated to read the
-// delta fields instead of the raw total.
+// This test goes through CostProbe.Render directly (legitimate: CostProbe is a
+// leaf probe; the Assembler just calls p.Render).
 package probes_test
 
 import (
@@ -24,40 +20,38 @@ import (
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
-// TestCostProbe_UsesSessionTotal (C2 / T-6) verifies that CostProbe.Render
-// shows d.SessionTotal (ccTotal − BaselineCost), NOT d.Stdin.Cost.TotalCostUSD.
+// TestCostProbe_UsesOfficialTotal (Phase 7.46) verifies that CostProbe.Render
+// shows the official d.Stdin.Cost.TotalCostUSD, NOT our d.SessionTotal estimate.
 //
 // Setup:
-//   - d.Stdin.Cost.TotalCostUSD = 10.00  (raw cumulative from CC)
-//   - d.SessionTotal             = 3.50   (delta since /clear baseline)
+//   - d.Stdin.Cost.TotalCostUSD = 10.00  (official meter — must appear)
+//   - d.SessionTotal            = 3.50   (our estimate — must NOT drive the header)
 //
-// Expected: output contains "$3.50", NOT "$10.00".
-//
-// RED: CostProbe currently reads d.Stdin.Cost.TotalCostUSD → outputs "$10.00".
-func TestCostProbe_UsesSessionTotal(t *testing.T) {
+// Expected: output contains "$10.00", NOT "$3.50".
+func TestCostProbe_UsesOfficialTotal(t *testing.T) {
 	p := &probes.CostProbe{}
 	th := renderer.Theme{}
 	cfg := probes.Config{CostEnabled: true}
 
 	d := probes.Data{
 		Stdin: stdin.Payload{
-			Cost: stdin.Cost{TotalCostUSD: 10.00}, // raw cumulative — must NOT appear in output
+			Cost: stdin.Cost{TotalCostUSD: 10.00}, // official meter — must appear in output
 		},
-		SessionTotal: 3.50, // delta cost for this session — must appear in output
+		SessionTotal: 3.50, // our estimate — must NOT drive the header
 	}
 
 	for _, level := range []probes.Level{probes.LevelFull, probes.LevelCompact, probes.LevelMinimal} {
 		got := p.Render(d, cfg, th, level)
 
-		// Must show the session delta, not the raw total.
-		if !strings.Contains(got, "$3.50") {
-			t.Errorf("C2 CostProbe.Render(level=%v): want '$3.50' (SessionTotal) in output, got %q"+
-				"\n  FIX: CostProbe must read d.SessionTotal, not d.Stdin.Cost.TotalCostUSD", level, got)
+		// Must show the official total, not our estimate.
+		if !strings.Contains(got, "$10.00") {
+			t.Errorf("Phase 7.46 CostProbe.Render(level=%v): want '$10.00' (official TotalCostUSD) in output, got %q"+
+				"\n  FIX: CostProbe header must read d.Stdin.Cost.TotalCostUSD", level, got)
 		}
-		// Must NOT show the raw total when it differs from SessionTotal.
-		if strings.Contains(got, "$10.00") {
-			t.Errorf("C2 CostProbe.Render(level=%v): must NOT show raw '$10.00' (TotalCostUSD), got %q"+
-				"\n  FIX: CostProbe must read d.SessionTotal", level, got)
+		// Must NOT show our session-delta estimate.
+		if strings.Contains(got, "$3.50") {
+			t.Errorf("Phase 7.46 CostProbe.Render(level=%v): must NOT show our '$3.50' (SessionTotal), got %q"+
+				"\n  FIX: CostProbe header must read the official total", level, got)
 		}
 	}
 }

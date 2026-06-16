@@ -57,6 +57,16 @@ type Session struct {
 	// (overwritten every tick).
 	PerTurnCost map[string]float64
 
+	// ReconCost maps an orchestrator turn UUID to a reconstructed surcharge for a
+	// turn that CC billed but did not write to the JSONL as its own record (Phase
+	// 7.46). Detected from the cache chain: when a turn's cache_read exceeds the
+	// previous orchestrator turn's read+write by rdChk>1 tokens, a "missing" turn
+	// ran between them — it re-read the full context and wrote a small diff. Its
+	// cost is added to this turn's displayed per-turn cost (PerTurn) so the table
+	// attribution is closer to reality. Derived every Reconcile from the chain,
+	// never persisted (json:"-"); the header uses the official ccTotal, not this.
+	ReconCost map[string]float64 `json:"-"`
+
 	// PromptCost maps GroupID (1-based) to the ccTotal at the start of that
 	// prompt group. Used to compute LastRequest = ccTotal − PromptCost[group].
 	PromptCost map[int]float64
@@ -93,6 +103,52 @@ type Session struct {
 	// tick (Phase 7.45 B4). Recorded every tick, independent of the badge state.
 	PrevQuotaPct   float64 `json:"prev_quota_pct"`
 	PrevQuotaTotal float64 `json:"prev_quota_total"`
+
+	// CostHistory records the official Anthropic ccTotal stepwise — one sample
+	// each time ccTotal advances (identical 5-second ticks are not duplicated),
+	// alongside our own running estimate and the turn count at that moment. It is
+	// a diagnostic trail (Phase 7.46) for reconciling our table-driven estimate
+	// against CC's official meter: it reveals when the official sum "appears"
+	// relative to turns (lag) and which step a discrepancy enters. Capped length.
+	CostHistory []CostSample `json:"cost_history"`
+}
+
+// CostSample is one entry in Session.CostHistory: the official ccTotal at a tick
+// where it advanced, our running estimate (Σ PerTurnCost) at that tick, the API
+// duration timestamp, the turn count, and the newest turn's UUID (to correlate a
+// jump in the official sum with the turn that triggered it).
+type CostSample struct {
+	DurMS      int64   `json:"dur_ms"`
+	CCTotal    float64 `json:"cc_total"`
+	Estimate   float64 `json:"estimate"`
+	Turns      int     `json:"turns"`
+	NewestTurn string  `json:"newest_turn"`
+
+	// Phase 7.46 debug instrumentation — populated only when
+	// CC_PROBELINE_COST_DEBUG=1, otherwise omitted (release JSON is unchanged).
+	// Purpose: accumulate, over real daily use, the data needed to locate any
+	// residual cc_total↔estimate gap offline. An ordinary-least-squares fit of
+	// cc_total on Tokens across many samples recovers CC's true per-class prices
+	// (so a mispriced class shows up directly); EstMain/EstSub split the estimate
+	// into orchestrator vs subagent (to catch subagent-accounting gaps); ByModel
+	// breaks the token vector down per model (to catch mixed-pool errors).
+	EstMain float64             `json:"est_main,omitempty"`
+	EstSub  float64             `json:"est_sub,omitempty"`
+	Tokens  *TokenVec           `json:"tokens,omitempty"`
+	ByModel map[string]TokenVec `json:"by_model,omitempty"`
+}
+
+// TokenVec is a per-token-class count vector used by the cost debug
+// instrumentation (Phase 7.46): input, cache-read, 5-minute cache-write,
+// 1-hour cache-write, and output tokens. The two cache-write classes use the
+// same TTL split/inference as the cost estimator (parsed 5m/1h fields, with an
+// author-based fallback when CC reports only a lumped cache_creation count).
+type TokenVec struct {
+	In   int `json:"in,omitempty"`
+	Read int `json:"read,omitempty"`
+	W5   int `json:"w5,omitempty"`
+	W1   int `json:"w1,omitempty"`
+	Out  int `json:"out,omitempty"`
 }
 
 // CommitBadge is the transient post-commit indicator state. Count is the number

@@ -416,13 +416,13 @@ func TestCtx66_Levels(t *testing.T) {
 //   - Priority()==1 (was 2)
 //   - Render behaviour unchanged: Full "cost: $x", Compact/Minimal "$x"
 //
-// C2: CostProbe reads d.SessionTotal (not d.Stdin.Cost.TotalCostUSD).
+// Phase 7.46: CostProbe header reads the official d.Stdin.Cost.TotalCostUSD.
 func TestCost66_Priority(t *testing.T) {
 	p := &probes.CostProbe{}
 	th := renderer.Theme{}
 	cost := 7.42
-	// C2: CostProbe reads d.SessionTotal.
-	d := probes.Data{SessionTotal: cost}
+	// Phase 7.46: header shows the official total, not our SessionTotal estimate.
+	d := probes.Data{Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: cost}}}
 	cfg := probes.Config{CostEnabled: true}
 
 	// Priority must be 1 (was 2).

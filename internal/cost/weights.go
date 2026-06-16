@@ -9,12 +9,15 @@ package cost
 import "strings"
 
 // Weights holds per-token-type relative weight factors for one model family.
-// Fields correspond to the four token classes CC reports.
+// Fields correspond to the token classes CC reports. Cache writes have two
+// prices by TTL: 5-minute (CacheCreate, 1.25×In) and 1-hour (CacheCreate1h,
+// 2×In) — Phase 7.46. Read is 0.1×In, output 5×In across all families.
 type Weights struct {
-	In          float64 // input tokens weight
-	CacheRead   float64 // cache_read tokens weight
-	CacheCreate float64 // cache_create tokens weight
-	Out         float64 // output tokens weight
+	In            float64 // input tokens weight
+	CacheRead     float64 // cache_read tokens weight (0.1×In)
+	CacheCreate   float64 // 5-minute cache_create write weight (1.25×In)
+	CacheCreate1h float64 // 1-hour cache_create write weight (2×In)
+	Out           float64 // output tokens weight (5×In)
 }
 
 // familyWeights maps model family names to their relative weight table
@@ -27,10 +30,10 @@ type Weights struct {
 // in mixed pools (orchestrator-opus + subagent-sonnet share one delta), where
 // opus turns were over-weighted. Corrected ratios fix that.
 var familyWeights = map[string]Weights{
-	"fable":  {In: 10, CacheRead: 1, CacheCreate: 12.50, Out: 50},  // Fable 5 = 2× Opus 4.8
-	"opus":   {In: 5, CacheRead: 0.5, CacheCreate: 6.25, Out: 25},  // Opus 4.8 (was Opus 4.1)
-	"sonnet": {In: 3, CacheRead: 0.30, CacheCreate: 3.75, Out: 15}, // Sonnet 4.6 (unchanged)
-	"haiku":  {In: 1, CacheRead: 0.10, CacheCreate: 1.25, Out: 5},  // Haiku 4.5 (was Haiku 3.5)
+	"fable":  {In: 10, CacheRead: 1, CacheCreate: 12.50, CacheCreate1h: 20, Out: 50}, // Fable 5 = 2× Opus 4.8
+	"opus":   {In: 5, CacheRead: 0.5, CacheCreate: 6.25, CacheCreate1h: 10, Out: 25}, // Opus 4.8
+	"sonnet": {In: 3, CacheRead: 0.30, CacheCreate: 3.75, CacheCreate1h: 6, Out: 15}, // Sonnet 4.6
+	"haiku":  {In: 1, CacheRead: 0.10, CacheCreate: 1.25, CacheCreate1h: 2, Out: 5},  // Haiku 4.5
 }
 
 // defaultWeights is the fallback used for unknown model strings. Phase 7.45 B3-1
