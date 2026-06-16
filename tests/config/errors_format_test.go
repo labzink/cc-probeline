@@ -17,12 +17,12 @@ func TestError_Error_FullLocation(t *testing.T) {
 		File:     "/home/user/.config/cc-probeline/config.toml",
 		Line:     5,
 		Column:   3,
-		Field:    "theme.name",
-		Message:  "unknown theme: \"neon\"",
+		Field:    "thresholds.quota_5h_critical_ratio",
+		Message:  "ratio must be in [0.0, 1.0]",
 	}
 
 	got := e.Error()
-	want := "/home/user/.config/cc-probeline/config.toml:5:3: theme.name: unknown theme: \"neon\""
+	want := "/home/user/.config/cc-probeline/config.toml:5:3: thresholds.quota_5h_critical_ratio: ratio must be in [0.0, 1.0]"
 	if got != want {
 		t.Errorf("Error.Error() = %q, want %q", got, want)
 	}

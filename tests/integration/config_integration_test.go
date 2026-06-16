@@ -207,11 +207,13 @@ func TestConfig_DefaultsWhenNoFile(t *testing.T) {
 	}
 }
 
-// ─── Test 2: T-2 — High-contrast theme applied ───────────────────────────────
+// ─── Test 2: T-2 — Legacy [theme] section tolerated ──────────────────────────
 
-// TestConfig_HighContrastApplied verifies that setting theme.name="high-contrast"
-// in global config is accepted without errors. §T-2.
-func TestConfig_HighContrastApplied(t *testing.T) {
+// TestConfig_LegacyThemeSection_LenientlyIgnored verifies that a leftover [theme]
+// section (theme config was removed in Phase 7.47) in a user's global config is
+// treated as an unknown section — a warning, never an error — and never breaks
+// render or check-config. Protects back-compat for pre-7.47 configs. §T-2.
+func TestConfig_LegacyThemeSection_LenientlyIgnored(t *testing.T) {
 	bin := cfg6BinPath(t)
 	home := t.TempDir()
 	writeGlobalConfig(t, home, `version = 1
@@ -228,13 +230,13 @@ name = "high-contrast"
 		t.Fatalf("T-2: render exit %d\nstdout: %s\nstderr: %s", res.ExitCode, res.Stdout, res.Stderr)
 	}
 	if strings.Contains(res.Stdout+res.Stderr, "Config error") {
-		t.Errorf("T-2: unexpected 'Config error' alert for valid high-contrast config\nstdout: %s\nstderr: %s", res.Stdout, res.Stderr)
+		t.Errorf("T-2: unexpected 'Config error' alert for a legacy [theme] section\nstdout: %s\nstderr: %s", res.Stdout, res.Stderr)
 	}
 
-	// check-config must also exit 0 for valid config.
+	// check-config must also exit 0 (an unknown section is a warning, not an error).
 	resCC := runCLI(t, bin, "", env, "check-config")
 	if resCC.ExitCode != 0 {
-		t.Errorf("T-2: check-config exit %d for valid high-contrast config\nstdout: %s\nstderr: %s",
+		t.Errorf("T-2: check-config exit %d for a legacy [theme] section\nstdout: %s\nstderr: %s",
 			resCC.ExitCode, resCC.Stdout, resCC.Stderr)
 	}
 }
@@ -463,29 +465,22 @@ func TestHints_OffCreatesConfig_OnTogglesIt(t *testing.T) {
 // ─── Test 9: T-9 — check-config hits all validation rules ────────────────────
 
 // TestCheckConfig_AllValidationRules_HitAtLeastOnce creates a config with three
-// distinct validation errors and verifies that check-config exits 2 and
-// references all three fields in its output, plus provides a suggestion for at
-// least one. §T-9.
+// distinct validation errors and verifies that check-config exits 2, references
+// all three fields in its output, and prints a suggestion for at least one. §T-9.
 //
-// Three error types triggered:
-//  1. thresholds.ctx_warn_ratio outside [0,1] (ratio = 1.5).
-//  2. theme.name unknown ("neon-dark").
-//  3. theme.colors.cyan hex without '#' prefix ("00FFFF").
+// Three errors triggered (current schema, post theme cut):
+//  1. thresholds.ctx_warn_ratio = 70       → outside [0,1] + "looks like a percent" hint.
+//  2. thresholds.quota_5h_warn_ratio = 1.5 → outside [0,1].
+//  3. thresholds.cost_budget_usd = -5      → must be non-negative.
 func TestCheckConfig_AllValidationRules_HitAtLeastOnce(t *testing.T) {
 	bin := cfg6BinPath(t)
 	home := t.TempDir()
 	writeGlobalConfig(t, home, `version = 1
 
-[general]
-
-[theme]
-name = "neon-dark"
-
-[theme.colors]
-cyan = "00FFFF"
-
 [thresholds]
-ctx_warn_ratio = 1.5
+ctx_warn_ratio = 70
+quota_5h_warn_ratio = 1.5
+cost_budget_usd = -5
 `)
 	env := isolatedEnv(home, "", "")
 
@@ -497,19 +492,19 @@ ctx_warn_ratio = 1.5
 	combined := res.Stdout + res.Stderr
 
 	// All three error fields must appear in the output.
-	for _, field := range []string{"thresholds.ctx_warn_ratio", "theme.name", "theme.colors.cyan"} {
+	for _, field := range []string{
+		"thresholds.ctx_warn_ratio",
+		"thresholds.quota_5h_warn_ratio",
+		"thresholds.cost_budget_usd",
+	} {
 		if !strings.Contains(combined, field) {
 			t.Errorf("T-9: check-config output missing field %q\ncombined: %s", field, combined)
 		}
 	}
-	// At least one suggestion must be present (theme.name typo or hex hint).
-	hasSuggestion := strings.Contains(combined, "did you forget") ||
-		strings.Contains(combined, "valid theme names") ||
-		strings.Contains(combined, "high-contrast") ||
-		strings.Contains(combined, "minimal") ||
-		strings.Contains(combined, "#")
-	if !hasSuggestion {
-		t.Errorf("T-9: check-config output missing any suggestion string\ncombined: %s", combined)
+	// At least one suggestion must be present: the out-of-range ratios trip the
+	// "looks like a percent" hint.
+	if !strings.Contains(combined, "percent") {
+		t.Errorf("T-9: check-config output missing the percent suggestion\ncombined: %s", combined)
 	}
 }
 

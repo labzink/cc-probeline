@@ -197,7 +197,7 @@ func TestConfigToCacheEvents_OnlyWarnings_ReturnsNil(t *testing.T) {
 func TestConfigToCacheEvents_MultipleErrors_CollapsedToOne(t *testing.T) {
 	errs := []config.Error{
 		{Severity: config.SeverityError, Field: "version", Message: "unsupported version: 99"},
-		{Severity: config.SeverityError, Field: "theme.colors.cyan", Message: "invalid hex color: notacolor"},
+		{Severity: config.SeverityError, Field: "thresholds.quota_5h_warn_ratio", Message: "ratio must be in [0.0, 1.0]"},
 		{Severity: config.SeverityError, Field: "thresholds.ctx_warn_ratio", Message: "below minimum: -0.1"},
 		{Severity: config.SeverityError, Field: "probes.email.address", Message: "invalid email: notanemail"},
 		{Severity: config.SeverityError, Field: "thresholds.cost_budget_usd", Message: "below minimum: -5.0"},

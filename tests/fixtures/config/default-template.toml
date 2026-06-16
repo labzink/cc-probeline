@@ -1,4 +1,4 @@
-# cc-probeline default configuration template (~700 bytes)
+# cc-probeline default configuration template
 version = 1
 
 [general]
@@ -6,18 +6,6 @@ tutorial_hints = true
 no_color = false
 nerd_font = false
 refresh_interval_hint = 5
-
-[theme]
-name = "default"
-
-[theme.colors]
-cyan = ""
-yellow = ""
-red = ""
-green = ""
-orange = ""
-magenta = ""
-dim = ""
 
 [widgets]
 model = true
@@ -27,10 +15,8 @@ project = true
 email = true
 time = true
 ctx = true
-cache = true
 quota = true
 git = true
-subagent = true
 
 [thresholds]
 cost_budget_usd = 0.0

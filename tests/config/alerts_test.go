@@ -51,8 +51,8 @@ func TestToCacheEvents_OneSeverityError_ReturnsEvent(t *testing.T) {
 	errs := []config.Error{
 		{
 			Severity: config.SeverityError,
-			Field:    "theme.name",
-			Message:  "unknown theme",
+			Field:    "thresholds.ctx_warn_ratio",
+			Message:  "ratio must be in [0.0, 1.0]",
 		},
 	}
 

@@ -95,8 +95,8 @@ func TestLoad_ValidComplete(t *testing.T) {
 	if cfg.General.RefreshIntervalHint != 10 {
 		t.Errorf("T-L3: RefreshIntervalHint: got %d, want 10", cfg.General.RefreshIntervalHint)
 	}
-	// Note: [theme] section in valid-complete.toml is now an unknown section
-	// (config.Theme was removed in Phase 7.47); it produces a warning but no error.
+	// Note: valid-complete.toml carries no [theme] section — theme config was
+	// removed in Phase 7.47; the fixture exercises only current-schema fields.
 	if cfg.Widgets.Effort != false {
 		t.Errorf("T-L3: Widgets.Effort: got true, want false")
 	}
