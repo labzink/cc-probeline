@@ -17,6 +17,7 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
+	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
@@ -53,6 +54,34 @@ func TestCostProbe_UsesOfficialTotal(t *testing.T) {
 			t.Errorf("Phase 7.46 CostProbe.Render(level=%v): must NOT show our '$3.50' (SessionTotal), got %q"+
 				"\n  FIX: CostProbe header must read the official total", level, got)
 		}
+	}
+}
+
+// TestCostProbe_ClipsToSessionBaseline (Phase 7.46) verifies the header clips the
+// official cumulative meter to the current session via st.BaselineCost. After a
+// /clear the meter keeps climbing (TotalCostUSD is cumulative), but a fresh
+// session_id captures a new baseline; the header must show only ccTotal − baseline.
+//
+// Setup (post-/clear session, mirrors live state 9ed7c7ea):
+//   - d.Stdin.Cost.TotalCostUSD = 25.90  (cumulative, includes pre-/clear spend)
+//   - d.State.BaselineCost      = 21.94  (captured at this session's first Reconcile)
+//
+// Expected: "$3.96" (session-only), NOT "$25.90" (cumulative).
+func TestCostProbe_ClipsToSessionBaseline(t *testing.T) {
+	p := &probes.CostProbe{}
+	th := renderer.Theme{}
+	cfg := probes.Config{CostEnabled: true}
+
+	d := probes.Data{
+		Stdin: stdin.Payload{Cost: stdin.Cost{TotalCostUSD: 25.90}},
+		State: &state.Session{BaselineCost: 21.94},
+	}
+	got := p.Render(d, cfg, th, probes.LevelCompact)
+	if !strings.Contains(got, "$3.96") {
+		t.Errorf("header must clip to session via baseline: want '$3.96', got %q", got)
+	}
+	if strings.Contains(got, "$25.90") {
+		t.Errorf("header must NOT show pre-/clear cumulative '$25.90', got %q", got)
 	}
 }
 

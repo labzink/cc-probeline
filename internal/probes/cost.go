@@ -23,21 +23,42 @@ func (p *CostProbe) Visible(d Data, c Config) bool {
 }
 
 // Render formats the header cost from the official Claude Code meter
-// (d.Stdin.Cost.TotalCostUSD), not our table-driven estimate (Phase 7.46).
+// (d.Stdin.Cost.TotalCostUSD), clipped to this session via the /clear baseline,
+// not our table-driven estimate (Phase 7.46).
 //
 // Rationale: the header must show the single most authoritative figure, even at a
 // small lag, rather than our reconstructed estimate (which carries a known ~10%
-// reasoning-billing gap). The per-turn table keeps our estimate (labelled "~cost")
-// for attribution; a small header↔table mismatch is expected and accepted. This
-// does not reintroduce the 7.45 dancing-number bug — that came from redistributing
-// the lagging ccTotal across turns, not from showing the official total verbatim.
+// reasoning-billing gap). But TotalCostUSD is cumulative across /clear, so we
+// subtract st.BaselineCost — the ccTotal captured on the first Reconcile of this
+// session_id — to show only the current session's spend (a /clear starts a new
+// session_id with a fresh baseline). On a session begun from zero baseline=0, so
+// this equals the raw total. The per-turn table keeps our estimate (labelled
+// "~cost"); a small header↔table mismatch is expected. This does not reintroduce
+// the 7.45 dancing-number bug — that came from redistributing the lagging ccTotal
+// across turns, not from a monotonic session-clipped header.
 //
 //	Full:              "cost: $<value>"
 //	Compact/Minimal:   "$<value>"
 func (p *CostProbe) Render(d Data, _ Config, _ renderer.Theme, level Level) string {
-	value := fmt.Sprintf("$%.2f", d.Stdin.Cost.TotalCostUSD)
+	value := fmt.Sprintf("$%.2f", officialSessionCost(d))
 	if level == LevelFull {
 		return "cost: " + value
 	}
 	return value
+}
+
+// officialSessionCost is the official CC meter clipped to this session: the raw
+// cumulative TotalCostUSD minus the per-session baseline (ccTotal at the first
+// Reconcile of this session_id). A /clear creates a new session_id whose fresh
+// baseline subtracts everything spent before it. Falls back to the raw total when
+// no state is available (baseline 0). Never negative.
+func officialSessionCost(d Data) float64 {
+	c := d.Stdin.Cost.TotalCostUSD
+	if d.State != nil {
+		c -= d.State.BaselineCost
+	}
+	if c < 0 {
+		c = 0
+	}
+	return c
 }
