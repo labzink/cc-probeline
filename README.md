@@ -18,7 +18,7 @@ brew install labzink/homebrew-tap/cc-probeline
 <!-- W5: verify the hero install command against the released tap -->
 **[See all install options →](#install)**
 
-![cc-probeline full dashboard: per-turn cost table with subagent rows, cache read/write, 5h and 7d limits, context and git in a Claude Code status line](assets/screenshots/01.png)
+![cc-probeline live dashboard: a Claude Code session where every turn lands priced, subagents bill in real time, the cache TTL ages ⏱ 60m → 0m and rebuilds in dollars, and the 5h limit fills to 100% with overage — all in the status line](assets/video/hero.gif)
 
 ## What the probe pulls out
 

@@ -107,11 +107,10 @@ func videoFrames() []vframe {
 		// (green→yellow) around 500K — a calm warning, not red. No row highlight
 		// in Act 2 (only Act 1 highlights the new row).
 		{name: "s_b0", fixture: fxVideoAct2, keepTurns: 84, now: vt(15, 30), pct5h: 82, pct7d: 84, reset5h: 90 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
-		{name: "s_b1", fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
+		{name: "s_b1", fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 5}, // config tip — plated on this calm beat
 		{name: "s_b2", fixture: fxVideoAct2, keepTurns: 86, now: vt(15, 42), pct5h: 88, pct7d: 86, reset5h: 78 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3}, // ctx crosses 500K → yellow
 		{name: "s_b3", fixture: fxVideoAct2, keepTurns: 87, now: vt(15, 48), pct5h: 91, pct7d: 88, reset5h: 72 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
 		{name: "s_b4", fixture: fxVideoAct2, keepTurns: 88, now: vt(15, 54), pct5h: 94, pct7d: 90, reset5h: 66 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
-		{name: "s_b5", fixture: fxVideoAct2, keepTurns: 89, now: vt(16, 0), pct5h: 97, pct7d: 91, reset5h: 60 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
 		{name: "s_b8", fixture: fxVideoAct2, keepTurns: 92, now: vt(16, 12), pct5h: 100, pct7d: 95, reset5h: 48 * time.Minute, reset7d: 3 * 24 * time.Hour, extraActive: true, extraUSD: 2.40, hintStart: 5}, // 5h 100% + extra-usage — HOLD
 	}
 }
@@ -177,6 +176,11 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 	durMS := vf.now.Sub(vt(8, 0)).Milliseconds()
 	cost.Reconcile(st, 0, 0, nil)
 	cost.Reconcile(st, 0, durMS, allTurns)
+	// The header reads the official meter (d.Stdin.Cost.TotalCostUSD), not our
+	// estimate (Phase 7.46, probes/cost.go). For the synthetic video we feed the
+	// estimate Σ in as that "official" total so the header tracks the visible
+	// turns instead of reading $0.00 from an absent live meter.
+	sessTotal := cost.SessionTotal(st, 0)
 
 	ctxSize := vf.ctxSize
 	if ctxSize == 0 {
@@ -197,7 +201,7 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 		SessionID:     "video-" + vf.name,
 		Cwd:           "/Users/dev/Projects/cc-probeline",
 		ContextWindow: ctxWindow(ctxSize, ctxUsed),
-		Cost:          stdin.Cost{TotalCostUSD: 0, TotalAPIDurationMS: durMS},
+		Cost:          stdin.Cost{TotalCostUSD: sessTotal, TotalAPIDurationMS: durMS},
 		RateLimits:    vrl(vf),
 	}
 
@@ -219,7 +223,7 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 		ExtraUSD:         vf.extraUSD,
 		HintStart:        vf.hintStart,
 	}
-	d.SessionTotal = cost.SessionTotal(st, 0)
+	d.SessionTotal = sessTotal
 	d.SessionDurMS = cost.SessionDuration(st, durMS)
 	curGroupID := 0
 	if len(session.Turns) > 0 {
