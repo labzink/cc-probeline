@@ -54,7 +54,7 @@ A probe is an instrument of observation, not intervention. Everything cc-probeli
 - **What it reads:** your session's JSONL log (`~/.claude/projects/…`) and the status-line payload Claude Code pipes directly to it.
 - **What it doesn't touch:** credentials, keychain, OAuth tokens — no telemetry, ever. Rendering is fully offline; the only network it ever makes is one optional, opt-out price/version check a day — a plain download of a public file, sending nothing about your session. Turn it off and it never touches the network at all.
 - **The binary:** single compiled Go binary, no runtime dependencies, one run ≈ 5 ms.
-- **Auditable:** MIT license, open source, reproducible builds, releases published with SHA256 checksums.
+- **Auditable:** MIT license, open source, every release published with SHA256 checksums and signed build provenance (SLSA) — verify any download with `gh attestation verify <file> --repo labzink/cc-probeline`.
 
 ## Install
 
