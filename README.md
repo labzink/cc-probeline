@@ -58,7 +58,7 @@ A probe is an instrument of observation, not intervention. Everything cc-probeli
 
 ## Install
 
-**Homebrew** (macOS / Linux):
+**Homebrew** (macOS — it's a cask; on Linux use curl below):
 
 ```sh
 brew install labzink/homebrew-tap/cc-probeline
