@@ -34,6 +34,14 @@ jobs:
             exit 1
           fi
 
+      - name: install.sh runs under dash (POSIX sh — no bashisms)
+        run: |
+          # The documented invocation is `curl ... | sh`; on Debian/Ubuntu that
+          # is dash. `-n` catches array syntax; running --help catches runtime
+          # bashisms like `set -o pipefail` on the top-level `set` line.
+          dash -n scripts/install.sh
+          dash scripts/install.sh --help >/dev/null
+
       - name: unit tests
         run: go test ./... -count=1
 

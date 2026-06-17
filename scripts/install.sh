@@ -1,5 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # install.sh — install cc-probeline binary and wire Claude Code statusLine.
+# POSIX sh (the documented invocation is `curl ... | sh`; on Debian/Ubuntu that
+# is dash, which has no arrays — keep this script array-free).
 #
 # Usage:
 #   install.sh [--dest DIR] [--no-settings] [--force]
@@ -9,7 +11,7 @@
 #   0   success
 #   1   binary copy / verify / settings failure
 #   64  unknown flag
-set -euo pipefail
+set -eu  # POSIX sh has no `pipefail`; pipes that matter guard with `|| true`.
 
 tmp=""
 cleanup() {
@@ -247,15 +249,17 @@ esac
 # Step 7: merge statusLine into settings.json (unless --no-settings).
 # ---------------------------------------------------------------------------
 if [ -z "$no_settings" ]; then
-    args=("install" "--merge-settings" "--binary-path" "$dest")
+    # POSIX arg accumulation via positional params (no bash arrays). Safe here:
+    # the script's own args were parsed earlier and "$@" is unused past this point.
+    set -- install --merge-settings --binary-path "$dest"
     if [ -n "$force" ]; then
-        args+=("--force")
+        set -- "$@" --force
     fi
     if [ -n "$rinterval" ]; then
-        args+=("--refresh-interval" "$rinterval")
+        set -- "$@" --refresh-interval "$rinterval"
     fi
 
-    "$dest" "${args[@]}" || exit $?
+    "$dest" "$@" || exit $?
 fi
 
 # ---------------------------------------------------------------------------
