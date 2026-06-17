@@ -150,16 +150,17 @@ self_dir=$(cd "$(dirname "$0")" && pwd)
 proj_dir=$(cd "$self_dir/.." && pwd)
 
 src="$proj_dir/cc-probeline"
-if [ ! -x "$src" ]; then
+if [ ! -f "$src" ] || [ ! -x "$src" ]; then
     src="$proj_dir/cc-probeline-$os-$arch"
 fi
-if [ ! -x "$src" ]; then
-    # No binary next to the script — fall back to downloading a release asset
-    # from GitHub and verifying its checksum before install.
-    echo "No local binary found; downloading from GitHub Releases..." >&2
+if [ ! -f "$src" ] || [ ! -x "$src" ]; then
+    # Normal path for `curl … | sh`: no binary sits next to the piped script,
+    # so fetch the release asset from GitHub and verify its checksum. (Only a
+    # local checkout with a pre-built binary skips this.)
+    echo "Downloading cc-probeline from GitHub Releases..." >&2
     src=$(download_release "$os" "$arch") || {
-        echo "Binary not found near $self_dir and release download failed." >&2
-        echo "Build locally with: go build -o cc-probeline ./cmd/cc-probeline/" >&2
+        echo "Could not download a cc-probeline release from GitHub." >&2
+        echo "Building from source: go build -o cc-probeline ./cmd/cc-probeline/" >&2
         exit 1
     }
 fi
