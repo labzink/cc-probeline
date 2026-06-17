@@ -38,8 +38,8 @@ func TestUpdateText(t *testing.T) {
 			if !c.wantHint && got != "" {
 				t.Errorf("UpdateText(%q,%q) = %q; want \"\"", c.current, c.latest, got)
 			}
-			if c.wantHint && !strings.Contains(got, "update available") {
-				t.Errorf("UpdateText(%q,%q) = %q; missing 'update available'", c.current, c.latest, got)
+			if c.wantHint && !strings.Contains(got, "/cc-probeline-update") {
+				t.Errorf("UpdateText(%q,%q) = %q; missing the /cc-probeline-update call to action", c.current, c.latest, got)
 			}
 		})
 	}

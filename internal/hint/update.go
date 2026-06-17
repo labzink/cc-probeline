@@ -6,8 +6,11 @@ import (
 	"strings"
 )
 
-// UpdateText returns the "update available" hint (#7c, Phase 7.46 Wave B / BL-36)
-// when latest is a strictly higher semantic version than current; otherwise "".
+// UpdateText returns the "update" hint (#7c, Phase 7.46 Wave B / BL-36) when
+// latest is a strictly higher semantic version than current; otherwise "". The
+// text is a call to action: it names the version jump and the exact in-Claude
+// command to run (/cc-probeline-update), so the user knows what to do rather than
+// just that something is newer.
 //
 // Both inputs are parsed leniently: a leading "v" and any pre-release/build
 // suffix (after "-" or "+") are stripped, then the dot-separated numeric
@@ -21,7 +24,7 @@ func UpdateText(current, latest string) string {
 	if !okc || !okl || compareVersion(cv, lv) >= 0 {
 		return ""
 	}
-	return fmt.Sprintf("{{color:green}}↑ update available: v%s → v%s{{reset}}",
+	return fmt.Sprintf("{{color:green}}↑ update: v%s → v%s — run /cc-probeline-update{{reset}}",
 		cleanVersion(current), cleanVersion(latest))
 }
 
