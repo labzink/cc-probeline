@@ -4,6 +4,13 @@ All notable changes to `cc-probeline` are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-06-17
+
+### Changed
+
+- **One-step install on every channel** — Homebrew and Scoop now wire the Claude Code status line on install, the same way the curl script already does. Install through any channel, restart Claude Code, and you're done — no separate wiring command. An existing custom status line is never overwritten (switch explicitly with `cc-probeline install --merge-settings --force`).
+- **Uninstall restores your status line everywhere** — `brew uninstall` now restores the status line you had before removing the binary, and the curl script gained `--uninstall` (`install.sh … | sh -s -- --uninstall`) to do the same. On Scoop, run `cc-probeline uninstall` before `scoop uninstall` (Scoop has no uninstall hook).
+
 ## [0.1.2] — 2026-06-17
 
 ### Fixed

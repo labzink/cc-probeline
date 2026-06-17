@@ -58,6 +58,11 @@ A probe is an instrument of observation, not intervention. Everything cc-probeli
 
 ## Install
 
+Every channel below does the same thing: install the binary **and** wire it into
+your Claude Code status line. After installing, **restart Claude Code** and you're
+done — no extra commands. (If you already have a custom status line, it's left
+untouched; switch to cc-probeline with `cc-probeline install --merge-settings --force`.)
+
 **Homebrew** (macOS — it's a cask; on Linux use curl below):
 
 ```sh
@@ -85,7 +90,7 @@ scoop install cc-probeline
 
 Then install the plugin from the `/plugin` menu (or `/plugin install cc-probeline`) and **restart Claude Code** — the slash commands below only show up after a restart.
 
-Once restarted, run `/cc-probeline-install`: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. (Claude Code doesn't let a plugin set your active status line on its own, so this command does the wiring for you.) The plugin also gives you `/cc-probeline-update` to upgrade later and the `/cc-probeline-config` wizard.
+Once restarted, run `/cc-probeline-install`: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. The plugin also gives you `/cc-probeline-update` to upgrade later and the `/cc-probeline-config` wizard.
 
 **Verify your installation:**
 
@@ -156,23 +161,25 @@ scoop update cc-probeline                                                       
 curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh   # curl (re-runs latest)
 ```
 
-The update notice comes from a once-a-day price/version check; turn it off with `price_check = false` (or in the `/cc-probeline-config` wizard) and cc-probeline stays fully offline.
+The update notice comes from a once-a-day price/version check; turn it off with `price_check = false` (or in the `/cc-probeline-config` wizard) and cc-probeline stays fully offline. Updating keeps your status-line wiring intact.
 
 ### Uninstall
 
-First, restore your previous status line and remove cc-probeline's entry from Claude Code's settings:
+Uninstalling restores the status line you had before (byte-for-byte, if cc-probeline replaced one) and removes the binary. Use the command for the channel you installed with — **restart Claude Code afterwards**:
 
 ```sh
+brew uninstall cc-probeline                                                                            # Homebrew — also restores your previous status line
+curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh -s -- --uninstall   # curl
+```
+
+**Scoop** (Windows): restore the status line first, then remove the binary — `scoop uninstall` can't run the restore step itself:
+
+```powershell
 cc-probeline uninstall
+scoop uninstall cc-probeline
 ```
 
-This puts the status line you had before back, byte-for-byte, if cc-probeline replaced one — otherwise it just removes cc-probeline's block. Then remove the binary through the channel you installed with:
-
-```sh
-brew uninstall cc-probeline      # Homebrew
-scoop uninstall cc-probeline     # Scoop
-rm "$(which cc-probeline)"       # manual / curl install
-```
+To only un-wire the status line without removing the binary, run `cc-probeline uninstall` on its own.
 
 ## The experiment
 

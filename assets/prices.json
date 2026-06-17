@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "latest_version": "0.1.2",
+  "latest_version": "0.1.3",
   "prices": {
     "fable":  { "in": 10, "cache_read": 1,    "cache_write_5m": 12.5, "cache_write_1h": 20, "out": 50 },
     "opus":   { "in": 5,  "cache_read": 0.5,  "cache_write_5m": 6.25, "cache_write_1h": 10, "out": 25 },
