@@ -72,17 +72,31 @@ homebrew_casks:
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/labzink/cc-probeline"
     description: "Status line plugin for Claude Code — model, tokens, cost, subagents"
-    # BL-39: the binary is not Apple-notarized, so the cask download carries the
-    # com.apple.quarantine bit and Gatekeeper blocks it ("cannot verify the
-    # developer", zsh: killed). Strip the quarantine attribute post-install so
-    # `brew install` works out of the box on macOS. Free workaround until full
-    # Developer ID notarization (Apple Developer account, $99/yr).
+    # Lifecycle hooks so `brew install` is a one-step setup (parity with curl /
+    # scoop — see docs/superpowers/specs/2026-06-17-universal-channel-lifecycle).
     hooks:
       post:
+        # 1) BL-39: the binary is not Apple-notarized, so the cask download
+        #    carries com.apple.quarantine and Gatekeeper blocks it ("cannot
+        #    verify the developer", zsh: killed). Strip it FIRST — before we run
+        #    the binary below, or that invocation would itself be killed.
+        # 2) Wire the Claude Code status line to the STABLE bin symlink (not the
+        #    versioned Caskroom path, so `brew upgrade` never breaks it).
+        #    --if-absent never clobbers an existing status line and exits 0, so
+        #    a fresh install just works while an upgrade is a no-op.
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cc-probeline"]
           end
+          system_command "#{staged_path}/cc-probeline",
+                         args: ["install", "--merge-settings",
+                                "--binary-path", "#{HOMEBREW_PREFIX}/bin/cc-probeline",
+                                "--if-absent"]
+          ohai "cc-probeline: restart Claude Code to load the status line."
+      pre:
+        # Restore the user's previous status line before the binary is removed.
+        uninstall: |
+          system_command "#{staged_path}/cc-probeline", args: ["uninstall"]
 
 # Scoop bucket (Windows). Pushes the manifest to labzink/scoop-bucket on a real
 # release; renders into dist/ on --snapshot.
@@ -95,3 +109,14 @@ scoops:
     homepage: "https://github.com/labzink/cc-probeline"
     description: "Status line plugin for Claude Code — model, tokens, cost, subagents"
     license: MIT
+    # Wire the Claude Code status line on install (parity with curl / brew).
+    # Invoke the versioned binary but write the STABLE `current` shim path into
+    # settings so `scoop update` never breaks the wiring. --if-absent never
+    # clobbers an existing status line. NOTE: goreleaser scoops has no uninstall
+    # hook, so `scoop uninstall` does NOT auto-restore the previous status line —
+    # run `cc-probeline uninstall` first (documented in README). UNVERIFIED until
+    # a Windows hands-on.
+    post_install:
+      - '$stable = Join-Path (Split-Path $dir -Parent) "current\cc-probeline.exe"'
+      - '& "$dir\cc-probeline.exe" install --merge-settings --binary-path $stable --if-absent'
+      - 'Write-Host "cc-probeline: restart Claude Code to load the status line."'

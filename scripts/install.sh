@@ -34,6 +34,7 @@ Options:
   --no-settings         Copy binary only; skip statusLine merge in settings.json.
   --force               Overwrite a foreign statusLine (backup is created).
   --refresh-interval N  Set statusLine refresh interval in seconds (default: 5).
+  --uninstall           Restore the previous statusLine and remove the binary.
   --verbose             Enable bash -x trace output.
   --help, -h            Print this help and exit.
 
@@ -160,6 +161,7 @@ esac
 no_settings=""
 force=""
 rinterval=""
+uninstall=""
 dest="${CC_PROBELINE_INSTALL_DEST:-$HOME/.local/bin/cc-probeline}"
 
 while [ $# -gt 0 ]; do
@@ -188,6 +190,10 @@ while [ $# -gt 0 ]; do
             rinterval="$2"
             shift 2
             ;;
+        --uninstall)
+            uninstall=1
+            shift
+            ;;
         --verbose)
             set -x
             shift
@@ -202,6 +208,36 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# ---------------------------------------------------------------------------
+# Uninstall path (--uninstall): restore the previous statusLine via the binary's
+# own `uninstall` subcommand, then remove the binary. Channel parity with
+# `brew uninstall` / `cc-probeline uninstall`. Best-effort: a missing binary or a
+# failed restore is reported but never aborts the binary removal.
+# ---------------------------------------------------------------------------
+if [ -n "$uninstall" ]; then
+    bin=""
+    if [ -x "$dest" ]; then
+        bin="$dest"
+    elif command -v cc-probeline >/dev/null 2>&1; then
+        bin="$(command -v cc-probeline)"
+    fi
+    if [ -z "$bin" ]; then
+        echo "install.sh: cc-probeline not found — nothing to uninstall."
+        exit 0
+    fi
+    echo "Restoring previous status line..."
+    "$bin" uninstall || echo "install.sh: status line restore reported a problem (continuing)." >&2
+    # Resolve a symlink to its target so we remove the real file, not just a link.
+    target="$bin"
+    if [ -L "$bin" ]; then
+        target="$(readlink "$bin" || echo "$bin")"
+    fi
+    rm -f "$bin" "$target"
+    echo "Removed cc-probeline binary: $bin"
+    echo "Restart Claude Code to drop the status line."
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Step 3: already up to date? When the binary at the target path matches the

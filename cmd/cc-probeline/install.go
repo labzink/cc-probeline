@@ -149,6 +149,20 @@ func runInstallImpl() int {
 		s = settingsfile.Settings{}
 	}
 
+	// --if-absent: wire only when no statusLine exists at all. Used by
+	// non-interactive package hooks (Homebrew postflight, Scoop post_install)
+	// so installing/upgrading the package never clobbers the user's existing
+	// statusLine and never fails the package step. Any existing command
+	// (foreign or our own, at any path) is left untouched; we print a hint and
+	// exit 0 so the package manager stays green.
+	if hasFlag("--if-absent") {
+		if cmd := existingCommand(s); cmd != "" {
+			fmt.Println("cc-probeline: a statusLine is already configured — leaving it untouched.")
+			fmt.Println("cc-probeline: run `cc-probeline install --merge-settings --force` to switch to cc-probeline.")
+			return 0
+		}
+	}
+
 	hadForeign := hasForeignStatusLine(s)
 
 	// Interactive foreign-overwrite confirmation: if foreign statusLine is

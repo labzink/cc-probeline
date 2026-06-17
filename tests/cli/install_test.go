@@ -385,3 +385,55 @@ func TestInstall_NoMergeSettingsFlag(t *testing.T) {
 		t.Fatalf("output does not contain Phase 7 hint; stdout=%q stderr=%q", stdout, stderr)
 	}
 }
+
+// --if-absent, empty settings → wire normally, exit 0. (v0.1.3 universal
+// channel wiring: the brew postflight / scoop post_install path.)
+func TestInstall_IfAbsent_NoStatusLine_Wires(t *testing.T) {
+	home := homeDir(t)
+
+	_, _, code := runInstallCmd(t, home, "--merge-settings", "--binary-path", binaryPath, "--if-absent")
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0", code)
+	}
+	got := readSettings(t, home)
+	block, ok := got["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatal("statusLine absent after --if-absent install on empty settings")
+	}
+	if cmd, _ := block["command"].(string); !strings.HasSuffix(cmd, "cc-probeline") {
+		t.Fatalf("statusLine.command does not end with cc-probeline: %q", cmd)
+	}
+}
+
+// --if-absent with an existing FOREIGN statusLine → exit 0 (does not fail the
+// package install), settings.json unchanged, hint printed. This is the safety
+// guarantee that a `brew install` never clobbers the user's own status line.
+func TestInstall_IfAbsent_ExistingForeign_LeftUntouched(t *testing.T) {
+	home := homeDir(t)
+
+	writeSettings(t, home, map[string]any{
+		"statusLine": map[string]any{
+			"type":    "command",
+			"command": "/usr/local/bin/other-plugin",
+		},
+	})
+	before, err := os.ReadFile(settingsPath(home))
+	if err != nil {
+		t.Fatalf("ReadFile before: %v", err)
+	}
+
+	stdout, _, code := runInstallCmd(t, home, "--merge-settings", "--binary-path", binaryPath, "--if-absent")
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0 (package install must not fail)", code)
+	}
+	after, err := os.ReadFile(settingsPath(home))
+	if err != nil {
+		t.Fatalf("ReadFile after: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("settings.json was modified by --if-absent when a statusLine already existed")
+	}
+	if !strings.Contains(stdout, "already configured") {
+		t.Fatalf("stdout does not contain the 'already configured' hint; got: %q", stdout)
+	}
+}
