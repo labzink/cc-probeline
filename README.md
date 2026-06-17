@@ -28,8 +28,7 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 - **What your subagents spend** — subagent work is invisible while it runs. The probe puts each agent on the bill, live, next to your own turns.
 - **Cache rebuilds, in dollars** — idle past the TTL (60 min for the orchestrator, 5 for subagents), and your next turn quietly rewrites the whole cache. The probe ages it live (⏱ 60m → 0m) and prices the rebuild when it hits.
 - **Extra usage in money, not percent** — past 100% of your plan, the overage shows up in dollars before the invoice does.
-<!-- W5: when Phase 7.46 Wave B (network price/version check, BL-36) ships in 0.1.1, restore the "refreshes automatically over the network" framing here and in the probe section below. -->
-- **Prices that stay correct** — every dollar above is only as honest as the price table behind it. cc-probeline ships an audited price table and keeps it current with each release, so your totals don't silently drift wrong when Anthropic changes rates — an upgrade sets them straight.
+- **Prices that stay correct** — your dollars are only as honest as the price table behind them. cc-probeline refreshes its rates over the network — one optional, opt-out check a day, never during render — so when Anthropic changes prices your totals follow within a day, no reinstall. Offline or opted out, it falls back to the table baked into the build.
 - **5h / 7d limits with reset clocks** — watch them fill, know exactly when they free up.
 - **Colour-coded zones** — numbers shift colour as they enter warning and critical territory, so the line catches your eye exactly when it should.
 - Plus the table stakes: model, context, git, session time.
@@ -55,7 +54,7 @@ And nothing about your session ever leaves your machine — that's [why it's cal
 A probe is an instrument of observation, not intervention. Everything cc-probeline does is read and display — it never reaches into your account or reports on you.
 
 - **What it reads:** your session's JSONL log (`~/.claude/projects/…`) and the status-line payload Claude Code pipes directly to it.
-- **What it doesn't touch:** credentials, keychain, OAuth tokens. No telemetry, no network calls at all — nothing about your session ever leaves your machine.
+- **What it doesn't touch:** credentials, keychain, OAuth tokens — no telemetry, ever. Rendering is fully offline; the only network it ever makes is one optional, opt-out price/version check a day — a plain download of a public file, sending nothing about your session. Turn it off and it never touches the network at all.
 - **The binary:** single compiled Go binary, no runtime dependencies, one run ≈ 5 ms.
 - **Auditable:** MIT license, open source, reproducible builds, releases published with SHA256 checksums.
 

@@ -14,7 +14,7 @@
         "repo": "labzink/cc-probeline"
       },
       "description": "Status line upgrade for Claude Code: live tokens, approximate session cost, quota warnings, active subagents.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Konstantin Labzin",
         "email": "labzin.k@gmail.com"

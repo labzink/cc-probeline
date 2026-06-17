@@ -4,10 +4,12 @@ All notable changes to `cc-probeline` are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] — 2026-06-17
 
 ### Added
 
+- **Self-healing prices + update notice** — cc-probeline refreshes its price table over the network (one optional check a day, opt-out, never during render) so cost estimates track Anthropic's rates without a reinstall; offline or opted out, it uses the table baked in at build time. When a newer release is out, the status line shows an `↑ update: vX → vY — run /cc-probeline-update` hint. Disable the check with `price_check = false` or via the `/cc-probeline-config` wizard.
+- **Update from the plugin** — a `/cc-probeline-update` command upgrades the binary through the channel it was installed with (Homebrew / Scoop / curl), or installs it if missing.
 - **Install from the plugin** — the marketplace plugin ships a `/cc-probeline-install` command that detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line, asking before it runs anything. A session-start check offers it automatically when the binary is missing.
 - **Build provenance** — release archives are signed with keyless build provenance attestation, verifiable with `gh attestation verify <file> --repo labzink/cc-probeline`.
 
