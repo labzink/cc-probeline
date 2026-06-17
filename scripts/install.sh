@@ -215,7 +215,9 @@ if [ -z "$force" ] && [ -x "$dest" ]; then
         | sed -E 's/^cc-probeline ([^ ]+).*/\1/' || true)
     target_ver=$(resolve_version || true)
     if [ -n "$target_ver" ] && [ "$installed_ver" = "$target_ver" ]; then
-        echo "cc-probeline $installed_ver is already the latest version (use --force to reinstall)."
+        echo "cc-probeline $installed_ver is already the latest version — nothing to do."
+        echo "To reinstall the same version anyway, pass --force:"
+        echo "  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s -- --force"
         exit 0
     fi
 fi
