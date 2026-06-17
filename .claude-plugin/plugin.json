@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "cc-probeline",
   "displayName": "cc-probeline",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Status line upgrade for Claude Code: live tokens, approximate session cost, quota warnings, active subagents.",
   "author": {
     "name": "Konstantin Labzin",

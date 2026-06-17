@@ -72,6 +72,17 @@ homebrew_casks:
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/labzink/cc-probeline"
     description: "Status line plugin for Claude Code — model, tokens, cost, subagents"
+    # BL-39: the binary is not Apple-notarized, so the cask download carries the
+    # com.apple.quarantine bit and Gatekeeper blocks it ("cannot verify the
+    # developer", zsh: killed). Strip the quarantine attribute post-install so
+    # `brew install` works out of the box on macOS. Free workaround until full
+    # Developer ID notarization (Apple Developer account, $99/yr).
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cc-probeline"]
+          end
 
 # Scoop bucket (Windows). Pushes the manifest to labzink/scoop-bucket on a real
 # release; renders into dist/ on --snapshot.

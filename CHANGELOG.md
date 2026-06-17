@@ -4,6 +4,12 @@ All notable changes to `cc-probeline` are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-06-17
+
+### Fixed
+
+- **macOS `brew install`** — the Homebrew cask now strips the `com.apple.quarantine` attribute on install, so Gatekeeper no longer blocks the unsigned binary ("cannot verify the developer" / `zsh: killed`). `brew install` works out of the box on macOS again.
+
 ## [0.1.1] — 2026-06-17
 
 ### Added
