@@ -85,7 +85,7 @@ scoop install cc-probeline
 /plugin marketplace add labzink/cc-probeline
 ```
 
-Then run `/cc-probeline-install` inside Claude Code: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. (Claude Code doesn't let a plugin set your active status line on its own, so this command does the wiring for you.) The plugin also gives you the `/cc-probeline-config` wizard.
+Then run `/cc-probeline-install` inside Claude Code: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. (Claude Code doesn't let a plugin set your active status line on its own, so this command does the wiring for you.) The plugin also gives you `/cc-probeline-update` to upgrade later and the `/cc-probeline-config` wizard.
 <!-- W5: verify all install commands above against the released artifacts; verify plugin wiring wording -->
 
 **Verify your installation:**
@@ -146,6 +146,19 @@ quota_5h_critical_ratio = 0.90
 Config is read in precedence order: `CC_PROBELINE_CONFIG=/path` (explicit override) → `.cc-probeline.toml` in the current repo (project-local) → `~/.config/cc-probeline/config.toml` (global). Every field is optional; missing fields use the built-in defaults, and an invalid value never breaks the status line — it falls back to the default.
 
 Full reference: [`scripts/config.toml.example`](scripts/config.toml.example).
+
+### Updating
+
+When a newer release is out, the status line surfaces it: `↑ update: vX → vY — run /cc-probeline-update`. Run that command inside Claude Code and it upgrades through whichever channel you installed with (and installs it for you if the binary is missing). Or update by hand:
+
+```sh
+brew upgrade labzink/homebrew-tap/cc-probeline                                                   # Homebrew
+scoop update cc-probeline                                                                        # Scoop
+curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh   # curl (re-runs latest)
+```
+
+The update notice comes from a once-a-day price/version check; turn it off with `price_check = false` (or in the `/cc-probeline-config` wizard) and cc-probeline stays fully offline.
+<!-- W5: verify update commands above against the released tap/bucket -->
 
 ### Uninstall
 
