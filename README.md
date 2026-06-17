@@ -2,7 +2,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/labzink/cc-probeline/test.yml?branch=main&label=CI)](https://github.com/labzink/cc-probeline/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/github/license/labzink/cc-probeline)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-555)
-<!-- W5: badges resolve once the repo is public; the release badge lights up after the first tag -->
 
 # See where it leaks. Stop paying for it.
 
@@ -15,7 +14,6 @@ A live dashboard right in your status line — surfacing what Claude Code hides:
 ```sh
 brew install labzink/homebrew-tap/cc-probeline
 ```
-<!-- W5: verify the hero install command against the released tap -->
 **[See all install options →](#install)**
 
 ![cc-probeline live dashboard: a Claude Code session where every turn lands priced, subagents bill in real time, the cache TTL ages ⏱ 60m → 0m and rebuilds in dollars, and the 5h limit fills to 100% with overage — all in the status line](assets/video/hero.gif)
@@ -86,7 +84,6 @@ scoop install cc-probeline
 ```
 
 Then run `/cc-probeline-install` inside Claude Code: it detects your OS, installs the binary through the right channel (Homebrew / Scoop / curl) and wires the status line — asking before it runs anything. You can still install manually with any channel above. (Claude Code doesn't let a plugin set your active status line on its own, so this command does the wiring for you.) The plugin also gives you `/cc-probeline-update` to upgrade later and the `/cc-probeline-config` wizard.
-<!-- W5: verify all install commands above against the released artifacts; verify plugin wiring wording -->
 
 **Verify your installation:**
 
@@ -158,18 +155,22 @@ curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/i
 ```
 
 The update notice comes from a once-a-day price/version check; turn it off with `price_check = false` (or in the `/cc-probeline-config` wizard) and cc-probeline stays fully offline.
-<!-- W5: verify update commands above against the released tap/bucket -->
 
 ### Uninstall
+
+First, restore your previous status line and remove cc-probeline's entry from Claude Code's settings:
+
+```sh
+cc-probeline uninstall
+```
+
+This puts the status line you had before back, byte-for-byte, if cc-probeline replaced one — otherwise it just removes cc-probeline's block. Then remove the binary through the channel you installed with:
 
 ```sh
 brew uninstall cc-probeline      # Homebrew
 scoop uninstall cc-probeline     # Scoop
 rm "$(which cc-probeline)"       # manual / curl install
 ```
-
-The installer remembers the status line you had before — uninstalling puts it back.
-<!-- W5: verify uninstall lines + the restore mechanics wording -->
 
 ## The experiment
 
@@ -180,6 +181,5 @@ This is the answer. Claude wrote all of it; the operator never touched the code.
 **Contributing:** bug reports and ideas are welcome — open an issue. Code contributions are possible, but they're not the primary path: the codebase is developed through an AI pipeline in tight collaboration with the author, so pull requests need to fit that workflow. When in doubt, open an issue first.
 
 If cc-probeline ends up saving you money, you can send a little of it back: [GitHub Sponsors](https://github.com/sponsors/labzink)
-<!-- W5: verify the sponsors profile exists before flipping public -->
 
 MIT License.
