@@ -12,7 +12,7 @@ A live dashboard right in your status line — surfacing what Claude Code hides:
 **Install in one command:**
 
 ```sh
-brew install labzink/homebrew-tap/cc-probeline
+curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh
 ```
 **[See all install options →](#install)**
 
