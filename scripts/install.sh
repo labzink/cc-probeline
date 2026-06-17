@@ -58,6 +58,22 @@ EOF
 # ---------------------------------------------------------------------------
 REPO="labzink/cc-probeline"
 
+# resolve_version — echo the target version (no leading "v"). Honors
+# CC_PROBELINE_VERSION; otherwise resolves the latest release tag from GitHub.
+# Returns 1 (echoing nothing) when the latest tag can't be resolved (e.g. offline).
+resolve_version() {
+    local v="${CC_PROBELINE_VERSION:-}"
+    if [ -n "$v" ]; then
+        echo "${v#v}"
+        return 0
+    fi
+    v=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 \
+        | sed -E 's/.*"tag_name":[[:space:]]*"v?([^"]+)".*/\1/' || true)
+    [ -n "$v" ] || return 1
+    echo "$v"
+}
+
 download_release() {
     local rel_os="$1" rel_arch="$2"
     local goos goarch
@@ -73,20 +89,15 @@ download_release() {
     esac
 
     local ver base
-    ver="${CC_PROBELINE_VERSION:-}"
-    if [ -n "$ver" ]; then
-        ver="${ver#v}"
+    ver=$(resolve_version || true)
+    if [ -z "$ver" ]; then
+        echo "download_release: could not resolve the latest release version" >&2
+        return 1
+    fi
+    if [ -n "${CC_PROBELINE_VERSION:-}" ]; then
         base="https://github.com/${REPO}/releases/download/v${ver}"
     else
         base="https://github.com/${REPO}/releases/latest/download"
-        # The archive name embeds the version, so resolve the latest tag first.
-        ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-              | grep '"tag_name"' | head -1 \
-              | sed -E 's/.*"tag_name":[[:space:]]*"v?([^"]+)".*/\1/' || true)
-        if [ -z "$ver" ]; then
-            echo "download_release: could not resolve the latest release version" >&2
-            return 1
-        fi
     fi
 
     local asset="cc-probeline_${ver}_${goos}_${goarch}.tar.gz"
@@ -144,29 +155,7 @@ case "$os-$arch" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 2: locate binary next to the script (parent dir = project root).
-# ---------------------------------------------------------------------------
-self_dir=$(cd "$(dirname "$0")" && pwd)
-proj_dir=$(cd "$self_dir/.." && pwd)
-
-src="$proj_dir/cc-probeline"
-if [ ! -f "$src" ] || [ ! -x "$src" ]; then
-    src="$proj_dir/cc-probeline-$os-$arch"
-fi
-if [ ! -f "$src" ] || [ ! -x "$src" ]; then
-    # Normal path for `curl … | sh`: no binary sits next to the piped script,
-    # so fetch the release asset from GitHub and verify its checksum. (Only a
-    # local checkout with a pre-built binary skips this.)
-    echo "Downloading cc-probeline from GitHub Releases..." >&2
-    src=$(download_release "$os" "$arch") || {
-        echo "Could not download a cc-probeline release from GitHub." >&2
-        echo "Building from source: go build -o cc-probeline ./cmd/cc-probeline/" >&2
-        exit 1
-    }
-fi
-
-# ---------------------------------------------------------------------------
-# Step 3: parse flags.
+# Step 2: parse flags.
 # ---------------------------------------------------------------------------
 no_settings=""
 force=""
@@ -215,7 +204,47 @@ while [ $# -gt 0 ]; do
 done
 
 # ---------------------------------------------------------------------------
-# Step 4: mkdir + atomic copy.
+# Step 3: already up to date? When the binary at the target path matches the
+# target release (and --force was not passed), there is nothing to download or
+# re-wire — report and exit. An unresolved version (offline) falls through to a
+# normal install rather than blocking. A "dev" build never equals a real
+# release version, so it is always reinstalled.
+# ---------------------------------------------------------------------------
+if [ -z "$force" ] && [ -x "$dest" ]; then
+    installed_ver=$("$dest" --version 2>/dev/null | head -1 \
+        | sed -E 's/^cc-probeline ([^ ]+).*/\1/' || true)
+    target_ver=$(resolve_version || true)
+    if [ -n "$target_ver" ] && [ "$installed_ver" = "$target_ver" ]; then
+        echo "cc-probeline $installed_ver is already the latest version (use --force to reinstall)."
+        exit 0
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4: locate binary next to the script (parent dir = project root), or
+# download the release asset from GitHub when none is present.
+# ---------------------------------------------------------------------------
+self_dir=$(cd "$(dirname "$0")" && pwd)
+proj_dir=$(cd "$self_dir/.." && pwd)
+
+src="$proj_dir/cc-probeline"
+if [ ! -f "$src" ] || [ ! -x "$src" ]; then
+    src="$proj_dir/cc-probeline-$os-$arch"
+fi
+if [ ! -f "$src" ] || [ ! -x "$src" ]; then
+    # Normal path for `curl … | sh`: no binary sits next to the piped script,
+    # so fetch the release asset from GitHub and verify its checksum. (Only a
+    # local checkout with a pre-built binary skips this.)
+    echo "Downloading cc-probeline from GitHub Releases..." >&2
+    src=$(download_release "$os" "$arch") || {
+        echo "Could not download a cc-probeline release from GitHub." >&2
+        echo "Building from source: go build -o cc-probeline ./cmd/cc-probeline/" >&2
+        exit 1
+    }
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5: mkdir + atomic copy.
 # ---------------------------------------------------------------------------
 dest_dir=$(dirname "$dest")
 mkdir -p "$dest_dir"
@@ -226,7 +255,7 @@ chmod +x "$tmp"
 mv "$tmp" "$dest"
 
 # ---------------------------------------------------------------------------
-# Step 5: verify the installed binary is runnable.
+# Step 6: verify the installed binary is runnable.
 # ---------------------------------------------------------------------------
 if ! "$dest" --version >/dev/null 2>&1; then
     echo "install.sh: installed binary verification failed: $dest --version returned non-zero" >&2
@@ -234,7 +263,7 @@ if ! "$dest" --version >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: PATH warning (non-fatal).
+# Step 7: PATH warning (non-fatal).
 # ---------------------------------------------------------------------------
 case ":${PATH}:" in
     *":${dest_dir}:"*) ;;
@@ -247,7 +276,7 @@ case ":${PATH}:" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 7: merge statusLine into settings.json (unless --no-settings).
+# Step 8: merge statusLine into settings.json (unless --no-settings).
 # ---------------------------------------------------------------------------
 if [ -z "$no_settings" ]; then
     # POSIX arg accumulation via positional params (no bash arrays). Safe here:
@@ -264,7 +293,7 @@ if [ -z "$no_settings" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 8: smoke check — pipe minimal JSON payload, expect exit 0.
+# Step 9: smoke check — pipe minimal JSON payload, expect exit 0.
 # ---------------------------------------------------------------------------
 smoke_payload='{"transcript_path":"/dev/null","session_id":"smoke-12345678","model":{"id":"claude-sonnet-4-5"},"cwd":"/tmp","effort":{"level":"medium"},"context_window":{"context_window_size":200000,"current_usage":{}}}'
 if printf '%s' "$smoke_payload" | "$dest" >/dev/null 2>&1; then
