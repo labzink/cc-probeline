@@ -41,7 +41,15 @@ cc-probeline integrates with no analytics, crash-reporting, or tracking services
 
 ## Open source and auditable
 
-cc-probeline is MIT-licensed and fully open source. You can audit exactly what it reads and sends by reading the code at <https://github.com/labzink/cc-probeline>. Releases are published with SHA-256 checksums and signed SLSA build provenance.
+cc-probeline is MIT-licensed and fully open source — you can audit exactly what it reads and sends by reading the code at <https://github.com/labzink/cc-probeline>.
+
+Release binaries are built from that source in public CI and carry signed SLSA build provenance plus SHA-256 checksums. This lets anyone cryptographically verify that a downloaded release was built from this repository and was not tampered with in transit:
+
+```
+gh attestation verify <archive> --repo labzink/cc-probeline
+```
+
+In other words, none of the privacy claims above rest on trusting us — both the source code and the build chain are independently inspectable.
 
 ## Changes to this policy
 
