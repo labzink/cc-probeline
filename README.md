@@ -42,10 +42,10 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 
 **Built to fit your terminal.** Don't like a segment, the colours, or the width? The `/cc-probeline-config` wizard walks you through it and writes the config for you — no hand-editing TOML. (That's the hint at the bottom of the dashboard above.)
 
-![Status line past the plan limit: +$3.80 extra usage shown in red next to a filled 5h bar](assets/screenshots/03.png)
+![Status line past the plan limit: the badge reads +$3.80 of a $120.00 monthly extra-usage ceiling in red, next to two filled quota bars](assets/screenshots/03.png)
 **The moment you cross 100%, you'll see it — and the extra bill stays under your control.**
 
-![Quota warning: 5h window at 98% with its reset clock, plus a subagent cache-expired alert](assets/screenshots/04.png)
+![Quota warning: 5h window at 98% with its reset clock, the weekly bar carrying a bracketed model-scoped limit at 88%, plus a subagent cache-expired alert](assets/screenshots/04.png)
 **You get warned while there's still time to act — not after you've hit the wall.**
 
 ![Cache rebuild caught live: 240K tokens rewritten for $3.02, TTL countdown showing fresh 60m next to stale 0m](assets/screenshots/05.png)

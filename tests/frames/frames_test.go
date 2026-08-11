@@ -97,6 +97,7 @@ type scenario struct {
 	ctx         stdin.ContextWindow
 	extraActive bool
 	extraUSD    float64
+	modelWindow *claudejson.ModelWindow // Phase 7.48: weekly window scoped to one model
 	commitBadge int
 	events      []parser.CacheEvent
 
@@ -165,9 +166,12 @@ func scenarios() []scenario {
 		}),
 		// frame 4: quota warning header — rendered WIDE (full bars). Model = Sonnet 4.6.
 		master(scenario{
-			name: "s3-quota-split-ctx-warn", cols: 130, cfg: rich,
+			name: "s3-quota-split-ctx-warn", cols: 155, cfg: rich,
 			git: gitClean, ctx: ctxWarn, model: sonnet46,
-			rl:     rl(98, 72, 8*time.Minute, 30*time.Hour),
+			rl: rl(98, 72, 8*time.Minute, 30*time.Hour),
+			modelWindow: &claudejson.ModelWindow{
+				Name: "fable", Pct: 88, ResetUnix: frameNow.Add(30 * time.Hour).Unix(),
+			},
 			events: []parser.CacheEvent{{Type: parser.SubagentCacheExpired, Timestamp: frameNow, Detail: "conceptualist"}},
 		}),
 		// frame 3: extra-usage header — WIDE. Overage +$3.80, session $48.27, time 52:17.
@@ -284,6 +288,7 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 		ExtraCacheEvents: sc.events,
 		State:            st,
 		CommitBadgeCount: sc.commitBadge,
+		ModelWindow:      sc.modelWindow,
 		Overage:          syntheticOverage(sc.extraActive, sc.extraUSD),
 		UsageAge:         2 * time.Minute,
 		HintStart:        sc.hintStart,
