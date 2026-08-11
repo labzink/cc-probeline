@@ -4,6 +4,18 @@ All notable changes to `cc-probeline` are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Model-scoped weekly limit in the line** — plans that carry a per-model weekly cap (the "Fable" limit and its kin) now show it inside the 7-day block, in brackets: `7d: █████████▒ 95% (fable: ██████░░░░) ↻ 5d.0h`. Claude Code does not send this limit in the status-line feed at all — it exists only in its own usage cache — so cc-probeline reads it there. Accounts without such a limit see exactly the line they saw before.
+- **Background limit refresh** (`[general].usage_refresh`, opt-out) — that cache is written by one thing only, Claude Code's `/usage` screen, so left alone it freezes for hours. cc-probeline now runs the screen headlessly (`claude -p "/usage" --no-session-persistence`) at most once every five minutes, and only for accounts that have a model-scoped limit or paid extra usage. It spends no model tokens and leaves no session behind. Turn it off with `cc-probeline usage-refresh off`.
+
+### Changed
+
+- **The extra-usage badge now shows Anthropic's own figure** — month-to-date spend against your ceiling (`+$20.40 / $120.00 extra usage`), with a dim age marker (`⏱ 2m`) because it comes from a cache. It replaces the previous session-local estimate, which was the one number in that row that was ours rather than Anthropic's. A snapshot older than an hour hides the badge instead of showing a stale figure.
+- **`/cc-probeline-config`** swaps the colour toggle for the background-limit-refresh toggle; colour remains available as `cc-probeline no-color on|off`.
+
 ## [0.1.3] — 2026-06-17
 
 ### Changed

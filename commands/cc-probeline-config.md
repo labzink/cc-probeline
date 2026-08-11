@@ -1,5 +1,5 @@
 ---
-description: Configure cc-probeline (table rows, display mode, colour, probes) through one interactive widget
+description: Configure cc-probeline (table rows, display mode, background refresh, probes) through one interactive widget
 ---
 
 # Configure cc-probeline: /cc-probeline-config
@@ -35,10 +35,9 @@ No arguments.
    This prints JSON. Extract these values:
    - `general.table_rows` (int)
    - `general.mode` (`"standard"` | `"super-compact"`)
-   - `general.no_color` (bool) — note: **colour is ON when `no_color` is false**
    - `general.tutorial_hints` (bool)
    - `general.price_check` (bool) — once-per-day network price/version check (opt-out)
-   - `general.usage_refresh` (bool) — keeps Claude Code's usage cache fresh in the background so the model-scoped weekly limit and extra-usage figures stay current. **The wizard does not toggle this** (its four questions are full); if the user asks about it, the command is `cc-probeline usage-refresh on|off`.
+   - `general.usage_refresh` (bool) — background refresh of Claude Code's usage cache (model-scoped weekly limit + extra-usage figures)
    - `widgets.model`, `widgets.cost`, `widgets.project`, `widgets.email`, `widgets.time`, `widgets.ctx`, `widgets.quota`, `widgets.git` (bool each)
 
 ---
@@ -76,7 +75,7 @@ Example when current = 10:
 - **multiSelect:** true
 - **options** (4):
   - **Display mode** — description reflects current: `🟢 Now: standard. Check to switch to super-compact.` (or the reverse when current is super-compact).
-  - **Colour output** — `🟢 Currently on. Check to turn it off (monochrome).` (or `🔴 Currently off. Check to turn it on.` when `no_color` is true).
+  - **Limit refresh (background)** — `🟢 Currently on. Check to turn off (no background process; model limit and extra usage go dark).` / `🔴 Currently off. Check to turn on (refreshes limits every 5 min).` per `usage_refresh`.
   - **Tutorial hints** — `🟢 Currently on. Check to turn off.` / `🔴 Currently off. Check to turn on.`
   - **Price check (network)** — `🟢 Currently on. Check to turn off (stay fully offline; baked prices).` / `🔴 Currently off. Check to turn on (daily price/version check).` per `price_check`.
 
@@ -104,7 +103,7 @@ Translate the answers into CLI setters and run them in **one** chained bash comm
 
 - **Table rows:** if the chosen value differs from the current one, add `cc-probeline table-rows <N>`.
 - **Display mode** checked → `cc-probeline mode <the other value>` (standard ↔ super-compact).
-- **Colour output** checked → flip colour: `cc-probeline no-color on` if colour is currently on (i.e. `no_color` false), else `cc-probeline no-color off`.
+- **Limit refresh (background)** checked → `cc-probeline usage-refresh off` if currently on (`usage_refresh` true), else `cc-probeline usage-refresh on`.
 - **Tutorial hints** checked → `cc-probeline hints off` if currently on, else `cc-probeline hints on`.
 - **Price check (network)** checked → `cc-probeline price-check off` if currently on (`price_check` true), else `cc-probeline price-check on`.
 - **Each probe** checked → flip it: `cc-probeline widgets <name> off` if currently shown, else `cc-probeline widgets <name> on`.

@@ -29,15 +29,21 @@ This data is processed in memory to draw the line and is never sent anywhere. cc
 
 ## Network activity
 
-Rendering the status line is fully offline. The only network request cc-probeline can make is:
+Rendering the status line is fully offline. The only network request cc-probeline itself makes is:
 
 - **An optional, opt-out price/version check**, at most once every 24 hours, which downloads a single public JSON file hosted on GitHub. It is a plain file download — it sends nothing about you or your session: no identifiers, no usage, no query over your data. It exists only so displayed prices and the update hint stay current.
 
-You can disable it completely with `cc-probeline price-check off`, after which cc-probeline makes no network requests at all. It never contacts the Anthropic API.
+You can disable it with `cc-probeline price-check off`, after which cc-probeline makes no network request of its own. It never contacts the Anthropic API itself.
+
+There is one further background action, which is not a request by cc-probeline but a request it *causes*:
+
+- **An optional, opt-out limit refresh**, at most once every five minutes, and only for accounts that have a model-scoped weekly limit or paid extra usage. cc-probeline runs `claude -p "/usage" --no-session-persistence` in the background — the same usage screen you can open yourself, headless. Claude Code then talks to Anthropic with your own credentials, exactly as it does when you type `/usage`, and writes the result into its own cache in `~/.claude.json`, which cc-probeline reads. cc-probeline sends nothing, receives nothing, and never sees your token; it also costs no model tokens, because the usage screen calls no model. It exists because that cache is written by nothing else — without it those limits freeze for hours and the status line would show stale numbers.
+
+Disable it with `cc-probeline usage-refresh off` (or in the `/cc-probeline-config` wizard), after which cc-probeline launches nothing and reads only whatever cache already exists.
 
 ## Third-party services
 
-cc-probeline integrates with no analytics, crash-reporting, or tracking services. The only external endpoint it can contact is the public price/version JSON on GitHub (see above), and only when the opt-out check is enabled. That download is subject to GitHub's own privacy practices; cc-probeline includes no data of yours in the request beyond what any file download requires.
+cc-probeline integrates with no analytics, crash-reporting, or tracking services. The only external endpoint it contacts itself is the public price/version JSON on GitHub (see above), and only when the opt-out check is enabled. That download is subject to GitHub's own privacy practices; cc-probeline includes no data of yours in the request beyond what any file download requires. The limit refresh contacts nothing directly — it starts Claude Code, which talks to Anthropic under its own privacy terms, as it already does throughout your session.
 
 ## Open source and auditable
 
