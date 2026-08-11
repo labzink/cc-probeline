@@ -3,18 +3,24 @@
 [![License: MIT](https://img.shields.io/github/license/labzink/cc-probeline)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-555)
 
-# See where it leaks. Stop paying for it.
+# cc-probeline
 
-A live dashboard right in your status line — surfacing what Claude Code hides: the cost of every turn, what your subagents spend, how long your cache stays alive, plus the usual limits, context and git.
+A status line for Claude Code that prices every turn — yours, your subagents', and every cache rebuild — reading the session log already on your disk. No account, no API key, no telemetry.
 
-**Stop overpaying for inefficiency you can't see. Spend your limits on purpose.**
+Session totals come from Claude Code itself; the per-turn breakdown is computed here from token counts against a public price table, and labelled as an estimate throughout.
 
-**Install in one command:**
+It makes no network calls while it runs. The only exception is an optional, opt-out once-a-day check of one public file on GitHub — current prices and the latest version number. It sends nothing about your session. [Privacy policy →](PRIVACY.md)
+
+**Spend your limits on purpose, instead of paying for inefficiency you can't see.**
+
+**Install:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh
+brew install labzink/homebrew-tap/cc-probeline                                                   # macOS
+curl -fsSL https://raw.githubusercontent.com/labzink/cc-probeline/main/scripts/install.sh | sh   # macOS / Linux
 ```
-**[See all install options →](#install)**
+
+Windows (Scoop) and the Claude Code plugin marketplace: **[all install options →](#install)**. Every release ships with SHA256 checksums and [signed SLSA build provenance](#why-its-called-a-probe).
 
 ![cc-probeline live dashboard: a Claude Code session where every turn lands priced, subagents bill in real time, the cache TTL ages ⏱ 60m → 0m and rebuilds in dollars, and the 5h limit fills to 100% with overage — all in the status line](assets/video/hero.gif)
 
@@ -45,7 +51,7 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 ![Cache rebuild caught live: 240K tokens rewritten for $3.02, TTL countdown showing fresh 60m next to stale 0m](assets/screenshots/05.png)
 **Cache rebuilds stop being silent — you see the price the moment they happen.**
 
-And nothing about your session ever leaves your machine — that's [why it's called a probe](#why-its-called-a-probe).
+All of it read, none of it touched — that's [why it's called a probe](#why-its-called-a-probe).
 
 ## Why it's called a probe
 
@@ -181,11 +187,19 @@ scoop uninstall cc-probeline
 
 To only un-wire the status line without removing the binary, run `cc-probeline uninstall` on its own.
 
-## The experiment
+## How it was built
 
-cc-probeline is a personal experiment: can you hand programming over to AI **entirely** — every line of code, every design decision — and still end up with a product that matches the operator's vision **exactly**?
+I built this for myself. I wanted to see under the hood of Claude Code — where the money and the limits actually go. A working version took a few days, and it was clear it wouldn't be useful only to me.
 
-This is the answer. Claude wrote all of it; the operator never touched the code. What the operator owned was everything that decides whether it's any good: the vision, the spec, the design direction, and every single call — reviewed detail by detail until the result was exactly right. A few weeks of spare-time work — competitor research, a written spec, phased design and implementation. The commit history is public and reads like a build log: you can watch the product take shape, phase by phase.
+What came after went into making it a product rather than a prototype, not into more features. I didn't write the code — Claude Code wrote every line of it. My interest was elsewhere: building a development process with AI that actually holds up.
+
+In practice that means concept and spec before code, work in phases against a fixed contract, and every call mine, reviewed detail by detail. The development itself runs as a process: a phase is split into isolated subtasks, each handled by its own subagent under a narrow contract, while an orchestrator agent collects the results and accepts the work. A phase fits into a single session, and its output always lands on disk — spec, plan, status, log — so the next session picks up exactly where the previous one stopped and nothing is lost to an overflowing context.
+
+There was no ready-made pipeline for any of this, so I assembled it by hand: the agent roles and their briefs, the handoff format between sessions, the rules for accepting work. A sizeable share of the time went into the pipeline rather than into the product.
+
+On top of it sit the guard tests: checks against real session data, and snapshots of the real rendered status line — so a fix doesn't mean re-checking everything by hand.
+
+That's what the whole thing was for: code written by an AI that matches the vision and the design instead of drifting into mush. The commit history is public and reads like a build log — you can watch the project take shape, phase by phase.
 
 **Contributing:** bug reports and ideas are welcome — open an issue. Code contributions are possible, but they're not the primary path: the codebase is developed through an AI pipeline in tight collaboration with the author, so pull requests need to fit that workflow. When in doubt, open an issue first.
 
