@@ -55,13 +55,16 @@ const (
 
 // gate is the on-disk throttle: when the last refresh was attempted, success or
 // failure alike, so a machine with no `claude` on PATH retries once per TTL
-// instead of on every tick.
+// instead of on every tick. PID is the process we started last, so a refresh
+// that hangs (auth stall, wrapper script, dead network) blocks the next one
+// instead of accumulating one orphan every five minutes.
 type gate struct {
 	CheckedAt int64 `json:"checked_at"`
+	PID       int   `json:"pid,omitempty"`
 }
 
 // launchFn is the process launcher, swapped out in tests so no real Claude Code
-// is ever started by the suite.
+// is ever started by the suite. It returns the child's pid.
 var launchFn = launch
 
 // Maybe refreshes the usage cache if it is worth refreshing, and returns
@@ -88,34 +91,100 @@ func Maybe(now time.Time, firstTick, needed bool) {
 		slog.Warn("usagerefresh: data dir unavailable; skipping")
 		return
 	}
-	g, _ := readGate(p) // zero value when absent or corrupt
-	if g.CheckedAt > 0 && now.Unix()-g.CheckedAt < int64(refreshTTL.Seconds()) {
-		slog.Debug("usagerefresh: within TTL, skipping", "age_s", now.Unix()-g.CheckedAt)
+
+	// claimSlot is the whole throttle: it decides and records under one lock, and
+	// says no whenever it cannot record. Launching without a recorded stamp would
+	// mean launching again on the very next tick — several times a second.
+	if !claimSlot(p, now) {
 		return
 	}
 
 	bin := claudeBinary()
 	if bin == "" {
+		// The slot is claimed, so this costs one PATH lookup per TTL rather than
+		// one per render on a machine that has no Claude Code CLI.
 		slog.Debug("usagerefresh: claude binary not found; skipping")
-		// Stamp anyway: without this a machine without the binary would stat the
-		// PATH on every single tick.
-		writeGate(p, gate{CheckedAt: now.Unix()})
 		return
 	}
 
-	// Stamp BEFORE launching. Ten Claude Code windows tick at the same moment;
-	// stamping afterwards would let all ten start a process each.
-	writeGate(p, gate{CheckedAt: now.Unix()})
-
-	if err := launchFn(bin); err != nil {
+	pid, err := launchFn(bin)
+	if err != nil {
 		slog.Warn("usagerefresh: launch failed", "err", err)
 		return
 	}
-	slog.Debug("usagerefresh: refresh launched")
+	recordPID(p, now, pid)
+	slog.Debug("usagerefresh: refresh launched", "pid", pid)
+}
+
+// claimSlot reports whether this process may run a refresh now, and reserves the
+// slot when it may. Read, decision and write all happen under one lock: reading
+// unlocked would let every open Claude Code window see the same stale stamp in
+// the same instant and start a process each.
+//
+// It returns false — refusing the refresh — whenever the stamp cannot be
+// written. That is deliberate: an unwritable data directory (root-owned
+// ~/.local/share after a sudo install, a read-only container home, a full disk)
+// must not degrade into "no throttle at all".
+func claimSlot(p string, now time.Time) bool {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Warn("usagerefresh: data dir unusable; not refreshing", "dir", dir, "err", err)
+		return false
+	}
+	fl := flock.New(p + ".lock")
+	if err := fl.Lock(); err != nil {
+		slog.Warn("usagerefresh: flock; not refreshing", "err", err)
+		return false
+	}
+	defer fl.Unlock() //nolint:errcheck
+
+	g, _ := readGate(p) // zero value when absent or corrupt
+
+	age := now.Unix() - g.CheckedAt
+	switch {
+	case g.CheckedAt == 0:
+		// Never refreshed on this machine — go ahead.
+	case age < 0:
+		// Stamp from the future: the clock jumped back (NTP correction, dual boot,
+		// a home directory shared between machines). Treating it as "fresh" would
+		// disable refreshing until wall-clock time caught up, so overwrite it.
+		slog.Warn("usagerefresh: stamp is in the future; resetting", "skew_s", -age)
+	case age < int64(refreshTTL.Seconds()):
+		slog.Debug("usagerefresh: within TTL, skipping", "age_s", age)
+		return false
+	}
+
+	// A refresh we started earlier may still be running: the call takes ~4.5 s,
+	// but a stalled one can sit forever. Waiting is better than stacking.
+	if g.PID > 0 && processAlive(g.PID) {
+		slog.Debug("usagerefresh: previous refresh still running; skipping", "pid", g.PID)
+		return false
+	}
+
+	if err := writeGate(p, gate{CheckedAt: now.Unix()}); err != nil {
+		slog.Warn("usagerefresh: cannot record throttle stamp; not refreshing", "err", err)
+		return false
+	}
+	return true
+}
+
+// recordPID stores the child's pid in the already-claimed slot, best effort: if
+// it fails the only cost is that a hung child stops blocking the next attempt.
+func recordPID(p string, now time.Time, pid int) {
+	fl := flock.New(p + ".lock")
+	if err := fl.Lock(); err != nil {
+		return
+	}
+	defer fl.Unlock() //nolint:errcheck
+	if err := writeGate(p, gate{CheckedAt: now.Unix(), PID: pid}); err != nil {
+		slog.Debug("usagerefresh: could not record pid", "err", err)
+	}
 }
 
 // launch starts the headless usage screen, detached, and never waits for it.
-func launch(bin string) error {
+// Returns the child's pid so the gate can tell a still-running refresh from a
+// finished one.
+func launch(bin string) (int, error) {
 	cmd := exec.Command(bin, "-p", "/usage", "--no-session-persistence") //nolint:gosec // fixed argv
 	cmd.Env = append(os.Environ(), NoRefreshEnv+"=1")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
@@ -125,10 +194,12 @@ func launch(bin string) error {
 	detach(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return 0, err
 	}
-	// Release, do not Wait: the render must not block on a ~4.5 s call.
-	return cmd.Process.Release()
+	pid := cmd.Process.Pid
+	// Release, do not Wait: the render must not block on a ~4.5 s call. No zombie
+	// results — this process exits within milliseconds and init reaps the child.
+	return pid, cmd.Process.Release()
 }
 
 // claudeBinary locates the Claude Code CLI: an explicit override first, then
@@ -188,41 +259,28 @@ func readGate(p string) (gate, error) {
 	return g, nil
 }
 
-// writeGate persists the throttle atomically under a lock, the same durability
-// pattern the price cache uses. Fail-soft: the gate is disposable, and losing it
-// costs at most one extra refresh.
-func writeGate(p string, g gate) {
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		slog.Warn("usagerefresh: mkdir", "dir", dir, "err", err)
-		return
-	}
-	fl := flock.New(p + ".lock")
-	if err := fl.Lock(); err != nil {
-		slog.Warn("usagerefresh: flock", "err", err)
-		return
-	}
-	defer fl.Unlock() //nolint:errcheck
-
+// writeGate persists the throttle atomically, the same durability pattern the
+// price cache uses. The caller holds the lock and must act on the error: a
+// silent failure here would remove the throttle entirely.
+func writeGate(p string, g gate) error {
 	data, err := json.Marshal(g)
 	if err != nil {
-		slog.Warn("usagerefresh: encode", "err", err)
-		return
+		return err
 	}
 	tmp := p + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		slog.Warn("usagerefresh: write tmp", "err", err)
-		return
+		return err
 	}
 	if err := os.Rename(tmp, p); err != nil {
 		_ = os.Remove(tmp)
-		slog.Warn("usagerefresh: rename", "err", err)
+		return err
 	}
+	return nil
 }
 
 // SetLauncherForTest swaps the process launcher and returns a restore function.
 // Must only be called from tests.
-func SetLauncherForTest(f func(bin string) error) func() {
+func SetLauncherForTest(f func(bin string) (int, error)) func() {
 	prev := launchFn
 	launchFn = f
 	return func() { launchFn = prev }

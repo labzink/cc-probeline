@@ -23,8 +23,8 @@ import (
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/probes"
 	"github.com/labzink/cc-probeline/internal/renderer"
-	"github.com/labzink/cc-probeline/internal/stdin"
 	"github.com/labzink/cc-probeline/internal/statusline"
+	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
 // ---------------------------------------------------------------------------

@@ -85,8 +85,8 @@ func TestF15_OldSubagentRowIsDim(t *testing.T) {
 	oldSA := buildSubagentStats(
 		"f15-old-agent",
 		"code-reviewer",
-		base.Add(5*time.Second),   // ActivationStart: during G1 (before G2 start at base+30s)
-		base.Add(10*time.Second),  // LastTimestamp: also before G2 start
+		base.Add(5*time.Second),  // ActivationStart: during G1 (before G2 start at base+30s)
+		base.Add(10*time.Second), // LastTimestamp: also before G2 start
 		"F15OldTool",
 	)
 
@@ -173,8 +173,8 @@ func TestF15_FreshSubagentRowNotDim(t *testing.T) {
 	freshSA := buildSubagentStats(
 		"f15-fresh-agent",
 		"general-purpose",
-		base.Add(35*time.Second),  // ActivationStart: during G2 (after G2 start at base+30s)
-		base.Add(50*time.Second),  // LastTimestamp
+		base.Add(35*time.Second), // ActivationStart: during G2 (after G2 start at base+30s)
+		base.Add(50*time.Second), // LastTimestamp
 		"F15FreshTool",
 	)
 

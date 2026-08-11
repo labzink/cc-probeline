@@ -9,6 +9,8 @@ package usagerefresh_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,9 +28,9 @@ func harness(t *testing.T) *int {
 	t.Setenv(usagerefresh.NoRefreshEnv, "")
 
 	calls := 0
-	restore := usagerefresh.SetLauncherForTest(func(string) error {
+	restore := usagerefresh.SetLauncherForTest(func(string) (int, error) {
 		calls++
-		return nil
+		return 0, nil // pid 0: no process to track, so liveness never blocks
 	})
 	t.Cleanup(restore)
 	return &calls
@@ -110,9 +112,9 @@ func TestMaybe_FailedLaunchStillThrottles(t *testing.T) {
 	t.Setenv(usagerefresh.NoRefreshEnv, "")
 
 	calls := 0
-	restore := usagerefresh.SetLauncherForTest(func(string) error {
+	restore := usagerefresh.SetLauncherForTest(func(string) (int, error) {
 		calls++
-		return errors.New("boom")
+		return 0, errors.New("boom")
 	})
 	t.Cleanup(restore)
 
@@ -133,9 +135,9 @@ func TestMaybe_FailedLaunchStillThrottles(t *testing.T) {
 func TestMaybe_GateIsSharedOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	launches := 0
-	restore := usagerefresh.SetLauncherForTest(func(string) error {
+	restore := usagerefresh.SetLauncherForTest(func(string) (int, error) {
 		launches++
-		return nil
+		return 0, nil
 	})
 	t.Cleanup(restore)
 	t.Setenv("CC_PROBELINE_CLAUDE_BIN", "/nonexistent/claude")
@@ -149,5 +151,84 @@ func TestMaybe_GateIsSharedOnDisk(t *testing.T) {
 
 	if launches != 1 {
 		t.Errorf("launches = %d, want 1 across windows sharing the gate file", launches)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: when the throttle cannot be recorded, no refresh happens. A gate we
+// cannot write is a gate that does not exist, and a status line ticks several
+// times per second — "launch anyway" would mean a Claude Code process per
+// render. Reachable in the wild: a root-owned ~/.local/share after a sudo
+// install, a read-only home in a container, a full disk.
+// ---------------------------------------------------------------------------
+
+func TestMaybe_UnwritableGateRefusesToLaunch(t *testing.T) {
+	parent := t.TempDir()
+	readonly := filepath.Join(parent, "ro")
+	if err := os.Mkdir(readonly, 0o500); err != nil { // r-x: cannot create inside
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("CC_PROBELINE_USAGE_DIR", filepath.Join(readonly, "cc-probeline"))
+	t.Setenv("CC_PROBELINE_CLAUDE_BIN", "/nonexistent/claude")
+	t.Setenv(usagerefresh.NoRefreshEnv, "")
+
+	launches := 0
+	restore := usagerefresh.SetLauncherForTest(func(string) (int, error) {
+		launches++
+		return 0, nil
+	})
+	t.Cleanup(restore)
+
+	for i := 0; i < 25; i++ { // a few seconds of rendering
+		usagerefresh.Maybe(refreshNow.Add(time.Duration(i)*time.Second), true, true)
+	}
+
+	if launches != 0 {
+		t.Errorf("launches = %d, want 0 — an unrecordable throttle must fail closed", launches)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a stamp from the future does not freeze refreshing forever. Clocks
+// do jump backwards (NTP correction, dual boot, a home directory shared between
+// machines); treating a future stamp as "fresh" would hide the model window and
+// the badge until wall-clock time caught up, with nothing to diagnose.
+// ---------------------------------------------------------------------------
+
+func TestMaybe_FutureStampDoesNotFreezeRefresh(t *testing.T) {
+	calls := harness(t)
+
+	// Stamp "now", then ask again as if the clock had jumped an hour backwards.
+	usagerefresh.Maybe(refreshNow, true, true)
+	usagerefresh.Maybe(refreshNow.Add(-time.Hour), false, true)
+
+	if *calls != 2 {
+		t.Errorf("launches = %d, want 2 (the future stamp must be overwritten, not obeyed)", *calls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a refresh that is still running blocks the next one. The call takes
+// ~4.5 s normally, but a stalled one (auth prompt, dead network, wrapper script)
+// can sit forever — without this check every TTL would add another orphan.
+// ---------------------------------------------------------------------------
+
+func TestMaybe_LiveChildBlocksTheNextRefresh(t *testing.T) {
+	t.Setenv("CC_PROBELINE_USAGE_DIR", t.TempDir())
+	t.Setenv("CC_PROBELINE_CLAUDE_BIN", "/nonexistent/claude")
+	t.Setenv(usagerefresh.NoRefreshEnv, "")
+
+	launches := 0
+	restore := usagerefresh.SetLauncherForTest(func(string) (int, error) {
+		launches++
+		return os.Getpid(), nil // our own pid: guaranteed alive for this test
+	})
+	t.Cleanup(restore)
+
+	usagerefresh.Maybe(refreshNow, true, true)
+	usagerefresh.Maybe(refreshNow.Add(2*time.Hour), false, true) // well past the TTL
+
+	if launches != 1 {
+		t.Errorf("launches = %d, want 1 while the previous refresh is still alive", launches)
 	}
 }

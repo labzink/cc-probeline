@@ -432,6 +432,11 @@ func runRender(strict bool) int {
 	}
 
 	cols := renderer.DetectCols()
+	// Probes that must give something up on a narrow terminal need the width
+	// themselves: level degradation stops at Minimal, and the first line does not
+	// soft-wrap, so a block that cannot shrink would push the line past the edge.
+	// The quota probe uses this to drop its cache-sourced extras (Phase 7.48).
+	d.TerminalCols = cols
 	a := statusline.Assembler{Mode: modeVal, Theme: theme, Cols: cols, Config: pcfg}
 	raw := a.Render(d)
 

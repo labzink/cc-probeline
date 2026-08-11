@@ -390,10 +390,10 @@ func TestQuotaRender_5hResetColour(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name        string
-		resetIn     time.Duration // duration from now until reset
-		wantMarker  string        // expected colour marker; "" means no marker
-		noMarker    bool          // true when no colour marker expected
+		name       string
+		resetIn    time.Duration // duration from now until reset
+		wantMarker string        // expected colour marker; "" means no marker
+		noMarker   bool          // true when no colour marker expected
 	}{
 		{
 			name:       "45m_green",

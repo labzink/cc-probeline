@@ -36,7 +36,8 @@ func TestRegistry_Complete(t *testing.T) {
 // values (tighter than range-only check — see spec §A4 and code-review T3).
 //
 // Priority values updated in Phase 6.6.b per spec-common.md §2.2:
-//   ctx: 0→1, time: 0→1, quota: 3→1, cost: 2→1, email: 1→2.
+//
+//	ctx: 0→1, time: 0→1, quota: 3→1, cost: 2→1, email: 1→2.
 //
 // This brings package coverage above the PLAN ≥85% threshold by visiting
 // all 33 trivial methods (11 probes × 3 getters) in one pass.

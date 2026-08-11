@@ -236,9 +236,9 @@ func TestAssembler_Render_HintAlert_OnSubagentCacheEvent(t *testing.T) {
 	t0 := now.Add(-7 * time.Minute)
 	t1 := now.Add(-1 * time.Minute) // 1 min ago → recent (< 2 min window)
 	sa := parser.SubagentStats{
-		AgentID:       "sub-abc",
-		AgentType:     "test-writer",
-		TurnCount:     2,
+		AgentID:   "sub-abc",
+		AgentType: "test-writer",
+		TurnCount: 2,
 		Turns: []parser.Turn{
 			{Timestamp: t0},
 			{Timestamp: t1},

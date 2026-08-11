@@ -42,6 +42,9 @@ type ExtraUsage struct {
 	Enabled  bool
 	UsedUSD  float64
 	LimitUSD float64
+	// Currency is the ISO code the account is billed in ("USD" when absent).
+	// Rendering keys off it: a "$" in front of a euro figure is simply wrong.
+	Currency string
 }
 
 // Usage is one reading of the cachedUsageUtilization branch.
@@ -79,6 +82,7 @@ type usageExtra struct {
 	IsEnabled    bool     `json:"is_enabled"`
 	MonthlyLimit *float64 `json:"monthly_limit"`
 	UsedCredits  *float64 `json:"used_credits"`
+	Currency     string   `json:"currency"`
 }
 
 type usageUtilization struct {
@@ -113,8 +117,11 @@ var usageCache usageCacheEntry
 // appears after the /usage screen has run at least once), or unparseable. The
 // caller must then render exactly what it rendered before this feature existed.
 //
-// mtime-cache: the file is re-read only when its mtime changed since the last
-// successful read; the status line runs several times per second.
+// mtime-cache: the file is re-read only when its mtime has changed. In
+// production this rarely earns its keep — one render is one process, and that
+// process calls ReadUsage once — but it keeps repeat calls cheap for callers
+// that make them, and holds the last good reading when a read fails against a
+// file being rewritten underneath us.
 func ReadUsage() (Usage, bool) {
 	usageCache.mu.Lock()
 	defer usageCache.mu.Unlock()
@@ -205,6 +212,7 @@ func buildUsage(c *cachedUsage) (Usage, bool) {
 			Enabled:  e.IsEnabled,
 			UsedUSD:  centsToUSD(e.UsedCredits),
 			LimitUSD: centsToUSD(e.MonthlyLimit),
+			Currency: e.Currency,
 		}
 	}
 

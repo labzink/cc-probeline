@@ -1,18 +1,22 @@
 // Package probes_test — RED tests for Phase 6.8 FIXES: I1 ctx bar colour.
 //
 // Root cause (from review-consolidated.md I1):
-//   The ANSI Full-path of CtxProbe.Render renders the progress bar WITHOUT colour.
-//   Only the number (usedK) gets the colour marker.
-//   Legacy path (AnsiEnabled=false) DID colour the bar via ProgressBarColor + bar.
-//   The ANSI Full path (T-22 branch) lost ProgressBarColor on the bar.
+//
+//	The ANSI Full-path of CtxProbe.Render renders the progress bar WITHOUT colour.
+//	Only the number (usedK) gets the colour marker.
+//	Legacy path (AnsiEnabled=false) DID colour the bar via ProgressBarColor + bar.
+//	The ANSI Full path (T-22 branch) lost ProgressBarColor on the bar.
 //
 // Fix vector: in the t.AnsiEnabled branch of Render (LevelFull), wrap the bar
 // with ProgressBarColor(pct, t) + bar + {{reset}}, not just the number.
 //
 // RED: CtxProbe.Render Full with AnsiEnabled=true currently returns
-//   "ctx <plain bar> <colour>usedK{{reset}}/sizeK"
+//
+//	"ctx <plain bar> <colour>usedK{{reset}}/sizeK"
+//
 // instead of
-//   "ctx <colour><bar>{{reset}} <colour>usedK{{reset}}/sizeK"
+//
+//	"ctx <colour><bar>{{reset}} <colour>usedK{{reset}}/sizeK"
 package probes_test
 
 import (

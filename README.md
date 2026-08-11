@@ -9,7 +9,7 @@ A status line for Claude Code that prices every turn — yours, your subagents',
 
 Session totals come from Claude Code itself; the per-turn breakdown is computed here from token counts against a public price table, and labelled as an estimate throughout.
 
-It makes no network calls while it runs. Two optional, opt-out background actions exist: a once-a-day check of one public file on GitHub (current prices and the latest version), and — only if your plan has a model-scoped weekly limit or paid extra usage — a five-minutely refresh of Claude Code's own usage cache, done by running its `/usage` screen headlessly. Neither sends anything about your session. [Privacy policy →](PRIVACY.md)
+It makes no network calls while it runs. Two optional, opt-out background actions exist: a once-a-day check of one public file on GitHub (current prices and the latest version), and a refresh of Claude Code's own usage cache — its `/usage` screen run headlessly, once when a session starts and then at most every five minutes, and only while your plan actually has a model-scoped weekly limit or paid extra usage to keep current. Neither sends anything about your session. [Privacy policy →](PRIVACY.md)
 
 **Spend your limits on purpose, instead of paying for inefficiency you can't see.**
 

@@ -288,6 +288,7 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 		ExtraCacheEvents: sc.events,
 		State:            st,
 		CommitBadgeCount: sc.commitBadge,
+		TerminalCols:     sc.cols, // same wiring as production
 		ModelWindow:      sc.modelWindow,
 		Overage:          syntheticOverage(sc.extraActive, sc.extraUSD),
 		UsageAge:         2 * time.Minute,

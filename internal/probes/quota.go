@@ -3,6 +3,7 @@ package probes
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/labzink/cc-probeline/internal/quota"
@@ -32,6 +33,17 @@ const usageMaxAge = time.Hour
 // window ever resets on its own schedule, each block keeps its own countdown
 // rather than letting one timer speak for both.
 const resetMatchSlack = time.Minute
+
+// narrowQuotaCols is the terminal width below which the cache-sourced blocks
+// (model window, overage badge) are dropped. At 40 columns the quota block alone
+// measured 75 visible columns with both present — wider than the terminal, and
+// the first line has no soft-wrap to save it. 60 leaves the 5h/7d pair, which
+// every account has, intact at every width.
+const narrowQuotaCols = 60
+
+// minOverageUSD is the smallest overage worth a badge. Below one cent there is
+// nothing to report and the badge would be permanent furniture.
+const minOverageUSD = 0.01
 
 // windowExpired reports whether a rate-limit window has rolled over since the
 // snapshot was taken, in which case its stored used-percentage must read 0
@@ -224,22 +236,47 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	// Phase 7.48: the model-scoped weekly window (e.g. "fable"). It rides inside
 	// the 7-day block in brackets, because it is a slice of that same week rather
 	// than a third independent window — hence brackets and not the " · " that
-	// separates peers. Gated on cache freshness: a stale snapshot shows nothing.
-	usageFresh := d.UsageAge <= usageMaxAge
+	// separates peers.
+	//
+	// Everything sourced from the usage cache is gated three ways. A NEGATIVE age
+	// counts as stale too: it means the snapshot is stamped in the future (clock
+	// skew), and trusting it would disable the staleness gate exactly when the
+	// clock cannot be trusted.
+	usageFresh := d.UsageAge >= 0 && d.UsageAge <= usageMaxAge
 	model := d.ModelWindow
 	if !usageFresh {
+		model = nil
+	}
+	// A model window whose own reset has passed carries a percentage belonging to
+	// a week that already rolled over — the same trap windowExpired guards for the
+	// 5h/7d windows.
+	if model != nil && model.ResetUnix > 0 && d.Now.Unix() >= model.ResetUnix {
+		model = nil
+	}
+	// Narrow terminals: the cache-sourced blocks give way FIRST. The 5h and 7d
+	// windows are the signal every user has, the model window and the overage
+	// badge are extras — and a quota block that overflows the line pushes the
+	// whole status line past the terminal width, since level degradation stops at
+	// Minimal and the first line does not soft-wrap.
+	roomy := d.TerminalCols == 0 || d.TerminalCols >= narrowQuotaCols
+	if !roomy {
 		model = nil
 	}
 
 	// Reset countdown for the model window, and whether it coincides with the
 	// 7-day one. When they coincide (the normal case — one API response stamps
 	// both) a single countdown after the bracket speaks for the whole weekly
-	// group; otherwise each block keeps its own.
+	// group; otherwise each block keeps its own. An UNKNOWN model reset also
+	// takes the shared countdown: printing "↻ ??m" beside it would spend columns
+	// to say nothing, while the weekly reset is the best information we have.
 	sharedWeeklyReset := false
 	resetModel := ""
 	if model != nil {
 		reset7dTime, known7d := resolveReset(live7d, snap7dReset)
-		if known7d && model.ResetUnix > 0 {
+		switch {
+		case model.ResetUnix == 0:
+			sharedWeeklyReset = true
+		case known7d:
 			diff := time.Unix(model.ResetUnix, 0).Sub(reset7dTime)
 			if diff < 0 {
 				diff = -diff
@@ -285,21 +322,31 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 	// Empty when overage is off, unknown, or the snapshot is stale.
 	overageBadge := func(lvl Level) string {
 		o := d.Overage
-		if !usageFresh || o == nil || !o.Enabled || o.LimitUSD <= 0 {
+		// minOverage: an account with extra usage switched on but nothing spent is
+		// not news — without this the line carries a permanent red "+$0.00 / $120.00"
+		// for an event that has not happened.
+		if !usageFresh || !roomy || o == nil || !o.Enabled || o.LimitUSD <= 0 || o.UsedUSD < minOverageUSD {
 			return ""
 		}
 		// Degrade like every other block: the monthly ceiling is context, the
 		// spent figure is the signal. Keeping "/ $120.00" in Compact costs ten
 		// columns and, at 80 columns, pushes the whole quota block down a level —
 		// trading the bars for a number nobody is waiting for.
+		// Currency: "$" is right for the USD accounts we have seen, and wrong for
+		// any other — those get the ISO code trailing the figures instead of a
+		// symbol we would have to guess.
+		sym, suffix := "$", ""
+		if o.Currency != "" && !strings.EqualFold(o.Currency, "USD") {
+			sym, suffix = "", " "+strings.ToUpper(o.Currency)
+		}
 		var amt string
 		switch lvl {
 		case LevelFull:
-			amt = fmt.Sprintf("+$%.2f / $%.2f extra usage", o.UsedUSD, o.LimitUSD)
+			amt = fmt.Sprintf("+%s%.2f / %s%.2f%s extra usage", sym, o.UsedUSD, sym, o.LimitUSD, suffix)
 		case LevelCompact:
-			amt = fmt.Sprintf("+$%.2f extra", o.UsedUSD)
+			amt = fmt.Sprintf("+%s%.2f%s extra", sym, o.UsedUSD, suffix)
 		default: // LevelMinimal
-			amt = fmt.Sprintf("+$%.2f", o.UsedUSD)
+			amt = fmt.Sprintf("+%s%.2f%s", sym, o.UsedUSD, suffix)
 		}
 		age := "⏱ " + formatUsageAge(d.UsageAge)
 		if !t.AnsiEnabled {
@@ -317,10 +364,16 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		if model == nil {
 			return ""
 		}
+		r := []rune(model.Name)
+		if len(r) == 0 {
+			// claudejson never yields an empty name today; slicing r[:1] on one
+			// would emit a NUL into the line rather than fail loudly.
+			return ""
+		}
 		if lvl == LevelFull {
 			return model.Name + ": "
 		}
-		return string([]rune(model.Name)[:1]) + ": "
+		return string(r[:1]) + ": "
 	}
 
 	// weeklyGroup assembles the 7-day block and, when a model window exists, that

@@ -1,14 +1,16 @@
 // Package statusline_test — RED tests for Phase 6.8 FIXES: I2 git order in line1.
 //
 // Root cause (from review-consolidated.md I2):
-//   The assembler uses sortByPriority=false for BOTH line0 AND line1.
-//   T-21 originally required registry order only for line0.
-//   As a result, line1 lost its Priority-based sort. git (P=2) ended up
-//   leftmost instead of rightmost because it is registered second in Line1Registry
-//   (after model P=?), but without Priority sort it just takes registry position.
+//
+//	The assembler uses sortByPriority=false for BOTH line0 AND line1.
+//	T-21 originally required registry order only for line0.
+//	As a result, line1 lost its Priority-based sort. git (P=2) ended up
+//	leftmost instead of rightmost because it is registered second in Line1Registry
+//	(after model P=?), but without Priority sort it just takes registry position.
 //
 // Expected line1 order by Priority (ascending = leftmost):
-//   ModelProbe (P=1 ... check actual) → CtxProbe → CostProbe → TimeProbe → GitProbe(P=2)
+//
+//	ModelProbe (P=1 ... check actual) → CtxProbe → CostProbe → TimeProbe → GitProbe(P=2)
 //
 // Actual Line1Registry order: [model, git, ctx, cost, time] (registry.go).
 // git Priority = 2, ctx/cost/time Priority = 1.

@@ -1,12 +1,14 @@
 // Package statusline_test — RED tests for Phase 6.8 FIXES: C1 table redesign wired.
 //
 // Root cause (from review-consolidated.md C1):
-//   perTurnTable() calls the old Builder.Add/AddSubagents/RenderForCols path.
-//   RenderUnified (the new redesigned table) is never called from assembler.
-//   The old path produces "Total for request" footer and no ├┼┤ separators.
+//
+//	perTurnTable() calls the old Builder.Add/AddSubagents/RenderForCols path.
+//	RenderUnified (the new redesigned table) is never called from assembler.
+//	The old path produces "Total for request" footer and no ├┼┤ separators.
 //
 // Fix vector: rewrite perTurnTable to merge orch+subagent Turns by timestamp,
-//   pass *state.Session, and call RenderUnified instead of old Builder path.
+//
+//	pass *state.Session, and call RenderUnified instead of old Builder path.
 //
 // Production path verified: Assembler.Render(d) → perTurnTable(d, cols) → RenderUnified.
 //

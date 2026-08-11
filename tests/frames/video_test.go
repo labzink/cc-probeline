@@ -221,6 +221,7 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 		SessionID:        payload.SessionID,
 		State:            st,
 		ExtraCacheEvents: events,
+		TerminalCols:     150, // same wiring as production
 		ModelWindow:      videoModelWindow(vf.modelPct, vf.now.Add(vf.reset7d)),
 		Overage:          syntheticOverage(vf.extraActive, vf.extraUSD),
 		UsageAge:         2 * time.Minute,

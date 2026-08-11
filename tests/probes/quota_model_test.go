@@ -198,3 +198,146 @@ func TestQuotaProbe_NoModelWindow_UnchangedShape(t *testing.T) {
 		t.Errorf("countdown count = %d, want 2 (one per window), got %q", n, got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Property: on a narrow terminal the cache-sourced blocks give way first. The
+// 5h/7d pair is what every account has; the model window and the badge are
+// extras. Without this the quota block measured 75 visible columns at a width
+// of 40 — level degradation stops at Minimal and the first line never wraps, so
+// the overflow would push the whole status line past the terminal edge.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_NarrowTerminalDropsCacheBlocks(t *testing.T) {
+	d := modelData(t, 62, 0, 2*time.Minute)
+	d.Overage = &claudejson.ExtraUsage{Enabled: true, UsedUSD: 20.40, LimitUSD: 120}
+	d.TerminalCols = 40
+
+	got := renderQuota(t, d, probes.LevelMinimal)
+
+	if strings.Contains(got, "(f") || strings.Contains(got, "+$") {
+		t.Errorf("at 40 columns neither block may render, got %q", got)
+	}
+	if !strings.Contains(got, "42%") || !strings.Contains(got, "95%") {
+		t.Errorf("the 5h/7d pair must survive every width, got %q", got)
+	}
+	if n := len([]rune(got)); n > 40 {
+		t.Errorf("quota block is %d columns at width 40: %q", n, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: an account with extra usage switched on but nothing spent gets no
+// badge. Otherwise the line carries a permanent red "+$0.00 / $120.00" for an
+// event that has not happened.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_NoBadgeUntilSomethingIsSpent(t *testing.T) {
+	d := modelData(t, 62, 0, 2*time.Minute)
+	d.Overage = &claudejson.ExtraUsage{Enabled: true, UsedUSD: 0, LimitUSD: 120}
+
+	if got := renderQuota(t, d, probes.LevelFull); strings.Contains(got, "+$") {
+		t.Errorf("no badge before the first cent is spent, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a snapshot stamped in the FUTURE counts as stale, not as fresh. A
+// backwards clock jump must not be the one thing that disables the staleness
+// gate.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_FutureSnapshotIsNotFresh(t *testing.T) {
+	d := modelData(t, 62, 0, -30*time.Minute)
+	d.Overage = &claudejson.ExtraUsage{Enabled: true, UsedUSD: 20.40, LimitUSD: 120}
+
+	got := renderQuota(t, d, probes.LevelFull)
+
+	if strings.Contains(got, "fable") || strings.Contains(got, "+$") {
+		t.Errorf("a future-stamped snapshot must render neither block, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: an unknown model reset inherits the weekly countdown rather than
+// printing "↻ ??m" — the weekly reset is the best information available, and
+// the question marks would cost columns to say nothing.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_UnknownModelResetSharesTheCountdown(t *testing.T) {
+	d := modelData(t, 62, 0, 2*time.Minute)
+	d.ModelWindow.ResetUnix = 0
+
+	got := renderQuota(t, d, probes.LevelFull)
+
+	if strings.Contains(got, "??") {
+		t.Errorf("unknown model reset must not print ??m, got %q", got)
+	}
+	if n := strings.Count(got, "↻"); n != 2 {
+		t.Errorf("countdown count = %d, want 2 (5h + shared weekly), got %q", n, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a model window whose own reset has passed is not rendered — its
+// percentage belongs to a week that already rolled over, the same trap
+// windowExpired guards for the 5h/7d windows.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_ExpiredModelWindowDropped(t *testing.T) {
+	// The skew is measured from the 7-day reset (now + 5d), so -6d puts the
+	// model window's own reset a day in the past.
+	d := modelData(t, 88, -6*24*time.Hour, 2*time.Minute)
+
+	if got := renderQuota(t, d, probes.LevelFull); strings.Contains(got, "fable") {
+		t.Errorf("a rolled-over model window must not render, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: the model window follows the same number rules as its neighbours —
+// the percentage appears from the critical ratio up, and disappears again at
+// 100%, where the filled bar is the signal.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_ModelWindowNumberRules(t *testing.T) {
+	cases := []struct {
+		name     string
+		pct      float64
+		wantText string
+		wantIn   bool
+	}{
+		{"below critical: bar only", 62, "62%", false},
+		{"past critical: number shows", 97, "97%", true},
+		{"at 100: number gone", 100, "100%", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderQuota(t, modelData(t, tc.pct, 0, 2*time.Minute), probes.LevelFull)
+			if has := strings.Contains(got, tc.wantText); has != tc.wantIn {
+				t.Errorf("%q present = %v, want %v; got %q", tc.wantText, has, tc.wantIn, got)
+			}
+			if !strings.Contains(got, "(fable:") {
+				t.Errorf("the model block itself must render, got %q", got)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a non-USD account is not given a dollar sign. We do not guess
+// symbols — the ISO code trails the figures instead.
+// ---------------------------------------------------------------------------
+
+func TestQuotaProbe_NonUSDBadge(t *testing.T) {
+	d := modelData(t, 62, 0, 2*time.Minute)
+	d.Overage = &claudejson.ExtraUsage{Enabled: true, UsedUSD: 20.40, LimitUSD: 120, Currency: "eur"}
+
+	got := renderQuota(t, d, probes.LevelFull)
+
+	if strings.Contains(got, "$") {
+		t.Errorf("no dollar sign on a EUR account, got %q", got)
+	}
+	if !strings.Contains(got, "+20.40 / 120.00 EUR") {
+		t.Errorf("want the ISO code after the figures, got %q", got)
+	}
+}

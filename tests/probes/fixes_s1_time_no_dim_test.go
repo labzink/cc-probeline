@@ -1,14 +1,16 @@
 // Package probes_test — RED tests for Phase 6.8 FIXES: S1 time not wrapped in dim.
 //
 // Root cause (from review-consolidated.md S1):
-//   TimeProbe.Render wraps the value in {{dim}}…{{reset}} when AnsiEnabled=true.
-//   CostProbe.Render does NOT wrap in dim. Spec requires consistent treatment:
-//   time should be styled like cost (no dim wrapper).
+//
+//	TimeProbe.Render wraps the value in {{dim}}…{{reset}} when AnsiEnabled=true.
+//	CostProbe.Render does NOT wrap in dim. Spec requires consistent treatment:
+//	time should be styled like cost (no dim wrapper).
 //
 // Fix vector: remove {{dim}} wrapper from TimeProbe.Render.
 //
 // RED: TimeProbe.Render with AnsiEnabled=true currently produces
-//   "{{dim}}MM:SS{{reset}}" — must instead produce "MM:SS" (no dim).
+//
+//	"{{dim}}MM:SS{{reset}}" — must instead produce "MM:SS" (no dim).
 package probes_test
 
 import (

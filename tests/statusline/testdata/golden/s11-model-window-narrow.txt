@@ -1,4 +1,4 @@
-{{dim}}me@exam…e.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-pro…ne{{reset}}{{dim}} • {{reset}}{{color:green}}42%{{reset}} ↻ 3h:0m · {{color:red}}95%{{reset}} (f: {{color:yellow}}62%{{reset}}) ↻ 5d.0h {{color:red}}+$20.40{{reset}} {{dim}}⏱ 2m{{reset}}
+{{dim}}me@exam…e.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-pro…ne{{reset}}{{dim}} • {{reset}}{{color:green}}42%{{reset}} ↻ 3h:0m · {{color:red}}95%{{reset}} ↻ 5d.0h
 opus-4-7{{dim}} • {{reset}}60K/200K{{dim}} • {{reset}}$11.39{{dim}} • {{reset}}20:17{{dim}} • {{reset}}{{color:cyan}}⎇ main{{reset}}
 {{dim}}┌────┬──────────────┬────────────┬─────────────┬───────┬─────────┬─────────────┐{{reset}}
 {{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.32 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}} {{color:green}}⏱ 57m{{reset}}

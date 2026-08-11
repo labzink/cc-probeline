@@ -270,3 +270,70 @@ func TestReadUsage_MtimeCacheRefreshes(t *testing.T) {
 		t.Errorf("Name = %q, want %q after refresh", u.Model.Name, "fable")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Property: hostile shapes degrade to "we know nothing" rather than to wrong
+// numbers or a panic. ~/.claude.json is rewritten constantly by Claude Code, so
+// a read can land mid-write and see anything.
+// ---------------------------------------------------------------------------
+
+func TestReadUsage_MalformedInputs(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"truncated mid-object", `{"cachedUsageUtilization":{"fetchedAtMs":1786447385992,"utili`},
+		{"branch is a string", `{"cachedUsageUtilization":"nope"}`},
+		{"limits is an object", `{"cachedUsageUtilization":{"fetchedAtMs":1,"utilization":{"limits":{}}}}`},
+		{"empty file", ``},
+		{"negative timestamp", `{"cachedUsageUtilization":{"fetchedAtMs":-5,"utilization":{}}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setUsagePath(t, writeFixture(t, t.TempDir(), "claude.json", tc.body))
+			if _, ok := claudejson.ReadUsage(); ok {
+				t.Errorf("expected ok=false for %s", tc.name)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Property: a non-ASCII display name is capped by RUNES, not bytes — a byte cap
+// would split a multi-byte character and put a broken glyph in the status line.
+// The currency and a non-zero spend come through as given.
+// ---------------------------------------------------------------------------
+
+func TestReadUsage_WideNameAndCurrency(t *testing.T) {
+	const body = `{
+      "cachedUsageUtilization": {
+        "fetchedAtMs": 1786447385992,
+        "utilization": {
+          "extra_usage": {"is_enabled": true, "monthly_limit": 12000,
+                          "used_credits": 2040, "currency": "EUR"},
+          "limits": [
+            {"kind": "weekly_scoped", "percent": 44, "resets_at": "2026-08-16T18:00:00+00:00",
+             "scope": {"model": {"display_name": "Ångström-Modèle"}}}
+          ]
+        }
+      }
+    }`
+	setUsagePath(t, writeFixture(t, t.TempDir(), "claude.json", body))
+
+	u, ok := claudejson.ReadUsage()
+	if !ok || u.Model == nil {
+		t.Fatal("expected a model window")
+	}
+	if n := len([]rune(u.Model.Name)); n != 8 {
+		t.Errorf("name is %d runes (%q), want 8 — the cap must count runes", n, u.Model.Name)
+	}
+	if u.Model.Name != "ångström" {
+		t.Errorf("Name = %q, want %q", u.Model.Name, "ångström")
+	}
+	if u.Extra == nil || u.Extra.Currency != "EUR" {
+		t.Fatalf("currency must survive, got %+v", u.Extra)
+	}
+	if u.Extra.UsedUSD != 20.40 {
+		t.Errorf("UsedUSD = %v, want 20.40 (2040 cents)", u.Extra.UsedUSD)
+	}
+}

@@ -693,17 +693,17 @@ func TestF14_DimRowStaysDimAcrossWholeLineSubagent(t *testing.T) {
 			// Dim subagent row. IsSidechain=true → role rendered yellow
 			// ({{color:yellow}}code-reviewer{{reset}}).
 			// After Apply: \x1b[2m (outer dim) ... \x1b[33m (yellow) ... \x1b[0m (kills dim).
-			HashCell:    "↳1",
-			Role:        "code-reviewer",
-			Model:       "sonnet-4-6",
-			CacheRead:   50,
-			CacheCreate: 500,
-			Out:         30,
-			CostCell:    "Σ $0.00",
-			Tool:        "ReadDirectSA",
-			IsSidechain: true,
-			Dim:         true, // F14 path: whole-row dim with coloured sidechain role
-			GroupID:     0,    // subagent rows carry GroupID=0
+			HashCell:      "↳1",
+			Role:          "code-reviewer",
+			Model:         "sonnet-4-6",
+			CacheRead:     50,
+			CacheCreate:   500,
+			Out:           30,
+			CostCell:      "Σ $0.00",
+			Tool:          "ReadDirectSA",
+			IsSidechain:   true,
+			Dim:           true, // F14 path: whole-row dim with coloured sidechain role
+			GroupID:       0,    // subagent rows carry GroupID=0
 			SkipSeparator: true,
 		},
 	}
