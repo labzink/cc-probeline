@@ -236,17 +236,17 @@ func runRender(strict bool) int {
 	// files and are NOT part of session.Turns, but must enter cost reconciliation
 	// (F4). Fail-soft when sessionDir cannot be determined.
 	var subagents []parser.SubagentStats
-	if payload.SessionID != "" && payload.Cwd != "" {
-		if slug, slugErr := parser.ProjectSlug(payload.Cwd); slugErr == nil {
-			home, _ := os.UserHomeDir()
-			base := home + "/.claude"
-			if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
-				base = cd
-			}
-			sessionDir := base + "/projects/" + slug + "/" + payload.SessionID
-			subs, _ := parser.CollectSubagents(context.Background(), sessionDir)
-			subagents = subs
-		}
+	{
+		home, _ := os.UserHomeDir()
+		sessionDirs := parser.SessionDirCandidates(parser.SubagentDirInput{
+			TranscriptPath: payload.TranscriptPath,
+			CWD:            payload.Cwd,
+			SessionID:      payload.SessionID,
+			HomeDir:        home,
+			ConfigDirEnv:   os.Getenv("CLAUDE_CONFIG_DIR"),
+		})
+		subs, _ := parser.CollectSubagentsAcross(context.Background(), sessionDirs, payload.SessionID)
+		subagents = subs
 	}
 
 	// Load per-session state, reconcile delta cost, and persist (Phase 6.8.a).

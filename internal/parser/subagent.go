@@ -39,8 +39,15 @@ type SubagentStats struct {
 	// breaking the public API.
 	TaskID string
 
+	// SessionID is the "sessionId" carried by the agent's own records — the id
+	// of the PARENT session that spawned it (verified on CC 2.1.227, for both
+	// plain and workflow subagents). Empty when the transcript has no parsable
+	// records. Used to confirm that a transcript found on disk really belongs to
+	// the session being rendered.
+	SessionID string
+
 	// AgentType is the "agentType" field from meta.json. Empty when meta.json
-	// is absent. Examples: "general-purpose", "code-reviewer".
+	// is absent. Examples: "general-purpose", "code-reviewer", "workflow-subagent".
 	AgentType string
 
 	// Description is the "description" field from meta.json (user-provided).
@@ -174,8 +181,15 @@ func CollectSubagents(ctx context.Context, sessionDir string) ([]SubagentStats, 
 		results = append(results, stats)
 	}
 
-	// Sort: primary LastTimestamp DESC; tie-break when both non-zero: AgentID ASC;
-	// tie-break when both zero (empty transcripts): JSONLModTime DESC.
+	sortSubagents(results)
+
+	return results, nil
+}
+
+// sortSubagents applies the ordering documented on CollectSubagents:
+// LastTimestamp DESC, then AgentID ASC, then JSONLModTime DESC for transcripts
+// that carry no timestamp at all.
+func sortSubagents(results []SubagentStats) {
 	sort.SliceStable(results, func(i, j int) bool {
 		ti := results[i].LastTimestamp
 		tj := results[j].LastTimestamp
@@ -188,8 +202,77 @@ func CollectSubagents(ctx context.Context, sessionDir string) ([]SubagentStats, 
 		}
 		return ti.After(tj)
 	})
+}
 
-	return results, nil
+// CollectSubagentsAcross collects subagents from every given session directory
+// and merges them into one ordered slice.
+//
+// Several directories can legitimately describe the same session (see
+// SessionDirCandidates), and a session's subagents can be spread over more than
+// one location — a plain subagent in subagents/ alongside workflow subagents in
+// subagents/workflows/<id>/. Merging keeps both visible instead of letting the
+// first matching directory win.
+//
+// Ownership guard: when sessionID is non-empty, a transcript whose own recorded
+// SessionID is non-empty and different is dropped. A transcript with no records
+// (nothing to read a SessionID from) is kept — it is a freshly spawned agent.
+//
+// Duplicates are removed by AgentID, keeping the first occurrence, so a
+// directory reached by two strategies contributes each subagent once. Errors
+// from a single directory are logged and skipped; the result is whatever the
+// other directories yielded.
+func CollectSubagentsAcross(ctx context.Context, sessionDirs []string, sessionID string) ([]SubagentStats, error) {
+	if len(sessionDirs) == 0 {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	merged := make([]SubagentStats, 0, len(sessionDirs))
+	seen := make(map[string]struct{})
+
+	for _, dir := range sessionDirs {
+		subs, err := CollectSubagents(ctx, dir)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			slog.Warn("parser.subagent: directory skipped", "path", dir, "err", err)
+			continue
+		}
+		for _, s := range subs {
+			if sessionID != "" && s.SessionID != "" && s.SessionID != sessionID {
+				slog.Debug("parser.subagent: foreign transcript skipped",
+					"agentID", s.AgentID,
+					"transcriptSession", s.SessionID,
+					"currentSession", sessionID,
+				)
+				continue
+			}
+			if _, dup := seen[s.AgentID]; dup {
+				continue
+			}
+			seen[s.AgentID] = struct{}{}
+			merged = append(merged, s)
+		}
+	}
+
+	sortSubagents(merged)
+	slog.Info("parser.subagent: merged", "dirs", len(sessionDirs), "count", len(merged))
+
+	return merged, nil
+}
+
+// firstSessionID returns the sessionId carried by the first record that has one.
+// Returns "" for an empty or id-less transcript.
+func firstSessionID(records []Record) string {
+	for _, r := range records {
+		if r.SessionID != "" {
+			return r.SessionID
+		}
+	}
+	return ""
 }
 
 // collectOne opens, parses, and aggregates one subagent JSONL file.
@@ -259,6 +342,7 @@ func collectOne(f subagentFile) (SubagentStats, error) {
 
 	stats := aggregateSubagent(records, lastBoundary)
 	stats.AgentID = f.agentID
+	stats.SessionID = firstSessionID(records)
 	stats.AgentType = meta.AgentType
 	stats.Description = meta.Description
 	stats.TranscriptPath = f.jsonlPath
@@ -283,18 +367,37 @@ func collectOne(f subagentFile) (SubagentStats, error) {
 	return stats, nil
 }
 
+// subagentScanMaxDepth bounds how deep the subagents/ tree is walked below its
+// own root. Claude Code writes plain subagents directly into subagents/ and
+// workflow subagents into subagents/workflows/<workflow-id>/ (verified on CC
+// 2.1.227), i.e. depth 2; the extra level is headroom for future nesting while
+// still keeping the walk from wandering across a large tree.
+const subagentScanMaxDepth = 3
+
 // listSubagentFiles enumerates agent-*.jsonl files under sessionDir/subagents/
 // and pairs each with its sibling agent-*.meta.json.
 //
-// Missing subagents/ dir → ([], nil). Other ReadDir errors → ([], err).
+// The tree is walked recursively (bounded by subagentScanMaxDepth) because not
+// every subagent lands directly in subagents/: workflow-spawned ones live in
+// subagents/workflows/<workflow-id>/. A flat read finds none of those and the
+// widget silently shows nothing, which is exactly the "subagents sometimes
+// missing" symptom.
+//
+// Missing subagents/ dir → ([], nil). Other ReadDir errors on the root → ([], err);
+// errors inside nested directories are logged and skipped (fail-soft: one
+// unreadable workflow directory must not hide the subagents next to it).
 func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
-	subDir := filepath.Join(sessionDir, "subagents")
+	return listSubagentFilesIn(filepath.Join(sessionDir, "subagents"), subagentScanMaxDepth)
+}
 
+// listSubagentFilesIn is the recursive worker behind listSubagentFiles. depth is
+// the number of directory levels still allowed below dir; at zero, nested
+// directories are ignored.
+func listSubagentFilesIn(subDir string, depth int) ([]subagentFile, error) {
 	entries, err := os.ReadDir(subDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			slog.Debug("parser.subagent: missing dir",
-				"sessionDir", sessionDir,
 				"path", subDir,
 			)
 			return nil, nil
@@ -328,8 +431,20 @@ func listSubagentFiles(sessionDir string) ([]subagentFile, error) {
 			continue // meta files are never primary entries
 		}
 
-		// Skip directories and non-regular files (symlinks, devices, etc.).
-		if e.IsDir() || !e.Type().IsRegular() {
+		// Descend into nested directories (workflow subagents live one level
+		// deeper). A failure inside is logged by the recursive call and skipped.
+		if e.IsDir() {
+			if depth > 0 {
+				nested, nestedErr := listSubagentFilesIn(filepath.Join(subDir, name), depth-1)
+				if nestedErr == nil {
+					files = append(files, nested...)
+				}
+			}
+			continue
+		}
+
+		// Skip non-regular files (symlinks, devices, etc.).
+		if !e.Type().IsRegular() {
 			slog.Debug("parser.subagent: skip non-regular",
 				"name", name,
 			)

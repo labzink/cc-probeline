@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -80,6 +81,48 @@ func ProjectSlug(cwd string) (string, error) {
 		return "", fmt.Errorf("parser.detect: cwd must be absolute: %q", cwd)
 	}
 	return strings.ReplaceAll(clean, "/", "-"), nil
+}
+
+// slugNonAlnum matches every character Claude Code replaces with "-" when it
+// derives a project directory name.
+var slugNonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]`)
+
+// ccSlugMaxLen is the length past which Claude Code truncates a project slug and
+// appends a hash suffix. Verified in the shipped CLI bundle (2.1.227).
+const ccSlugMaxLen = 200
+
+// ProjectSlugCC converts an absolute CWD path to a project directory name using
+// Claude Code's own rule: every character that is not an ASCII letter or digit
+// becomes a single "-", applied per character with no collapsing of runs.
+//
+// Verified against the shipped CLI bundle (2.1.227):
+//
+//	function CA(e){ return e.replace(/[^a-zA-Z0-9]/g, "-") }
+//
+// This differs from ProjectSlug, which replaces only path separators. Paths
+// containing "_", ".", spaces or non-Latin characters therefore resolve to a
+// different directory than ProjectSlug predicts — the reason subagents went
+// missing on projects like "best_job". ProjectSlug is deliberately left intact
+// and both are tried as candidates (see SessionDirCandidates); for a path made
+// solely of letters, digits and separators the two agree byte for byte.
+//
+// Slugs longer than ccSlugMaxLen are truncated by Claude Code and given a hash
+// suffix. The hash function is not reproduced here — callers resolve that case
+// by prefix-matching the directories that actually exist on disk (see
+// resolveProjectDir). This function returns the untruncated slug; use
+// ProjectSlugCCTruncated to test whether truncation applies.
+func ProjectSlugCC(cwd string) string {
+	return slugNonAlnum.ReplaceAllString(cwd, "-")
+}
+
+// ProjectSlugCCTruncated reports the prefix Claude Code keeps for an
+// over-long slug, and whether truncation applies at all. When it does, the real
+// directory is named "<prefix>-<hash>".
+func ProjectSlugCCTruncated(slug string) (prefix string, truncated bool) {
+	if len(slug) <= ccSlugMaxLen {
+		return slug, false
+	}
+	return slug[:ccSlugMaxLen], true
 }
 
 // windowsSlug canonicalizes a Windows working directory to the slug Claude Code
