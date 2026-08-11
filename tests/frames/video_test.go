@@ -94,26 +94,26 @@ func videoFrames() []vframe {
 	const day4 = 4 * 24 * time.Hour
 	return []vframe{
 		// ── ACT 1 — one turn at a time (orch → subagent → orch …) ────────────
-		{name: "s_a0", modelPct: 62, keepTurns: 13, now: vt(10, 31), pct5h: 26, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
-		{name: "s_a1", modelPct: 62, keepTurns: 14, now: vt(10, 33), pct5h: 28, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
-		{name: "s_a2", modelPct: 63, keepTurns: 14, now: vt(10, 35), subDir: fxVideoAct1Sub, pct5h: 30, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},               // SUBAGENT row surfaces
-		{name: "s_a3", modelPct: 63, keepTurns: 15, now: vt(10, 37), subDir: fxVideoAct1Sub, pct5h: 31, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #15 returns
-		{name: "s_a4", modelPct: 64, keepTurns: 16, now: vt(10, 39), subDir: fxVideoAct1Sub, pct5h: 32, pct7d: 72, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #16
-		{name: "s_a5", modelPct: 64, keepTurns: 17, now: vt(10, 42), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 1},               // orch #17 — cache 240K peak
-		{name: "s_a6", modelPct: 65, keepTurns: 17, now: vt(11, 20), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 2},               // TTL aged ~20m (no new turn)
-		{name: "s_a7", modelPct: 65, keepTurns: 17, now: vt(11, 45), subDir: fxVideoAct1Sub, pct5h: 35, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2},               // TTL 0m — held longer
-		{name: "s_a8", modelPct: 66, keepTurns: 18, now: vt(12, 0), subDir: fxVideoAct1Sub, rebuilt: true, pct5h: 36, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2}, // REBUILD flash — HOLD
+		{name: "s_a0", modelPct: fableHold, keepTurns: 13, now: vt(10, 31), pct5h: 26, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
+		{name: "s_a1", modelPct: fableHold, keepTurns: 14, now: vt(10, 33), pct5h: 28, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
+		{name: "s_a2", modelPct: fableHold, keepTurns: 14, now: vt(10, 35), subDir: fxVideoAct1Sub, pct5h: 30, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},               // SUBAGENT row surfaces
+		{name: "s_a3", modelPct: fableHold, keepTurns: 15, now: vt(10, 37), subDir: fxVideoAct1Sub, pct5h: 31, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #15 returns
+		{name: "s_a4", modelPct: fableHold, keepTurns: 16, now: vt(10, 39), subDir: fxVideoAct1Sub, pct5h: 32, pct7d: 72, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #16
+		{name: "s_a5", modelPct: fableHold, keepTurns: 17, now: vt(10, 42), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 1},               // orch #17 — cache 240K peak
+		{name: "s_a6", modelPct: fableHold, keepTurns: 17, now: vt(11, 20), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 2},               // TTL aged ~20m (no new turn)
+		{name: "s_a7", modelPct: fableHold, keepTurns: 17, now: vt(11, 45), subDir: fxVideoAct1Sub, pct5h: 35, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2},               // TTL 0m — held longer
+		{name: "s_a8", modelPct: fableHold, keepTurns: 18, now: vt(12, 0), subDir: fxVideoAct1Sub, rebuilt: true, pct5h: 36, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2}, // REBUILD flash — HOLD
 
 		// ── ACT 2 — one turn at a time, escalation (after the interstitial).
 		// Context window is the full 1M, so used 493K→530K crosses the 50% line
 		// (green→yellow) around 500K — a calm warning, not red. No row highlight
 		// in Act 2 (only Act 1 highlights the new row).
-		{name: "s_b0", modelPct: 76, fixture: fxVideoAct2, keepTurns: 84, now: vt(15, 30), pct5h: 82, pct7d: 84, reset5h: 90 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
-		{name: "s_b1", modelPct: 78, fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 5}, // config tip — plated on this calm beat
-		{name: "s_b2", modelPct: 81, fixture: fxVideoAct2, keepTurns: 86, now: vt(15, 42), pct5h: 88, pct7d: 86, reset5h: 78 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3}, // ctx crosses 500K → yellow
-		{name: "s_b3", modelPct: 84, fixture: fxVideoAct2, keepTurns: 87, now: vt(15, 48), pct5h: 91, pct7d: 88, reset5h: 72 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
-		{name: "s_b4", modelPct: 87, fixture: fxVideoAct2, keepTurns: 88, now: vt(15, 54), pct5h: 94, pct7d: 90, reset5h: 66 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
-		{name: "s_b8", modelPct: 93, fixture: fxVideoAct2, keepTurns: 92, now: vt(16, 12), pct5h: 100, pct7d: 95, reset5h: 48 * time.Minute, reset7d: 3 * 24 * time.Hour, extraActive: true, extraUSD: 2.40, hintStart: 5}, // 5h 100% + extra-usage — HOLD
+		{name: "s_b0", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 84, now: vt(15, 30), pct5h: 82, pct7d: 84, reset5h: 90 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
+		{name: "s_b1", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 5}, // config tip — plated on this calm beat
+		{name: "s_b2", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 86, now: vt(15, 42), pct5h: 88, pct7d: 86, reset5h: 78 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3}, // ctx crosses 500K → yellow
+		{name: "s_b3", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 87, now: vt(15, 48), pct5h: 91, pct7d: 88, reset5h: 72 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
+		{name: "s_b4", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 88, now: vt(15, 54), pct5h: 94, pct7d: 90, reset5h: 66 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
+		{name: "s_b8", modelPct: fableHold, fixture: fxVideoAct2, keepTurns: 92, now: vt(16, 12), pct5h: 100, pct7d: 95, reset5h: 48 * time.Minute, reset7d: 3 * 24 * time.Hour, extraActive: true, extraUSD: 2.40, hintStart: 5}, // 5h 100% + extra-usage — HOLD
 	}
 }
 
@@ -279,6 +279,12 @@ func parseTruncated(t *testing.T, path string, keepTurns int) []parser.Record {
 	}
 	return records
 }
+
+// fableHold is the model-scoped window's percentage, held constant across the
+// whole loop. The storyboard session runs Opus (orchestrator) and Sonnet
+// (subagents) — no Fable turn happens in it, so that limit cannot move. Only the
+// 5h and 7d windows, which every model feeds, climb during the loop.
+const fableHold = 62
 
 // videoModelWindow builds the model-scoped weekly window for a beat; pct 0 means
 // the account has none. reset takes the beat's own 7-day reset instant, so the
