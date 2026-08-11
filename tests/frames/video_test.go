@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/mode"
 	"github.com/labzink/cc-probeline/internal/parser"
@@ -68,7 +69,8 @@ type vframe struct {
 	reset5h, reset7d time.Duration
 	extraActive      bool
 	extraUSD         float64
-	rebuilt          bool // emit the "⚠ Cache rebuilt" alert (overrides the hint)
+	modelPct         float64 // Phase 7.48: model-scoped weekly window, 0 = none
+	rebuilt          bool    // emit the "⚠ Cache rebuilt" alert (overrides the hint)
 	hintStart        int
 }
 
@@ -92,26 +94,26 @@ func videoFrames() []vframe {
 	const day4 = 4 * 24 * time.Hour
 	return []vframe{
 		// ── ACT 1 — one turn at a time (orch → subagent → orch …) ────────────
-		{name: "s_a0", keepTurns: 13, now: vt(10, 31), pct5h: 26, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
-		{name: "s_a1", keepTurns: 14, now: vt(10, 33), pct5h: 28, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
-		{name: "s_a2", keepTurns: 14, now: vt(10, 35), subDir: fxVideoAct1Sub, pct5h: 30, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},               // SUBAGENT row surfaces
-		{name: "s_a3", keepTurns: 15, now: vt(10, 37), subDir: fxVideoAct1Sub, pct5h: 31, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #15 returns
-		{name: "s_a4", keepTurns: 16, now: vt(10, 39), subDir: fxVideoAct1Sub, pct5h: 32, pct7d: 72, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #16
-		{name: "s_a5", keepTurns: 17, now: vt(10, 42), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 1},               // orch #17 — cache 240K peak
-		{name: "s_a6", keepTurns: 17, now: vt(11, 20), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 2},               // TTL aged ~20m (no new turn)
-		{name: "s_a7", keepTurns: 17, now: vt(11, 45), subDir: fxVideoAct1Sub, pct5h: 35, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2},               // TTL 0m — held longer
-		{name: "s_a8", keepTurns: 18, now: vt(12, 0), subDir: fxVideoAct1Sub, rebuilt: true, pct5h: 36, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2}, // REBUILD flash — HOLD
+		{name: "s_a0", modelPct: 62, keepTurns: 13, now: vt(10, 31), pct5h: 26, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
+		{name: "s_a1", modelPct: 62, keepTurns: 14, now: vt(10, 33), pct5h: 28, pct7d: 70, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},
+		{name: "s_a2", modelPct: 63, keepTurns: 14, now: vt(10, 35), subDir: fxVideoAct1Sub, pct5h: 30, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 0},               // SUBAGENT row surfaces
+		{name: "s_a3", modelPct: 63, keepTurns: 15, now: vt(10, 37), subDir: fxVideoAct1Sub, pct5h: 31, pct7d: 71, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #15 returns
+		{name: "s_a4", modelPct: 64, keepTurns: 16, now: vt(10, 39), subDir: fxVideoAct1Sub, pct5h: 32, pct7d: 72, reset5h: 4 * time.Hour, reset7d: day4, hintStart: 1},               // orch #16
+		{name: "s_a5", modelPct: 64, keepTurns: 17, now: vt(10, 42), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 1},               // orch #17 — cache 240K peak
+		{name: "s_a6", modelPct: 65, keepTurns: 17, now: vt(11, 20), subDir: fxVideoAct1Sub, pct5h: 34, pct7d: 72, reset5h: 3 * time.Hour, reset7d: day4, hintStart: 2},               // TTL aged ~20m (no new turn)
+		{name: "s_a7", modelPct: 65, keepTurns: 17, now: vt(11, 45), subDir: fxVideoAct1Sub, pct5h: 35, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2},               // TTL 0m — held longer
+		{name: "s_a8", modelPct: 66, keepTurns: 18, now: vt(12, 0), subDir: fxVideoAct1Sub, rebuilt: true, pct5h: 36, pct7d: 73, reset5h: 2 * time.Hour, reset7d: day4, hintStart: 2}, // REBUILD flash — HOLD
 
 		// ── ACT 2 — one turn at a time, escalation (after the interstitial).
 		// Context window is the full 1M, so used 493K→530K crosses the 50% line
 		// (green→yellow) around 500K — a calm warning, not red. No row highlight
 		// in Act 2 (only Act 1 highlights the new row).
-		{name: "s_b0", fixture: fxVideoAct2, keepTurns: 84, now: vt(15, 30), pct5h: 82, pct7d: 84, reset5h: 90 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
-		{name: "s_b1", fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 5}, // config tip — plated on this calm beat
-		{name: "s_b2", fixture: fxVideoAct2, keepTurns: 86, now: vt(15, 42), pct5h: 88, pct7d: 86, reset5h: 78 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3}, // ctx crosses 500K → yellow
-		{name: "s_b3", fixture: fxVideoAct2, keepTurns: 87, now: vt(15, 48), pct5h: 91, pct7d: 88, reset5h: 72 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
-		{name: "s_b4", fixture: fxVideoAct2, keepTurns: 88, now: vt(15, 54), pct5h: 94, pct7d: 90, reset5h: 66 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
-		{name: "s_b8", fixture: fxVideoAct2, keepTurns: 92, now: vt(16, 12), pct5h: 100, pct7d: 95, reset5h: 48 * time.Minute, reset7d: 3 * 24 * time.Hour, extraActive: true, extraUSD: 2.40, hintStart: 5}, // 5h 100% + extra-usage — HOLD
+		{name: "s_b0", modelPct: 76, fixture: fxVideoAct2, keepTurns: 84, now: vt(15, 30), pct5h: 82, pct7d: 84, reset5h: 90 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3},
+		{name: "s_b1", modelPct: 78, fixture: fxVideoAct2, keepTurns: 85, now: vt(15, 36), pct5h: 85, pct7d: 85, reset5h: 84 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 5}, // config tip — plated on this calm beat
+		{name: "s_b2", modelPct: 81, fixture: fxVideoAct2, keepTurns: 86, now: vt(15, 42), pct5h: 88, pct7d: 86, reset5h: 78 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 3}, // ctx crosses 500K → yellow
+		{name: "s_b3", modelPct: 84, fixture: fxVideoAct2, keepTurns: 87, now: vt(15, 48), pct5h: 91, pct7d: 88, reset5h: 72 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
+		{name: "s_b4", modelPct: 87, fixture: fxVideoAct2, keepTurns: 88, now: vt(15, 54), pct5h: 94, pct7d: 90, reset5h: 66 * time.Minute, reset7d: 3 * 24 * time.Hour, hintStart: 4},
+		{name: "s_b8", modelPct: 93, fixture: fxVideoAct2, keepTurns: 92, now: vt(16, 12), pct5h: 100, pct7d: 95, reset5h: 48 * time.Minute, reset7d: 3 * 24 * time.Hour, extraActive: true, extraUSD: 2.40, hintStart: 5}, // 5h 100% + extra-usage — HOLD
 	}
 }
 
@@ -132,7 +134,7 @@ func TestEmitVideoFrames(t *testing.T) {
 		vf := vf
 		t.Run(vf.name, func(t *testing.T) {
 			d, cfg := videoData(t, vf)
-			a := statusline.Assembler{Mode: mode.Standard, Theme: th, Cols: 130, Config: cfg}
+			a := statusline.Assembler{Mode: mode.Standard, Theme: th, Cols: 150, Config: cfg}
 			out := renderer.Apply(a.Render(d), th)
 			path := filepath.Join(dir, vf.name+".ansi")
 			if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
@@ -219,6 +221,7 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 		SessionID:        payload.SessionID,
 		State:            st,
 		ExtraCacheEvents: events,
+		ModelWindow:      videoModelWindow(vf.modelPct, vf.now.Add(vf.reset7d)),
 		Overage:          syntheticOverage(vf.extraActive, vf.extraUSD),
 		UsageAge:         2 * time.Minute,
 		HintStart:        vf.hintStart,
@@ -275,4 +278,15 @@ func parseTruncated(t *testing.T, path string, keepTurns int) []parser.Record {
 		t.Fatalf("ParseLines truncated %s: %v", path, scanErr)
 	}
 	return records
+}
+
+// videoModelWindow builds the model-scoped weekly window for a beat; pct 0 means
+// the account has none. reset takes the beat's own 7-day reset instant, so the
+// two weekly windows coincide and the line renders ONE shared countdown after
+// the bracket — the normal case on a real plan, and the one worth showing.
+func videoModelWindow(pct float64, reset time.Time) *claudejson.ModelWindow {
+	if pct == 0 {
+		return nil
+	}
+	return &claudejson.ModelWindow{Name: "fable", Pct: pct, ResetUnix: reset.Unix()}
 }
