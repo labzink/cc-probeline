@@ -481,24 +481,6 @@ func resolveReset(liveRaw []byte, snapUnix int64) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// laterReset reports whether window A's reset is later than window B's, used to
-// decide which window carries the extra-usage badge when both are at 100%
-// (draft §5: attach to the window that resets later — it holds the overage
-// longest). A known reset always beats an unknown one; when both are unknown the
-// caller's A (the 7-day window) wins as the longer-lived default.
-func laterReset(a time.Time, aKnown bool, b time.Time, bKnown bool) bool {
-	switch {
-	case aKnown && bKnown:
-		return a.After(b)
-	case aKnown:
-		return true
-	case bKnown:
-		return false
-	default:
-		return true
-	}
-}
-
 // formatDuration renders a duration as "↻ <d>d.<h>h" when ≥24h,
 // else "↻ <h>h:<m>m". Space after ↻, colon between h/m, dot between d/h.
 // formatUsageAge renders how old the usage-cache snapshot is, compactly: "0m",

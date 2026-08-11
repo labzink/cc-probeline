@@ -32,6 +32,19 @@ refresh_interval_hint = 5
 # Default: 10
 table_rows = 10
 
+# Once-per-day check of the published price/version file (one GET, 24h-cached,
+# fail-soft offline). Off means the baked price table is used and nothing is
+# fetched. Default: true
+price_check = true
+
+# Keep Claude Code's usage cache fresh so the model-scoped weekly limit (e.g.
+# "fable") and the official extra-usage figures stay current. At most once every
+# five minutes cc-probeline runs `claude -p "/usage"` in the background — the
+# only thing that writes that cache. cc-probeline itself still makes no network
+# request; the call is Claude Code talking to Anthropic with your credentials.
+# Off means nothing is launched at all. Default: true
+usage_refresh = true
+
 [widgets]
 # Per-widget on/off toggles. All true by default.
 model    = true

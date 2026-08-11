@@ -1,3 +1,9 @@
+//go:build legacy_overage
+
+// Superseded in Phase 7.48: HasExtraUsageEnabled has no caller in the shipping
+// build (the usage-cache reader carries the same fact plus the figures), so both
+// it and these tests live behind the legacy_overage tag. Run them with:
+// go test -tags legacy_overage ./tests/claudejson/
 // Package claudejson_test tests internal/claudejson.HasExtraUsageEnabled.
 // All tests are hermetic: the CC_PROBELINE_CLAUDE_JSON env var points to a
 // temporary file, so the real ~/.claude.json is never touched.
@@ -11,16 +17,6 @@ import (
 
 	"github.com/labzink/cc-probeline/internal/claudejson"
 )
-
-// writeFixture writes content to a file in dir and returns the full path.
-func writeFixture(t *testing.T, dir, name, content string) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-		t.Fatalf("writeFixture: %v", err)
-	}
-	return p
-}
 
 // setPath configures CC_PROBELINE_CLAUDE_JSON and resets the cache.
 // The env var is restored automatically via t.Cleanup.

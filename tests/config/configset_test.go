@@ -230,6 +230,43 @@ func TestPriceCheck_DefaultsTrue(t *testing.T) {
 	}
 }
 
+// ─── SetUsageRefresh (Phase 7.48) ───────────────────────────────────────────────
+
+// SetUsageRefresh(false) writes usage_refresh=false and preserves other keys.
+// This is the switch that stops the binary launching anything at all, so it has
+// to survive a round-trip exactly.
+func TestSetUsageRefresh_False_RoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	p := seedConfig(t, tmp, multiFieldSeed)
+
+	if err := config.SetUsageRefresh(p, false); err != nil {
+		t.Fatalf("SetUsageRefresh: %v", err)
+	}
+
+	cfg := loadField(t, p)
+	if cfg.General.UsageRefresh {
+		t.Error("UsageRefresh: got true, want false after disable")
+	}
+	if !cfg.General.TutorialHints {
+		t.Error("TutorialHints should be preserved (true)")
+	}
+	if !cfg.General.PriceCheck {
+		t.Error("PriceCheck should be preserved (true)")
+	}
+}
+
+// UsageRefresh defaults to true (opt-out), like price_check: a config written by
+// an earlier version mentions no such key and must still keep the usage cache
+// fresh, otherwise the model-scoped window would silently never appear.
+func TestUsageRefresh_DefaultsTrue(t *testing.T) {
+	tmp := t.TempDir()
+	p := seedConfig(t, tmp, multiFieldSeed) // no usage_refresh key
+	cfg := loadField(t, p)
+	if !cfg.General.UsageRefresh {
+		t.Error("UsageRefresh: got false, want true (default when key omitted)")
+	}
+}
+
 // SetPriceCheck(true) on a clean path creates the config file with the flag on.
 func TestSetPriceCheck_CreatesFile(t *testing.T) {
 	tmp := t.TempDir()

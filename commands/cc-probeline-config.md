@@ -38,6 +38,7 @@ No arguments.
    - `general.no_color` (bool) — note: **colour is ON when `no_color` is false**
    - `general.tutorial_hints` (bool)
    - `general.price_check` (bool) — once-per-day network price/version check (opt-out)
+   - `general.usage_refresh` (bool) — keeps Claude Code's usage cache fresh in the background so the model-scoped weekly limit and extra-usage figures stay current. **The wizard does not toggle this** (its four questions are full); if the user asks about it, the command is `cc-probeline usage-refresh on|off`.
    - `widgets.model`, `widgets.cost`, `widgets.project`, `widgets.email`, `widgets.time`, `widgets.ctx`, `widgets.quota`, `widgets.git` (bool each)
 
 ---

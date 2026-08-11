@@ -9,6 +9,7 @@ package claudejson_test
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -64,6 +65,16 @@ const ownSnapshot = `{
     }
   }
 }`
+
+// writeFixture writes content to a file in dir and returns the full path.
+func writeFixture(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("writeFixture: %v", err)
+	}
+	return p
+}
 
 // setUsagePath points the package at p and clears the ReadUsage mtime cache.
 func setUsagePath(t *testing.T, p string) {

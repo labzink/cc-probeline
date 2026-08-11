@@ -62,6 +62,18 @@ func SetPriceCheck(path string, value bool) error {
 	return marshalAndWrite(path, cfg)
 }
 
+// SetUsageRefresh atomically updates [general].usage_refresh in the TOML at path
+// (Phase 7.48 — opt out of keeping Claude Code's usage cache fresh).
+// Round-trip semantics and file-creation behaviour mirror SetTutorialHints.
+func SetUsageRefresh(path string, value bool) error {
+	cfg, err := readOrDefault(path)
+	if err != nil {
+		return err
+	}
+	cfg.General.UsageRefresh = value
+	return marshalAndWrite(path, cfg)
+}
+
 // SetWidget atomically updates the named widget toggle in [widgets].
 // name must be one of the Widgets field TOML names (e.g. "model", "ctx").
 // Unknown names return an error and leave the file unchanged.

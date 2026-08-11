@@ -66,6 +66,17 @@ type General struct {
 	// touched. The render path itself is always network-free; this governs only
 	// the background refresh.
 	PriceCheck bool `toml:"price_check" json:"price_check"`
+
+	// UsageRefresh enables keeping Claude Code's usage cache fresh (Phase 7.48).
+	// Once every five minutes at most, cc-probeline runs `claude -p "/usage"`
+	// headlessly so that ~/.claude.json carries a current model-scoped weekly
+	// limit and current overage figures — that cache is written by nothing else,
+	// and without this it freezes for hours. cc-probeline still makes no network
+	// request of its own: the call is Claude Code talking to Anthropic with the
+	// user's own credentials, exactly as the /usage screen does. Default true.
+	// Set false to have the binary launch nothing at all; the quota block then
+	// falls back to whatever cache exists, and to nothing when it is stale.
+	UsageRefresh bool `toml:"usage_refresh" json:"usage_refresh"`
 }
 
 // Widgets controls visibility for each status-line probe widget.

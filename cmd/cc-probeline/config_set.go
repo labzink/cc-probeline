@@ -159,6 +159,48 @@ func runPriceCheckImpl(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// runUsageRefresh enables or disables keeping Claude Code's usage cache fresh.
+// Usage: cc-probeline usage-refresh on|off
+func runUsageRefresh(args []string) int {
+	return runUsageRefreshImpl(args, os.Stdout, os.Stderr)
+}
+
+func runUsageRefreshImpl(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "Usage: cc-probeline usage-refresh on|off")
+		return 64
+	}
+
+	var value bool
+	switch args[0] {
+	case "on":
+		value = true
+	case "off":
+		value = false
+	default:
+		fmt.Fprintln(stderr, "Usage: cc-probeline usage-refresh on|off")
+		return 64
+	}
+
+	path := config.GlobalConfigPath()
+	if path == "" {
+		fmt.Fprintln(stderr, "cc-probeline: cannot determine config directory (HOME/XDG_CONFIG_HOME/APPDATA unset)")
+		return 2
+	}
+
+	if err := config.SetUsageRefresh(path, value); err != nil {
+		fmt.Fprintln(stderr, "cc-probeline:", err)
+		return 2
+	}
+
+	state := "enabled"
+	if !value {
+		state = "disabled"
+	}
+	fmt.Fprintf(stdout, "cc-probeline: usage-refresh %s (config: %s)\n", state, path)
+	return 0
+}
+
 // runWidgets enables or disables a named widget.
 // Usage: cc-probeline widgets <name> on|off
 func runWidgets(args []string) int {

@@ -24,6 +24,7 @@ func Default() *Config {
 			TableRows:           10,
 			Mode:                "standard",
 			PriceCheck:          true,
+			UsageRefresh:        true,
 		},
 		Widgets: Widgets{
 			Model:   true,

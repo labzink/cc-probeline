@@ -34,6 +34,7 @@ import (
 	"github.com/labzink/cc-probeline/internal/state"
 	"github.com/labzink/cc-probeline/internal/statusline"
 	"github.com/labzink/cc-probeline/internal/stdin"
+	"github.com/labzink/cc-probeline/internal/usagerefresh"
 )
 
 type runMode int
@@ -54,6 +55,7 @@ const (
 	modeCfgTableRows  // Phase 6.95.cfg: cc-probeline table-rows <n>
 	modeCfgShow       // Phase 6.95.f3: cc-probeline config show
 	modeCfgPriceCheck // Phase 7.46 Wave B: cc-probeline price-check on|off
+	modeCfgUsageRefr  // Phase 7.48: cc-probeline usage-refresh on|off
 	modeBad           // unknown flag: exit 64
 )
 
@@ -94,6 +96,8 @@ func run(args []string) int {
 		return runConfigShow(args[2:])
 	case modeCfgPriceCheck:
 		return runPriceCheck(args[2:])
+	case modeCfgUsageRefr:
+		return runUsageRefresh(args[2:])
 	case modeBad:
 		return 64
 	default: // modeRender
@@ -139,6 +143,8 @@ func parseMode(args []string) (mode runMode, strict bool, badFlag string) {
 		return modeCfgShow, false, ""
 	case "price-check":
 		return modeCfgPriceCheck, false, ""
+	case "usage-refresh":
+		return modeCfgUsageRefr, false, ""
 	case "--strict-stdin":
 		return modeRender, true, ""
 	}
@@ -257,8 +263,12 @@ func runRender(strict bool) int {
 	ccTotal := payload.Cost.TotalCostUSD
 	durMS := payload.Cost.TotalAPIDurationMS
 	var st *state.Session
+	// Captured BEFORE Reconcile, which sets Initialized itself: this is the one
+	// render per session on which the usage cache is refreshed unconditionally.
+	firstRender := true
 	if payload.SessionID != "" {
 		st = state.Load(payload.SessionID)
+		firstRender = !st.Initialized
 		allTurns := make([]parser.Turn, len(session.Turns))
 		copy(allTurns, session.Turns)
 		for i := range subagents {
@@ -329,10 +339,21 @@ func runRender(strict bool) int {
 	// Both live in Claude Code's own usage cache inside ~/.claude.json — the
 	// status-line payload carries neither. Absent or unreadable cache leaves the
 	// fields nil and the quota block renders exactly as it did before.
-	if usage, ok := claudejson.ReadUsage(); ok {
+	usage, usageOK := claudejson.ReadUsage()
+	if usageOK {
 		d.ModelWindow = usage.Model
 		d.Overage = usage.Extra
 		d.UsageAge = now.Sub(usage.FetchedAt)
+	}
+
+	// That cache is written by exactly one thing — Claude Code's /usage screen —
+	// so left alone it freezes for hours. Unless the user opted out, run the
+	// screen headlessly in the background, at most once per five minutes across
+	// the whole machine, and only for accounts that have something to keep fresh.
+	// Fire-and-forget: this render never waits for it.
+	if ccfg.General.UsageRefresh {
+		watching := usageOK && (usage.Model != nil || (usage.Extra != nil && usage.Extra.Enabled))
+		usagerefresh.Maybe(now, firstRender, watching)
 	}
 
 	// Populate delta-cost fields from reconciled state (Phase 6.8.a / 6.9.a).
