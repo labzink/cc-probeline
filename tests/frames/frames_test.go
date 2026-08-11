@@ -37,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/mode"
@@ -283,8 +284,8 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 		ExtraCacheEvents: sc.events,
 		State:            st,
 		CommitBadgeCount: sc.commitBadge,
-		ExtraActive:      sc.extraActive,
-		ExtraUSD:         sc.extraUSD,
+		Overage:          syntheticOverage(sc.extraActive, sc.extraUSD),
+		UsageAge:         2 * time.Minute,
 		HintStart:        sc.hintStart,
 	}
 	d.SessionTotal = cost.SessionTotal(st, sc.ccTotalUSD)
@@ -349,4 +350,15 @@ func ctxWindow(size, used int) stdin.ContextWindow {
 		Size:         size,
 		CurrentUsage: map[string]int{"cache_read_input_tokens": used},
 	}
+}
+
+// syntheticOverage builds the official overage figures the quota badge renders
+// (Phase 7.48). Production reads them from Claude Code's usage cache; scenarios
+// synthesise them so a state that is rare in real life still gets rendered.
+// The monthly ceiling is a plausible round figure — only the ratio is on show.
+func syntheticOverage(active bool, usedUSD float64) *claudejson.ExtraUsage {
+	if !active {
+		return nil
+	}
+	return &claudejson.ExtraUsage{Enabled: true, UsedUSD: usedUSD, LimitUSD: 120.00}
 }

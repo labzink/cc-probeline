@@ -202,10 +202,10 @@ func TestQuotaProbe_BoldRedAbove95(t *testing.T) {
 // 7-day window keeps truncation (99.6 → "99%"). Both windows carry the same
 // 99.6 here, so a single render proves the per-window difference.
 //
-// The rounding is display-only: it must NOT arm the paid-overage badge. The
-// badge is driven by d.ExtraActive (set in main from the RAW payload pct, never
-// from this rounded number), so with ExtraActive unset no "+$"/"extra" appears
-// even though the 5h number reads "100%".
+// The rounding is display-only: it must NOT bring out the paid-overage badge.
+// Since Phase 7.48 the badge is driven by d.Overage — Anthropic's own figure
+// from the usage cache — and not by any percentage at all, so with no Overage
+// set no "+$"/"extra" appears even though the 5h number reads "100%".
 func TestQuotaProbe_FiveHourRoundsHalfUp(t *testing.T) {
 	t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 

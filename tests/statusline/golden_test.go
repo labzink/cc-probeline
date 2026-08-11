@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/config"
 	"github.com/labzink/cc-probeline/internal/cost"
 	"github.com/labzink/cc-probeline/internal/format"
@@ -84,6 +85,7 @@ type scenario struct {
 	ctx         stdin.ContextWindow
 	extraActive bool
 	extraUSD    float64
+	modelWindow *claudejson.ModelWindow // Phase 7.48: weekly window scoped to one model
 	commitBadge int
 	events      []parser.CacheEvent
 
@@ -168,6 +170,26 @@ func scenarios() []scenario {
 		// layout guard (no-marker / width-fit invariant).
 		master(scenario{
 			name: "s8-allprobes-off", cols: 80, colour: true, cfg: probes.Config{},
+		}),
+		// S10 — model-scoped weekly window (Phase 7.48) at the widest level: the
+		// "fable" bar rides inside the 7-day block in brackets, one countdown
+		// speaks for the whole weekly group, and the overage badge carries
+		// Anthropic's own month-to-date figure with its dim age marker.
+		master(scenario{
+			name: "s10-model-window", cols: 160, colour: true, cfg: rich,
+			git: gitClean, ctx: ctxNormal,
+			rl:          rl(42, 95, 3*time.Hour, 5*24*time.Hour),
+			modelWindow: &claudejson.ModelWindow{Name: "fable", Pct: 62, ResetUnix: goldenNow.Add(5 * 24 * time.Hour).Unix()},
+			extraActive: true, extraUSD: 20.40,
+		}),
+		// S11 — the same state at 40 columns: bars are gone, the model window
+		// survives as "(f: 62%)" and the badge sheds its ceiling and its wording.
+		master(scenario{
+			name: "s11-model-window-narrow", cols: 40, colour: true, cfg: rich,
+			git: gitClean, ctx: ctxNormal,
+			rl:          rl(42, 95, 3*time.Hour, 5*24*time.Hour),
+			modelWindow: &claudejson.ModelWindow{Name: "fable", Pct: 62, ResetUnix: goldenNow.Add(5 * 24 * time.Hour).Unix()},
+			extraActive: true, extraUSD: 20.40,
 		}),
 	}
 }
@@ -314,8 +336,9 @@ func scenarioData(t *testing.T, sc scenario) (probes.Data, probes.Config) {
 		ExtraCacheEvents: sc.events,
 		State:            st,
 		CommitBadgeCount: sc.commitBadge,
-		ExtraActive:      sc.extraActive,
-		ExtraUSD:         sc.extraUSD,
+		ModelWindow:      sc.modelWindow,
+		Overage:          syntheticOverage(sc.extraActive, sc.extraUSD),
+		UsageAge:         2 * time.Minute,
 	}
 	d.SessionTotal = cost.SessionTotal(st, sc.ccTotalUSD)
 	d.SessionDurMS = cost.SessionDuration(st, sc.durMS)
@@ -421,4 +444,15 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[i:])
+}
+
+// syntheticOverage builds the official overage figures the quota badge renders
+// (Phase 7.48). Production reads them from Claude Code's usage cache; scenarios
+// synthesise them so a state that is rare in real life still gets rendered.
+// The monthly ceiling is a plausible round figure — only the ratio is on show.
+func syntheticOverage(active bool, usedUSD float64) *claudejson.ExtraUsage {
+	if !active {
+		return nil
+	}
+	return &claudejson.ExtraUsage{Enabled: true, UsedUSD: usedUSD, LimitUSD: 120.00}
 }

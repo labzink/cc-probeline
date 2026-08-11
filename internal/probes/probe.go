@@ -3,6 +3,7 @@ package probes
 import (
 	"time"
 
+	"github.com/labzink/cc-probeline/internal/claudejson"
 	"github.com/labzink/cc-probeline/internal/parser"
 	"github.com/labzink/cc-probeline/internal/renderer"
 	"github.com/labzink/cc-probeline/internal/state"
@@ -79,16 +80,25 @@ type Data struct {
 	// GitProbe renders it (green) in Full/Compact, never in Minimal.
 	CommitBadgeCount int
 
-	// ExtraActive reports that paid extra-usage is in effect (a rate-limit window
-	// at ≥100% AND hasExtraUsageEnabled). Set by main (Phase 6.95.h) via
-	// state.ExtraUsageTick. QuotaProbe renders a red "+$X extra usage" block after
-	// the triggering window's reset timer.
-	ExtraActive bool
+	// ModelWindow is the weekly rate-limit window scoped to one model (e.g.
+	// "fable"), read from ~/.claude.json by claudejson.ReadUsage — Claude Code
+	// never sends it in the status-line payload. nil on accounts that have no
+	// such limit, which is the majority: the quota block then renders exactly as
+	// it did before the feature existed.
+	ModelWindow *claudejson.ModelWindow
 
-	// ExtraUSD is the estimated overage in USD accrued since a rate-limit window
-	// crossed 100% (SessionTotal − OverageBaseline). The extra block is shown only
-	// when ExtraActive && ExtraUSD ≥ $0.01.
-	ExtraUSD float64
+	// Overage is the account's paid extra-usage state as Anthropic reports it
+	// (spent this month and the monthly ceiling, account-wide). It replaces the
+	// session-local estimate used until Phase 7.48 — every other number in the
+	// quota block is account-wide, and this one now matches. nil when unknown.
+	Overage *claudejson.ExtraUsage
+
+	// UsageAge is how long ago Claude Code last refreshed the usage cache (its
+	// fetchedAtMs), NOT how long ago we read the file. Rendered as a dim "⏱ 2m"
+	// beside the overage badge, and used as the staleness gate: past
+	// quota.usageMaxAge both the model window and the badge disappear rather
+	// than show numbers nobody can trust.
+	UsageAge time.Duration
 
 	// HintStart is the rotating-hint starting index for this session, read by main
 	// from quota.HintStart on the first render of a new session. The hint widget

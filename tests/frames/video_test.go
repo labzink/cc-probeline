@@ -219,8 +219,8 @@ func videoData(t *testing.T, vf vframe) (probes.Data, probes.Config) {
 		SessionID:        payload.SessionID,
 		State:            st,
 		ExtraCacheEvents: events,
-		ExtraActive:      vf.extraActive,
-		ExtraUSD:         vf.extraUSD,
+		Overage:          syntheticOverage(vf.extraActive, vf.extraUSD),
+		UsageAge:         2 * time.Minute,
 		HintStart:        vf.hintStart,
 	}
 	d.SessionTotal = sessTotal

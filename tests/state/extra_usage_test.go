@@ -1,3 +1,9 @@
+//go:build legacy_overage
+
+// Superseded in Phase 7.48: the badge now shows Anthropic's own month-to-date
+// overage figure instead of this session-local estimate. The estimator lives on
+// behind the legacy_overage build tag (internal/state/overage_legacy.go) and so
+// do its tests; run them with: go test -tags legacy_overage ./tests/state/
 // Package state_test — Phase 6.95.h extra-usage (paid overage) transition tests.
 // ExtraUsageTick is a pure state transition: it snapshots SessionTotal as the
 // baseline on the first refresh where a rate-limit window is at ≥100% AND

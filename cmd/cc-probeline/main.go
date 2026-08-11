@@ -325,6 +325,16 @@ func runRender(strict bool) int {
 		UpdateHint: hint.UpdateText(version, latestVersion),
 	}
 
+	// Phase 7.48: model-scoped weekly window and the official overage figures.
+	// Both live in Claude Code's own usage cache inside ~/.claude.json — the
+	// status-line payload carries neither. Absent or unreadable cache leaves the
+	// fields nil and the quota block renders exactly as it did before.
+	if usage, ok := claudejson.ReadUsage(); ok {
+		d.ModelWindow = usage.Model
+		d.Overage = usage.Extra
+		d.UsageAge = now.Sub(usage.FetchedAt)
+	}
+
 	// Populate delta-cost fields from reconciled state (Phase 6.8.a / 6.9.a).
 	if st != nil {
 		d.SessionTotal = cost.SessionTotal(st, ccTotal)
@@ -344,22 +354,11 @@ func runRender(strict bool) int {
 		// C1: pass state to assembler for RenderUnified per-turn cost column.
 		d.State = captured
 
-		// Phase 6.95.h: extra-usage (paid overage). Trigger when a rate-limit
-		// window is at ≥100% AND ~/.claude.json has hasExtraUsageEnabled. On the
-		// first crossing ExtraUsageTick snapshots SessionTotal as the baseline;
-		// the overage shown is SessionTotal − baseline. Both windows below 100%
-		// clears the badge and resets the baseline (recomputed every refresh).
-		// B4 (Phase 7.45): pass the binding quota percentage (max of the two
-		// windows) so the first 100%-crossing counts the proportional tail of the
-		// crossing turn (see state.ExtraUsageTick). nil payload reports pct 0.
-		quotaPct := 0.0
-		if payload.RateLimits != nil {
-			quotaPct = payload.RateLimits.FiveHour.UsedPercentage
-			if payload.RateLimits.SevenDay.UsedPercentage > quotaPct {
-				quotaPct = payload.RateLimits.SevenDay.UsedPercentage
-			}
-		}
-		d.ExtraActive, d.ExtraUSD = st.ExtraUsageTick(d.SessionTotal, quotaPct, claudejson.HasExtraUsageEnabled())
+		// Phase 7.48: the overage badge no longer comes from our own estimate
+		// (SessionTotal − baseline, Phase 6.95.h + 7.45 B4). It now carries
+		// Anthropic's own month-to-date figure from the usage cache, read above —
+		// account-wide, like every other number in that block. The estimator is
+		// preserved behind the legacy_overage build tag, see internal/state.
 	}
 
 	// Detect git info for the current working directory.

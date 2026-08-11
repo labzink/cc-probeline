@@ -1,5 +1,5 @@
-{{dim}}me@example.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-probeline{{reset}}{{dim}} • {{reset}}{{color:bold_red}}{{color:red}}█████{{reset}} ↻ 2h:0m{{reset}} · {{color:bold_red}}{{color:red}}█████{{reset}} ↻ 5d.0h{{reset}} {{color:red}}+$0.80 extra{{reset}} {{dim}}⏱ 2m{{reset}}
-opus-4-7{{dim}} • {{reset}}{{color:green}}█▒░░░{{reset}} 60K/200K{{dim}} • {{reset}}$11.39{{dim}} • {{reset}}20:17{{dim}} • {{reset}}{{color:cyan}}⎇ main{{reset}} {{color:green}}✓ 2 committed{{reset}}
+{{dim}}me@exam…e.com{{reset}}{{dim}} • {{reset}}{{dim}}cc-pro…ne{{reset}}{{dim}} • {{reset}}{{color:green}}42%{{reset}} ↻ 3h:0m · {{color:red}}95%{{reset}} (f: {{color:yellow}}62%{{reset}}) ↻ 5d.0h {{color:red}}+$20.40{{reset}} {{dim}}⏱ 2m{{reset}}
+opus-4-7{{dim}} • {{reset}}60K/200K{{dim}} • {{reset}}$11.39{{dim}} • {{reset}}20:17{{dim}} • {{reset}}{{color:cyan}}⎇ main{{reset}}
 {{dim}}┌────┬──────────────┬────────────┬─────────────┬───────┬─────────┬─────────────┐{{reset}}
 {{dim}}│{{reset}} 15 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 278K    900 {{dim}}│{{reset}}   880 {{dim}}│{{reset}}   $0.32 {{dim}}│{{reset}} thinking... {{dim}}│{{reset}} {{color:green}}⏱ 57m{{reset}}
 {{dim}}│{{reset}} 14 {{dim}}│{{reset}} {{color:cyan}}orchestrator{{reset}} {{dim}}│{{reset}} opus-4-7   {{dim}}│{{reset}} 276K     1K {{dim}}│{{reset}}   760 {{dim}}│{{reset}}   $0.31 {{dim}}│{{reset}} Read        {{dim}}│{{reset}}
@@ -22,4 +22,4 @@ opus-4-7{{dim}} • {{reset}}{{color:green}}█▒░░░{{reset}} 60K/200K{{d
 {{dim}}├────┼──────────────┼────────────┼─────────────┼───────┼─────────┼─────────────┤{{reset}}
 {{dim}}│{{reset}}  # {{dim}}│{{reset}} role         {{dim}}│{{reset}} model      {{dim}}│{{reset}} cache r/w   {{dim}}│{{reset}}   out {{dim}}│{{reset}}   ~cost {{dim}}│{{reset}} tool        {{dim}}│{{reset}}
 {{dim}}└────┴──────────────┴────────────┴─────────────┴───────┴─────────┴─────────────┘{{reset}}
-{{color:red}}⚠ Cache rebuilt · 60-min idle TTL passed{{reset}}
+ℹ {{color:magenta}}Reasoning: ○ low · ◔ medium · ◑ high · ◕ xhigh · ● max{{reset}}
