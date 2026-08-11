@@ -34,9 +34,9 @@ import (
 //  2. The current session has d.Stdin.RateLimits with FiveHourPct=30 (stale payload).
 //  3. QuotaProbe.Render must output "67" (from Freshest), not "30" (from Stdin).
 //
-// Sub-case 2 verifies that when the snapshot is older than the staleness
-// threshold (> 10 minutes ago), the rendered output contains "as of" and
-// a minute-count (e.g. "as of 15m ago").
+// Sub-case 2 verifies that an old snapshot carries no freshness suffix: the
+// former "(as of Xm ago)" tail was removed, so the quota block must never
+// render it again.
 func TestQuotaProbe_FreshAcrossSessions(t *testing.T) {
 	p := &probes.QuotaProbe{}
 	cfg := probes.Config{QuotaEnabled: true}
@@ -76,8 +76,8 @@ func TestQuotaProbe_FreshAcrossSessions(t *testing.T) {
 		}
 	})
 
-	// Sub-case B: snapshot older than staleness threshold — output must contain "as of".
-	t.Run("stale_snapshot_shows_age", func(t *testing.T) {
+	// Sub-case B: an old snapshot renders exactly like a fresh one — no age suffix.
+	t.Run("stale_snapshot_has_no_age_suffix", func(t *testing.T) {
 		t.Setenv("CC_PROBELINE_QUOTA_DIR", t.TempDir())
 
 		now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -102,12 +102,8 @@ func TestQuotaProbe_FreshAcrossSessions(t *testing.T) {
 		}
 
 		got := p.Render(d, cfg, th, probes.LevelFull)
-		if !strings.Contains(got, "as of") {
-			t.Errorf("T-Q3 stale_snapshot_shows_age: want 'as of' in render output for stale snapshot, got %q", got)
-		}
-		// Must contain a minute count (e.g. "15m").
-		if !strings.Contains(got, "m ago") {
-			t.Errorf("T-Q3 stale_snapshot_shows_age: want 'Xm ago' in render output, got %q", got)
+		if strings.Contains(got, "as of") || strings.Contains(got, "m ago") {
+			t.Errorf("T-Q3 stale_snapshot_has_no_age_suffix: staleness suffix must not be rendered, got %q", got)
 		}
 	})
 }

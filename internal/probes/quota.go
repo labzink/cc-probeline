@@ -10,10 +10,6 @@ import (
 	"github.com/labzink/cc-probeline/internal/stdin"
 )
 
-// staleDuration is the threshold beyond which a quota snapshot is considered
-// stale. When the snapshot age exceeds this, an "as of Xm ago" suffix is added.
-const staleDuration = 10 * time.Minute
-
 // Window lengths used to decide whether a persisted snapshot's used-percentage
 // has rolled over. A snapshot is a point-in-time observation valid only until
 // its window resets; past that moment the stored percentage is meaningless.
@@ -107,9 +103,6 @@ func (p *QuotaProbe) Visible(d Data, c Config) bool {
 //  1. quota.Freshest() — cross-session persistent snapshot (account-wide freshest).
 //  2. d.Stdin.RateLimits — current payload fallback when no snapshot exists.
 //
-// When the snapshot is older than staleDuration (10m), an "as of Xm ago" suffix
-// is appended to signal freshness decay.
-//
 // Colour markers applied per B3 §5:
 //   - progress bars wrapped in ProgressBarColor(pct, th) + bar + Reset
 //   - ↻ reset countdown wrapped in {{color:yellow}} when time-to-reset < 30m
@@ -117,35 +110,21 @@ func (p *QuotaProbe) Visible(d Data, c Config) bool {
 //
 // Display levels:
 //
-//	Full:    "5h: <bar10_5h> <reset5h> · 7d: <bar10_7d> <reset7d>" [+ age suffix]
-//	Compact: "<bar5_5h> <reset5h> · <bar5_7d> <reset7d>" [+ age suffix]
-//	Minimal: "<pct5h>% · <pct7d>%" [+ age suffix]
+//	Full:    "5h: <bar10_5h> <reset5h> · 7d: <bar10_7d> <reset7d>"
+//	Compact: "<bar5_5h> <reset5h> · <bar5_7d> <reset7d>"
+//	Minimal: "<pct5h>% · <pct7d>%"
 func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) string {
 	// Resolve data source: freshest-wins cross-session snapshot takes priority.
 	snap, hasFresh := quota.Freshest()
 
 	var pct5h, pct7d float64
 	var rl *stdin.RateLimits
-	var ageSuffix string
 
 	if hasFresh {
 		pct5h = snap.FiveHourPct
 		pct7d = snap.SevenDayPct
 		// snapTime is the observation time (used below for window rollover).
 		snapTime := time.UnixMilli(snap.TS)
-		// Staleness age is measured from DataTS — the moment the numbers last
-		// actually changed — not the write time, which the freshest-by-data
-		// tie-break bumps to "now" every tick on unchanged data (Phase 7.45 B1).
-		// Fall back to TS for snapshots written before DataTS existed.
-		dataTime := snapTime
-		if snap.DataTS != 0 {
-			dataTime = time.UnixMilli(snap.DataTS)
-		}
-		age := d.Now.Sub(dataTime)
-		if age > staleDuration {
-			mins := int(age.Minutes())
-			ageSuffix = fmt.Sprintf(" (as of %dm ago)", mins)
-		}
 		// A window that has rolled over since the snapshot was taken reads 0%:
 		// the stored high percentage belongs to a window that has already reset.
 		// This clears the stale-90% mirage seen after a laptop sleeps overnight
@@ -309,7 +288,7 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		if extraOn7d {
 			val7d += extraBlock(LevelFull)
 		}
-		return fmt.Sprintf("5h: %s · 7d: %s%s", val5h, val7d, ageSuffix)
+		return fmt.Sprintf("5h: %s · 7d: %s", val5h, val7d)
 	case LevelCompact:
 		bar5h := quotaUsageColor(pct5h, n5, w5, c5, t) +
 			renderer.ProgressBar(pct5h) + colourReset
@@ -323,7 +302,7 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		if extraOn7d {
 			val7d += extraBlock(LevelCompact)
 		}
-		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
+		return fmt.Sprintf("%s · %s", val5h, val7d)
 	default: // LevelMinimal
 		// Minimal drops the bar; the number stands in its place, coloured by the
 		// same rules the bar would use, and the reset countdown is kept like
@@ -337,7 +316,7 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		if extraOn7d {
 			val7d += extraBlock(LevelMinimal)
 		}
-		return fmt.Sprintf("%s · %s%s", val5h, val7d, ageSuffix)
+		return fmt.Sprintf("%s · %s", val5h, val7d)
 	}
 }
 
