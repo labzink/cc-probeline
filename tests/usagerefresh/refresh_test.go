@@ -59,7 +59,7 @@ func TestMaybe_FirstTickThenThrottled(t *testing.T) {
 	}
 
 	// Past the TTL one more refresh is allowed.
-	usagerefresh.Maybe(refreshNow.Add(5*time.Minute+time.Second), false, true)
+	usagerefresh.Maybe(refreshNow.Add(6*time.Minute), false, true)
 	if *calls != 2 {
 		t.Errorf("after TTL: launches = %d, want 2", *calls)
 	}

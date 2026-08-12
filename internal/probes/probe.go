@@ -94,7 +94,7 @@ type Data struct {
 	Overage *claudejson.ExtraUsage
 
 	// UsageAge is how long ago Claude Code last refreshed the usage cache (its
-	// fetchedAtMs), NOT how long ago we read the file. Rendered as a dim "⏱ 2m"
+	// fetchedAtMs), NOT how long ago we read the file. Rendered as a dim "⧗ 2m"
 	// beside the overage badge, and used as the staleness gate: past
 	// quota.usageMaxAge both the model window and the badge disappear rather
 	// than show numbers nobody can trust.

@@ -24,7 +24,7 @@ const (
 // Claude Code's /usage screen — which we trigger ourselves, but which can fail
 // silently — so past this age we drop those blocks instead of showing numbers
 // nobody can trust. The weekly percentage only ever climbs, so a stale reading
-// understates rather than overstates; the age is still shown as a dim "⏱ 2m".
+// understates rather than overstates; the age is still shown as a dim "⧗ 2m".
 const usageMaxAge = time.Hour
 
 // resetMatchSlack is how far apart two reset instants may be and still count as
@@ -348,7 +348,12 @@ func (p *QuotaProbe) Render(d Data, c Config, t renderer.Theme, level Level) str
 		default: // LevelMinimal
 			amt = fmt.Sprintf("+%s%.2f%s", sym, o.UsedUSD, suffix)
 		}
-		age := "⏱ " + formatUsageAge(d.UsageAge)
+		// Hourglass, not the ⏱ stopwatch the table uses: that one counts DOWN to a
+		// cache expiry, this one counts UP from a snapshot. Same glyph for opposite
+		// directions read as the same quantity. U+29D7 is a text-presentation glyph
+		// (one column, obeys dim) — the emoji hourglasses are two columns and ignore
+		// dim, which would make the least important number the brightest.
+		age := "⧗ " + formatUsageAge(d.UsageAge)
 		if !t.AnsiEnabled {
 			return " " + amt + " " + age
 		}

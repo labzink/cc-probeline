@@ -9,7 +9,7 @@ A status line for Claude Code that prices every turn — yours, your subagents',
 
 Session totals come from Claude Code itself; the per-turn breakdown is computed here from token counts against a public price table, and labelled as an estimate throughout.
 
-It makes no network calls while it runs. Two optional, opt-out background actions exist: a once-a-day check of one public file on GitHub (current prices and the latest version), and a refresh of Claude Code's own usage cache — its `/usage` screen run headlessly, once when a session starts and then at most every five minutes, and only while your plan actually has a model-scoped weekly limit or paid extra usage to keep current. Neither sends anything about your session. [Privacy policy →](PRIVACY.md)
+It makes no network calls while it runs. Two optional, opt-out background actions exist: a once-a-day check of one public file on GitHub (current prices and the latest version), and a refresh of Claude Code's own usage cache — its `/usage` screen run headlessly, once when a session starts and rarely after that, and only while your plan actually has a model-scoped weekly limit or paid extra usage to keep current. Neither sends anything about your session. [Privacy policy →](PRIVACY.md)
 
 **Spend your limits on purpose, instead of paying for inefficiency you can't see.**
 
@@ -33,7 +33,7 @@ Most status lines count things — tokens, turns, running agents. **The probe pr
 - **Cache rebuilds, in dollars** — idle past the TTL (60 min for the orchestrator, 5 for subagents), and your next turn quietly rewrites the whole cache. The probe ages it live (⏱ 60m → 0m) and prices the rebuild when it hits.
 - **Extra usage in money, not percent** — once your plan is spent, the line shows what you have actually paid on top this month against your ceiling ($20.40 / $120.00), straight from Anthropic's own figure rather than an estimate.
 - **Prices that stay correct** — your dollars are only as honest as the price table behind them. cc-probeline refreshes its rates over the network — one optional, opt-out check a day, never during render — so when Anthropic changes prices your totals follow within a day, no reinstall. Offline or opted out, it falls back to the table baked into the build.
-- **5h / 7d limits with reset clocks** — watch them fill, know exactly when they free up. If your plan carries a model-scoped weekly limit (the "Fable" cap and its kin), it rides inside the weekly bar in brackets — Claude Code never puts it in the status-line feed at all, so the probe goes and gets it.
+- **5h / 7d limits with reset clocks (plus the model-scoped Fable cap, if your plan carries one)** — watch them fill, know exactly when they free up, without stopping to open /usage.
 - **Colour-coded zones** — numbers shift colour as they enter warning and critical territory, so the line catches your eye exactly when it should.
 - Plus the table stakes: model, context, git, session time.
 
@@ -58,7 +58,7 @@ All of it read, none of it touched — that's [why it's called a probe](#why-its
 A probe is an instrument of observation, not intervention. Everything cc-probeline does is read and display — it never reaches into your account or reports on you.
 
 - **What it reads:** your session's JSONL log (`~/.claude/projects/…`) and the status-line payload Claude Code pipes directly to it.
-- **What it doesn't touch:** credentials, keychain, OAuth tokens — no telemetry, ever. Rendering is fully offline. Its own only network call is one optional, opt-out price/version check a day — a plain download of a public file, sending nothing about your session. It can also ask Claude Code to refresh its usage cache in the background (`/usage`, headless, at most every five minutes, opt-out) so a model-scoped weekly limit stays current: that call is Claude Code's, with your credentials, and costs no model tokens. Turn both off and cc-probeline neither sends nor starts anything.
+- **What it doesn't touch:** credentials, keychain, OAuth tokens — no telemetry, ever. Rendering is fully offline. Its own only network call is one optional, opt-out price/version check a day — a plain download of a public file, sending nothing about your session. It can also ask Claude Code to refresh its usage cache in the background (`/usage`, headless, throttled machine-wide, opt-out) so a model-scoped weekly limit stays current: that call is Claude Code's, with your credentials, and costs no model tokens. Turn both off and cc-probeline neither sends nor starts anything.
 - **The binary:** single compiled Go binary, no runtime dependencies, one run ≈ 5 ms.
 - **Auditable:** MIT license, open source, every release published with SHA256 checksums and signed build provenance (SLSA) — verify any download with `gh attestation verify <file> --repo labzink/cc-probeline`.
 

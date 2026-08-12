@@ -170,7 +170,7 @@ func TestQuotaProbe_OverageBadgeGates(t *testing.T) {
 			if has := strings.Contains(got, "+$"); has != tc.want {
 				t.Errorf("badge present = %v, want %v; got %q", has, tc.want, got)
 			}
-			if tc.want && !strings.Contains(got, "⏱ 2m") {
+			if tc.want && !strings.Contains(got, "⧗ 2m") {
 				t.Errorf("badge must carry its dim age marker, got %q", got)
 			}
 			if tc.want && !strings.Contains(got, "+$20.40 / $120.00") {

@@ -15,8 +15,8 @@
 // spent — the transcript holds no assistant turn, only the local slash command
 // and its network call for the limits — and with the flag no session file is
 // left behind. Claude Code itself refuses to rewrite the cache more than once
-// every five minutes, which is why the TTL here matches that number: asking
-// more often burns processes for a file that will not change.
+// every five minutes, which is why the TTL here sits just past that number:
+// asking more often burns processes for a file that will not change.
 //
 // The call is fire-and-forget: rendering a status line has a ~5 ms budget and
 // this takes a thousand times that, so the process is detached and never waited
@@ -35,9 +35,13 @@ import (
 )
 
 const (
-	// refreshTTL matches Claude Code's own write gate on the usage cache
-	// (300000 ms in the 2.1.227 bundle). Below it a run cannot change anything.
-	refreshTTL = 5 * time.Minute
+	// refreshTTL tracks Claude Code's own write gate on the usage cache
+	// (300000 ms in the 2.1.227 bundle), plus half a minute of slack. Below the
+	// gate a run cannot change anything, and the slack absorbs the drift: our
+	// stamp is taken when the child is launched, Claude Code's when it finishes
+	// writing, and that gap moves with machine load (measured ~2-5 s). Landing a
+	// hair under the gate would cost a whole extra cycle of staleness.
+	refreshTTL = 330 * time.Second
 
 	// gateName is the shared file that throttles refreshes across every Claude
 	// Code window on the machine — the status line runs several times per second

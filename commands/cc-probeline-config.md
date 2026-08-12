@@ -75,7 +75,7 @@ Example when current = 10:
 - **multiSelect:** true
 - **options** (4):
   - **Display mode** — description reflects current: `🟢 Now: standard. Check to switch to super-compact.` (or the reverse when current is super-compact).
-  - **Limit refresh (background)** — `🟢 Currently on. Check to turn off (no background process; model limit and extra usage go dark).` / `🔴 Currently off. Check to turn on (refreshes limits every 5 min).` per `usage_refresh`.
+  - **Limit refresh (background)** — `🟢 Currently on. Check to turn off (no background process; model limit and extra usage go dark).` / `🔴 Currently off. Check to turn on (refreshes limits every 5.5 min).` per `usage_refresh`.
   - **Tutorial hints** — `🟢 Currently on. Check to turn off.` / `🔴 Currently off. Check to turn on.`
   - **Price check (network)** — `🟢 Currently on. Check to turn off (stay fully offline; baked prices).` / `🔴 Currently off. Check to turn on (daily price/version check).` per `price_check`.
 
