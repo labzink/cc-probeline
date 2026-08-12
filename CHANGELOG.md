@@ -4,16 +4,23 @@ All notable changes to `cc-probeline` are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] — 2026-08-12
+
+### Changed
+
+- **The extra-usage badge carries its own glyph** — the age of that cached reading now reads `⧗ 2m` instead of `⏱ 2m`. The stopwatch belongs to the table, where it counts *down* to a cache expiry; this one counts *up* from a snapshot, and one glyph for two opposite directions read as a single quantity.
+- **The background limit refresh waits 330 seconds, not 300** — Claude Code refuses to rewrite its usage cache more than once every five minutes. Our own stamp is taken when the refresh is launched, its when the write lands, and the gap between the two moves with machine load; a run landing a hair under the gate did nothing and cost a full extra cycle of staleness. The extra half minute absorbs that drift.
+
 ## [0.1.4] — 2026-08-11
 
 ### Added
 
 - **Model-scoped weekly limit in the line** — plans that carry a per-model weekly cap (the "Fable" limit and its kin) now show it inside the 7-day block, in brackets: `7d: █████████▒ 95% (fable: ██████░░░░) ↻ 5d.0h`. Claude Code does not send this limit in the status-line feed at all — it exists only in its own usage cache — so cc-probeline reads it there. Accounts without such a limit see exactly the line they saw before.
-- **Background limit refresh** (`[general].usage_refresh`, opt-out) — that cache is written by one thing only, Claude Code's `/usage` screen, so left alone it freezes for hours. cc-probeline now runs the screen headlessly (`claude -p "/usage" --no-session-persistence`) at most once every five and a half minutes, and only for accounts that have a model-scoped limit or paid extra usage. It spends no model tokens and leaves no session behind. Turn it off with `cc-probeline usage-refresh off`.
+- **Background limit refresh** (`[general].usage_refresh`, opt-out) — that cache is written by one thing only, Claude Code's `/usage` screen, so left alone it freezes for hours. cc-probeline now runs the screen headlessly (`claude -p "/usage" --no-session-persistence`) at most once every five minutes, and only for accounts that have a model-scoped limit or paid extra usage. It spends no model tokens and leaves no session behind. Turn it off with `cc-probeline usage-refresh off`.
 
 ### Changed
 
-- **The extra-usage badge now shows Anthropic's own figure** — month-to-date spend against your ceiling (`+$20.40 / $120.00 extra usage`), with a dim age marker (`⧗ 2m`) because it comes from a cache. It replaces the previous session-local estimate, which was the one number in that row that was ours rather than Anthropic's. A snapshot older than an hour hides the badge instead of showing a stale figure.
+- **The extra-usage badge now shows Anthropic's own figure** — month-to-date spend against your ceiling (`+$20.40 / $120.00 extra usage`), with a dim age marker (`⏱ 2m`) because it comes from a cache. It replaces the previous session-local estimate, which was the one number in that row that was ours rather than Anthropic's. A snapshot older than an hour hides the badge instead of showing a stale figure.
 - **`/cc-probeline-config`** swaps the colour toggle for the background-limit-refresh toggle; colour remains available as `cc-probeline no-color on|off`.
 
 ## [0.1.3] — 2026-06-17
